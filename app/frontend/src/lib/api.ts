@@ -88,3 +88,158 @@ export const getFoundationFile = (path: string) =>
   apiGet<{ path: string; content: string }>(
     `/api/foundation/file?path=${encodeURIComponent(path)}`
   );
+
+// ---- Foundation Questionnaire pipeline (admin) ----
+
+export interface CitedSource {
+  doc_id: string;
+  title: string;
+  evidence: string;
+}
+
+export interface Candidate {
+  content: string;
+  confidence: number;
+  sources: CitedSource[];
+}
+
+export type FqAnswerStatus =
+  | "unanswered"
+  | "pending_review"
+  | "accepted"
+  | "rejected"
+  | "gap";
+
+export interface FqAnswer {
+  id: string;
+  status: FqAnswerStatus;
+  transcript_candidate: Candidate | null;
+  document_candidate: Candidate | null;
+  merged_candidate: Candidate | null;
+  final_answer: string | null;
+  final_sources: CitedSource[];
+  feedback: string | null;
+  decided_at: string | null;
+}
+
+export interface FqQuestion {
+  id: string;
+  ord: number;
+  prompt: string;
+  guidance: string | null;
+  answer: FqAnswer | null;
+}
+
+export interface FqSection {
+  id: string;
+  part: string;
+  title: string;
+  mode: "extract" | "synthesize" | "hybrid" | "auto" | "static";
+  ord: number;
+  questions: FqQuestion[];
+}
+
+export interface FqProgress {
+  total: number;
+  unanswered: number;
+  pending_review: number;
+  accepted: number;
+  rejected: number;
+  gaps: number;
+}
+
+export type FqRunPass = "transcripts" | "documents" | "merge" | "generate";
+
+export interface FqRun {
+  id: string;
+  pass: FqRunPass;
+  status: "running" | "done" | "failed";
+  detail: string | null;
+  docs_used: number;
+  questions_answered: number;
+  started_at: string;
+  finished_at: string | null;
+}
+
+export interface QuestionnairePayload {
+  sections: FqSection[];
+  progress: FqProgress;
+  runs: FqRun[];
+}
+
+export interface FqDecisionBody {
+  action: "accept" | "edit" | "pick" | "regenerate" | "reject";
+  content?: string;
+  source?: "transcript" | "document";
+  feedback?: string;
+}
+
+export const getQuestionnaire = (productId: string) =>
+  apiGet<QuestionnairePayload>(`/api/questionnaire/${productId}`);
+
+export const startExtraction = (productId: string, pass: "transcripts" | "documents") =>
+  apiPost<{ run: FqRun }>(`/api/questionnaire/${productId}/extract`, { pass });
+
+export const startMerge = (productId: string) =>
+  apiPost<{ run: FqRun }>(`/api/questionnaire/${productId}/merge`);
+
+export const getRuns = (productId: string) =>
+  apiGet<{ runs: FqRun[] }>(`/api/questionnaire/${productId}/runs`).then((r) => r.runs);
+
+export const decideAnswer = (answerId: string, body: FqDecisionBody) =>
+  apiPost<{ answer: FqAnswer }>(`/api/questionnaire/answers/${answerId}/decision`, body).then(
+    (r) => r.answer
+  );
+
+export const startGeneration = (productId: string) =>
+  apiPost<{ run: FqRun }>(`/api/questionnaire/${productId}/generate`);
+
+// ---- Messaging & positioning documents ----
+
+export type MessagingDocStatus = "draft" | "final" | "archived";
+
+export interface MessagingDocSummary {
+  id: string;
+  version: number;
+  status: MessagingDocStatus;
+  title: string;
+  created_at: string;
+  approved_at: string | null;
+  war_room_path: string | null;
+  exported_path: string | null;
+}
+
+export interface MessagingDocGap {
+  question_id: string;
+  prompt: string;
+  note: string;
+}
+
+export interface MessagingDoc extends MessagingDocSummary {
+  product_id: string;
+  sections: { id: string; title: string; markdown: string }[];
+  content_md: string;
+  content_html: string;
+  gaps: MessagingDocGap[];
+  guard_violations: string[];
+  created_by: string | null;
+  approved_by: string | null;
+}
+
+export interface ApproveDocResponse {
+  doc: MessagingDoc;
+  warRoomPath: string;
+  exportedPath: string | null;
+  warning?: string;
+}
+
+export const listMessagingDocs = (productId: string) =>
+  apiGet<{ docs: MessagingDocSummary[] }>(`/api/messaging-docs/${productId}`).then(
+    (r) => r.docs
+  );
+
+export const getMessagingDoc = (id: string) =>
+  apiGet<{ doc: MessagingDoc }>(`/api/messaging-docs/doc/${id}`).then((r) => r.doc);
+
+export const approveMessagingDoc = (id: string) =>
+  apiPost<ApproveDocResponse>(`/api/messaging-docs/doc/${id}/approve`);

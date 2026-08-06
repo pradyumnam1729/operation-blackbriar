@@ -40,6 +40,214 @@ function extractionPill(status: string) {
   return <span className={`pill ${cls}`}>{status}</span>;
 }
 
+// ---------- Knowledge base (chunked documents) ----------
+
+interface KbDocument {
+  id: string;
+  title: string;
+  filename: string | null;
+  source: string;
+  docType: string;
+  aiEnabled: boolean;
+  chunkCount: number;
+  createdAt: string;
+  product: string | null;
+}
+
+interface KbChunk {
+  index: number;
+  heading: string | null;
+  tokens: number;
+  preview: string;
+}
+
+const SOURCE_LABELS: Record<string, string> = {
+  upload: "Upload",
+  local_folder: "Local folder",
+  sharepoint: "SharePoint",
+  war_room: "War room",
+  manual: "Manual",
+};
+
+function KnowledgeBaseSection() {
+  const [docs, setDocs] = useState<KbDocument[]>([]);
+  const [kbError, setKbError] = useState("");
+  const [kbBusy, setKbBusy] = useState(false);
+  const [aiFilter, setAiFilter] = useState("");
+  const [sourceFilter, setSourceFilter] = useState("");
+  const [chunksFor, setChunksFor] = useState<{ doc: KbDocument; chunks: KbChunk[] } | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const params = new URLSearchParams();
+      if (aiFilter) params.set("ai", aiFilter);
+      if (sourceFilter) params.set("source", sourceFilter);
+      const r = await apiGet<{ documents: KbDocument[] }>(`/api/documents?${params.toString()}`);
+      setDocs(r.documents);
+    } catch (e) {
+      setKbError((e as Error).message);
+    }
+  }, [aiFilter, sourceFilter]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const act = async (fn: () => Promise<void>) => {
+    setKbBusy(true);
+    setKbError("");
+    try {
+      await fn();
+      await load();
+    } catch (e) {
+      setKbError((e as Error).message);
+    } finally {
+      setKbBusy(false);
+    }
+  };
+
+  const toggleAi = (id: string) =>
+    act(async () => {
+      await apiPost(`/api/documents/${id}/toggle-ai`);
+    });
+
+  const removeDoc = (d: KbDocument) =>
+    act(async () => {
+      if (!window.confirm(`Delete "${d.title}" and its ${d.chunkCount} chunks from the knowledge base? The original file (if uploaded) is kept.`)) return;
+      await apiDelete(`/api/documents/${d.id}`);
+      if (chunksFor?.doc.id === d.id) setChunksFor(null);
+    });
+
+  const viewChunks = (d: KbDocument) =>
+    act(async () => {
+      const r = await apiGet<{ chunks: KbChunk[] }>(`/api/documents/${d.id}/chunks`);
+      setChunksFor({ doc: d, chunks: r.chunks });
+    });
+
+  return (
+    <div className="card">
+      <div className="row-between" style={{ marginBottom: 12 }}>
+        <h3 style={{ margin: 0, fontSize: 15, fontWeight: 500 }}>
+          <i className="fa-solid fa-database" style={{ marginRight: 8, color: "var(--teal-dark)" }} />
+          Knowledge base
+        </h3>
+        <div style={{ display: "flex", gap: 8 }}>
+          <select value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)}>
+            <option value="">All sources</option>
+            <option value="upload">Uploads</option>
+            <option value="local_folder">Local folder</option>
+            <option value="sharepoint">SharePoint</option>
+          </select>
+          <select value={aiFilter} onChange={(e) => setAiFilter(e.target.value)}>
+            <option value="">All documents</option>
+            <option value="enabled">AI enabled</option>
+            <option value="disabled">AI disabled</option>
+          </select>
+        </div>
+      </div>
+      <p style={{ margin: "0 0 12px", fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.6 }}>
+        Every synced or uploaded file is deduplicated and split into chunks with metadata. Only{" "}
+        <strong>AI enabled</strong> documents feed Ask Hive and asset generation.
+      </p>
+
+      {kbError && (
+        <div style={{ background: "#FCE8E8", color: "#A32D2D", borderRadius: "var(--r-md)", padding: "10px 14px", fontSize: 13, marginBottom: 12 }}>
+          {kbError}
+        </div>
+      )}
+
+      <div style={{ overflowX: "auto" }}>
+        <table>
+          <thead>
+            <tr>
+              <th>Document</th>
+              <th>Source</th>
+              <th>Type</th>
+              <th>Chunks</th>
+              <th>AI</th>
+              <th>Added</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {docs.map((d) => (
+              <tr key={d.id}>
+                <td style={{ fontWeight: 500 }}>
+                  {d.title}
+                  {d.product && (
+                    <div style={{ fontSize: 12, color: "var(--text-muted)", fontWeight: 400 }}>{d.product}</div>
+                  )}
+                </td>
+                <td>
+                  <span className="pill pill-review">{SOURCE_LABELS[d.source] ?? d.source}</span>
+                </td>
+                <td style={{ fontSize: 12.5 }}>{d.docType}</td>
+                <td style={{ fontSize: 12.5 }}>{d.chunkCount}</td>
+                <td>
+                  <button
+                    className={`pill ${d.aiEnabled ? "pill-final" : "pill-archived"}`}
+                    style={{ border: "none", cursor: "pointer" }}
+                    onClick={() => void toggleAi(d.id)}
+                    disabled={kbBusy}
+                    title={d.aiEnabled ? "Click to stop AI features using this document" : "Click to let AI features use this document"}
+                  >
+                    <i className={`fa-solid ${d.aiEnabled ? "fa-toggle-on" : "fa-toggle-off"}`} style={{ marginRight: 5 }} />
+                    {d.aiEnabled ? "Enabled" : "Disabled"}
+                  </button>
+                </td>
+                <td style={{ fontSize: 12.5 }}>{new Date(d.createdAt).toLocaleDateString()}</td>
+                <td style={{ whiteSpace: "nowrap" }}>
+                  <button className="btn btn-sm" onClick={() => void viewChunks(d)} disabled={kbBusy} title="Preview the chunks">
+                    <i className="fa-solid fa-table-cells-large" /> Chunks
+                  </button>{" "}
+                  <button className="btn btn-danger btn-sm" onClick={() => void removeDoc(d)} disabled={kbBusy} title="Delete from the knowledge base">
+                    <i className="fa-solid fa-trash" />
+                  </button>
+                </td>
+              </tr>
+            ))}
+            {docs.length === 0 && (
+              <tr>
+                <td colSpan={7} className="empty-note">
+                  Nothing in the knowledge base yet — sync the Input folder or upload files below.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {chunksFor && (
+        <div className="overlay" onClick={() => setChunksFor(null)}>
+          <div className="drawer" onClick={(e) => e.stopPropagation()}>
+            <div className="row-between" style={{ marginBottom: 12 }}>
+              <h3 style={{ margin: 0, fontSize: 15 }}>
+                {chunksFor.doc.title}{" "}
+                <span style={{ color: "var(--text-muted)", fontWeight: 400 }}>
+                  · {chunksFor.chunks.length} chunks
+                </span>
+              </h3>
+              <button className="close" onClick={() => setChunksFor(null)} aria-label="Close">
+                <i className="fa-solid fa-xmark" />
+              </button>
+            </div>
+            {chunksFor.chunks.map((c) => (
+              <div key={c.index} style={{ border: "1px solid var(--border)", borderRadius: "var(--r-md)", padding: "10px 14px", marginBottom: 10 }}>
+                <div style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 6 }}>
+                  <span className="pill pill-review">#{c.index + 1}</span>
+                  {c.heading && <span style={{ marginLeft: 8, fontWeight: 500 }}>{c.heading}</span>}
+                  <span style={{ marginLeft: 8, color: "var(--text-muted)" }}>~{c.tokens} tokens</span>
+                </div>
+                <div style={{ fontSize: 12.5, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{c.preview}…</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function UploadsConsole() {
   const { me } = useAuth();
   const admin = me?.role === "admin";
@@ -216,9 +424,10 @@ export function UploadsConsole() {
     <div>
       <h1 className="pagetitle">Uploads console</h1>
       <p className="pagesub">
-        Drop source material — PRDs, JTBDs, call transcripts, release notes. Text is extracted automatically;
-        promoting a file makes it approved AI context.
+        Drop source material — PRDs, JTBDs, call transcripts, release notes. Files are deduplicated
+        and chunked into the knowledge base; promoting a file enables it for AI features.
       </p>
+      <KnowledgeBaseSection />
 
       <div className="card">
         <div

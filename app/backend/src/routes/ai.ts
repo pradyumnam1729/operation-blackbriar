@@ -3,6 +3,7 @@ import { requireAuth } from "../middleware/auth";
 import { ask } from "../services/claude";
 import { markdownToHtml, htmlToText } from "../services/html";
 import { loadCorpus } from "../services/warRoom";
+import { chunksToContext, retrieveChunks } from "../services/ingestion";
 
 // AI endpoints for the editor and generators. All output leaves this module as
 // sanitized, user-ready HTML — the frontend never renders markdown.
@@ -51,10 +52,15 @@ aiRouter.post("/generate", requireAuth, async (req, res) => {
     persona?: string;
   };
   if (!brief) return res.status(400).json({ error: "brief is required" });
-  const corpus = loadCorpus()
+  const warRoom = loadCorpus()
     .filter((d) => !d.relPath.startsWith("BRAND-DNA"))
     .map((d) => `<file path="GTM-War-Room/${d.relPath}">\n${d.content}\n</file>`)
     .join("\n\n");
+  const chunks = await retrieveChunks(`${brief} ${productName ?? ""} ${assetType ?? ""}`, 8);
+  const corpus =
+    chunks.length > 0
+      ? `=== KNOWLEDGE BASE (most relevant excerpts) ===\n${chunksToContext(chunks)}\n\n${warRoom}`
+      : warRoom;
   try {
     const md = await ask(
       [

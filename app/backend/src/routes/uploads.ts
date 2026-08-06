@@ -6,9 +6,12 @@ import { requireAuth, requireAdmin, AuthedUser } from "../middleware/auth";
 import { supabase } from "../services/db";
 import { extractText } from "../services/extract";
 import { logActivity } from "../services/activity";
+import { ingestDocument } from "../services/ingestion";
 
-// Uploads console backend: multipart intake, text extraction, visibility rules,
-// and the admin-only promotion gate into context_docs.
+// Uploads console backend: multipart intake, text extraction, chunked
+// ingestion into the knowledge base (deduplicated, AI-disabled until an admin
+// promotes), visibility rules, and the promotion gate that enables a document
+// for AI features.
 export const uploadsRouter = Router();
 
 const UPLOAD_DIR = path.resolve(__dirname, "..", "..", "uploads");
@@ -129,6 +132,32 @@ uploadsRouter.post("/", requireAuth, (req: Request, res: Response) => {
           })
           .eq("id", row.id);
 
+        // Chunk into the knowledge base (deduplicated). Uploads start
+        // AI-disabled: an admin enables them via promote or the toggle.
+        let dedupNote: string | null = null;
+        if (extracted.status === "done" && extracted.text.trim() !== "") {
+          try {
+            const ingest = await ingestDocument({
+              title: file.originalname,
+              filename: file.originalname,
+              text: extracted.text,
+              source: "upload",
+              docType: ext === "vtt" || ext === "srt" ? "transcript" : "other",
+              uploadId: row.id,
+              createdBy: user.id,
+              aiEnabled: false,
+            });
+            if (ingest.deduped) {
+              dedupNote = `Duplicate content — matches existing document "${ingest.duplicateOf}"`;
+            }
+          } catch (ingestErr) {
+            console.error("knowledge-base ingest failed:", (ingestErr as Error).message);
+          }
+        }
+        if (dedupNote) {
+          void logActivity("upload", row.id, user.id, "duplicate_detected", { note: dedupNote });
+        }
+
         void logActivity("upload", row.id, user.id, "file_uploaded", {
           filename: file.originalname,
           file_type: ext,
@@ -234,20 +263,44 @@ uploadsRouter.post("/:id/promote", requireAuth, requireAdmin, async (req, res) =
     return res.status(422).json({ error: "No extracted text — this file cannot be promoted to context" });
   }
 
-  const { data: doc, error: docErr } = await sb
-    .from("context_docs")
-    .insert({
+  // Promotion = enable the chunked document for AI features (and finalize its
+  // classification metadata). If the file was ingested before this feature
+  // existed, ingest it now.
+  let { data: doc } = await sb
+    .from("documents")
+    .select("id, title, doc_type")
+    .eq("upload_id", row.id)
+    .maybeSingle();
+  if (!doc) {
+    const ingest = await ingestDocument({
       title: title && title.trim() !== "" ? title.trim() : row.filename,
+      filename: row.filename,
+      text: row.extracted_text,
       source: "upload",
+      docType: doc_type,
+      uploadId: row.id,
+      createdBy: req.user!.id,
+      aiEnabled: true,
+    });
+    const { data: fetched } = await sb
+      .from("documents")
+      .select("id, title, doc_type")
+      .eq("id", ingest.documentId)
+      .single();
+    doc = fetched;
+  }
+  if (!doc) return res.status(500).json({ error: "Promotion failed" });
+  const { error: docErr } = await sb
+    .from("documents")
+    .update({
+      title: title && title.trim() !== "" ? title.trim() : row.filename,
       doc_type,
       product_id: product_id && product_id.trim() !== "" ? product_id : null,
-      content: row.extracted_text,
-      upload_id: row.id,
-      approved: true,
+      ai_enabled: true,
+      updated_at: new Date().toISOString(),
     })
-    .select("id, title, doc_type")
-    .single();
-  if (docErr || !doc) return res.status(500).json({ error: docErr?.message ?? "Promotion failed" });
+    .eq("id", doc.id);
+  if (docErr) return res.status(500).json({ error: docErr.message });
 
   const { error: upErr } = await sb
     .from("uploads")

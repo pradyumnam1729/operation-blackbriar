@@ -4,6 +4,7 @@ import { loadCorpus } from "../services/warRoom";
 import { logQuery } from "../services/db";
 import { markdownToHtml } from "../services/html";
 import { requireAuth } from "../middleware/auth";
+import { chunksToContext, retrieveChunks } from "../services/ingestion";
 
 // Persona output framing — Master Instructions §9.2. Every answer is shaped
 // for the asker's role and their metric language (§3.3).
@@ -34,11 +35,17 @@ queryRouter.post("/", requireAuth, async (req, res) => {
     ROLE_FRAMING[(role ?? "").toLowerCase()] ??
     "Frame the answer for a general internal audience.";
 
-  // Small corpus: load the whole war room beyond brand DNA as extra context.
-  const corpus = loadCorpus()
+  // Context = war-room files + top-ranked chunks from AI-enabled knowledge-base
+  // documents (local folder syncs, promoted uploads).
+  const warRoom = loadCorpus()
     .filter((d) => !d.relPath.startsWith("BRAND-DNA")) // already in the system prompt
     .map((d) => `<file path="GTM-War-Room/${d.relPath}">\n${d.content}\n</file>`)
     .join("\n\n");
+  const chunks = await retrieveChunks(question, 8);
+  const corpus =
+    chunks.length > 0
+      ? `=== KNOWLEDGE BASE (most relevant excerpts) ===\n${chunksToContext(chunks)}\n\n${warRoom}`
+      : warRoom;
 
   try {
     const answer = await ask(

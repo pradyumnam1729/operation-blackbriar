@@ -1,7 +1,5 @@
--- Allow the sharepoint_credentials row (Graph credentials saved from the
--- admin UI) in the integrations table.
--- NOTE: the migration runner re-applies every file, so this constraint must
--- always carry the full superset of kinds (0007 adds local_folders).
+-- Local Input/Output folder pair (SharePoint stand-in that is fully first-class):
+-- Input is watched and ingested; Output receives exported final artifacts.
 alter table integrations drop constraint if exists integrations_kind_check;
 alter table integrations add constraint integrations_kind_check
   check (kind in ('sharepoint_local', 'sharepoint_graph', 'sharepoint_credentials', 'local_folders', 'salesforce', 'canva', 'smtp'));
