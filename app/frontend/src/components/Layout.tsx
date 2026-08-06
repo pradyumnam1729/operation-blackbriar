@@ -27,7 +27,6 @@ const ADMIN_NAV: NavItem[] = [
   { to: "/guardrails", label: "Guardrails", icon: "fa-road-barrier", adminOnly: true },
   { to: "/pmm", label: "PMM Workspace", icon: "fa-file-signature", adminOnly: true },
   { to: "/questionnaire", label: "Foundation questionnaire", icon: "fa-clipboard-question", adminOnly: true },
-  { to: "/foundation", label: "Foundation", icon: "fa-book", adminOnly: true },
 ];
 
 const ROLE_LABELS: Record<string, string> = {
