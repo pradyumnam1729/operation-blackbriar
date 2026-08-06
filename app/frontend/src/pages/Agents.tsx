@@ -229,7 +229,7 @@ export function Agents() {
         <div className="card">
           <div className="empty-note">
             No agents registered yet. The agents registry ships with migration{" "}
-            <code>0012_agents.sql</code> — run <code>npm run migrate</code> in{" "}
+            <code>0013_agents.sql</code> — run <code>npm run migrate</code> in{" "}
             <code>app/backend</code>, restart the server, and reload this page.
           </div>
         </div>

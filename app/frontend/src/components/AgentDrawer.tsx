@@ -179,7 +179,9 @@ export function AgentDrawer({ agentKey, updatedByName, onClose, onChanged }: Pro
 
   const candidate = (defaults: Record<string, unknown>): AgentTestRunBody => ({
     custom_instructions: customInstructions,
-    prompt_override: overrideOn ? overrideText : null,
+    // An override byte-equal to base is no override — don't persist a
+    // permanent "Overridden" badge with zero delta.
+    prompt_override: overrideOn && overrideText !== agent?.base_prompt ? overrideText : null,
     model: model === "" ? null : model,
     defaults,
   });

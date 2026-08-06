@@ -25,6 +25,8 @@ import { guardrailsRouter } from "./routes/guardrails";
 import { questionnaireRouter } from "./routes/questionnaire";
 import { messagingDocsRouter } from "./routes/messagingDocs";
 import { templatesRouter } from "./routes/templates";
+import { agentsRouter } from "./routes/agents";
+import { syncAgentBaselines } from "./services/agents";
 import { WAR_ROOM_DIR } from "./services/warRoom";
 import { dbStatus } from "./services/db";
 import { startWatchers } from "./services/watcher";
@@ -62,6 +64,7 @@ app.use("/api/guardrails", guardrailsRouter);
 app.use("/api/questionnaire", questionnaireRouter);
 app.use("/api/messaging-docs", messagingDocsRouter);
 app.use("/api/templates", templatesRouter);
+app.use("/api/agents", agentsRouter);
 
 // Uploaded files (previews/downloads go through routes; this serves raw files to admins via signed paths later)
 app.use("/files", express.static(path.resolve(__dirname, "..", "uploads")));
@@ -73,4 +76,7 @@ app.listen(port, () => {
   void startWatchers();
   startSharePointPolling();
   void restartInputWatcher();
+  // Reconcile agent base prompts from canonical sources (code constants +
+  // .claude/agents files) — never touches admin-owned config fields.
+  void syncAgentBaselines();
 });

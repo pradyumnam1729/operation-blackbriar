@@ -715,7 +715,7 @@ ${JSON.stringify(
       section: "A1",
       prompt: "Why does this product exist — what change in the world does it drive for its customers?",
       final_answer:
-        "Public agencies steward taxpayer-funded capital programs, but their delivery data lives in disconnected spreadsheets. Masterworks exists so an agency can answer for every dollar and every project from one system, in hours instead of weeks.",
+        "Public-sector agencies steward taxpayer-funded capital programs, but their delivery data lives in disconnected spreadsheets. Masterworks exists so an agency can answer for every dollar and every project from one system, in hours instead of weeks.",
       sources: [
         {
           doc_id: "sample-transcript-1",
@@ -792,7 +792,7 @@ export const SAMPLE_SLOTS: TemplateSlot[] = [
 ];
 
 export const SAMPLE_SECTION_XML = `<section id="B1" title="Messaging Hierarchy">
-Your capital program answers to the public — every project, every dollar. Masterworks is the AI-native capital program management platform public agencies use to plan, build, and account for infrastructure from one unified system. Twelve state DOTs run their programs on it, with federal compliance (Davis-Bacon, Buy America, FHWA reimbursement tracking) built in, so a legislature-ready program answer takes hours, not weeks.
+Your capital program answers to the public — every project, every dollar. Masterworks is the AI-native capital program management platform public-sector agencies use to plan, build, and account for infrastructure from one unified system. Twelve state DOTs run their programs on it, with federal compliance (Davis-Bacon, Buy America, FHWA reimbursement tracking) built in, so a legislature-ready program answer takes hours, not weeks.
 </section>`;
 
 export const SAMPLE_COMPETITOR_XML = `<competitor_source url="https://example.com/kahua-sample" title="Kahua — Program Management (static sample)" scraped="2026-08-06">

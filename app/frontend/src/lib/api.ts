@@ -445,7 +445,8 @@ export interface AgentDetail {
   defaults: Record<string, unknown>;
   updated_by: string | null;
   updated_at: string;
-  created_at: string;
+  /** Present on PUT/revert responses (raw row); GET detail omits it. */
+  created_at?: string;
 }
 
 export interface AgentMeta {

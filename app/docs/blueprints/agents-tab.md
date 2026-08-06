@@ -479,6 +479,21 @@ Testing posture (vol-3 13, hackathon-scaled): unit-test the pure functions — `
 
 ---
 
+## 6.1 Post-QA addendum: four prompt-ordering deltas, not two (and migration is 0013)
+
+The migration shipped as `supabase/migrations/0013_agents.sql` (0012 was taken by
+0012_guardrails.sql from a parallel session). Stage-4 QA verified byte-identity
+under default config for fq-extraction, fq-merge (no feedback), and ask-war-room.
+Beyond the two ordering deltas documented in the refactor plan, two more exist —
+both semantically benign, both keeping the locked JSON tail as the prompt's close:
+
+3. **template-slot-fill:** Rules now precede the brief and slot list (which moved
+   into the locked suffix). Old order: Audience → brief → context → Slots →
+   Rules → JSON. New: Audience → context → Rules → brief → Slots → JSON.
+4. **fq-merge with feedback:** the reviewer-feedback line moved from the final
+   policy bullet into the top of the locked suffix (after body + custom
+   instructions), gaining a blank line. Byte-identical when no feedback.
+
 ## 7. Open decisions for the human
 
 1. **Model allowlist contents** — proposed `["claude-opus-4-8", "claude-sonnet-4-5", "claude-haiku-4-5"]` (§0.1-6). Confirm the two non-default entries, or trim to opus-only if API-key access is opus-scoped for the demo.
