@@ -95,8 +95,9 @@ uploadsRouter.post("/", requireAuth, (req: Request, res: Response) => {
     const files = (req.files ?? []) as Express.Multer.File[];
     if (files.length === 0) return res.status(400).json({ error: "No files uploaded (field name: files)" });
 
-    const body = req.body as { request_id?: string; sensitive?: string };
+    const body = req.body as { request_id?: string; sensitive?: string; pmm_doc_id?: string };
     const requestId = body.request_id && body.request_id.trim() !== "" ? body.request_id : null;
+    const pmmDocId = body.pmm_doc_id && body.pmm_doc_id.trim() !== "" ? body.pmm_doc_id : null;
 
     try {
       const created: unknown[] = [];
@@ -110,6 +111,7 @@ uploadsRouter.post("/", requireAuth, (req: Request, res: Response) => {
           .from("uploads")
           .insert({
             request_id: requestId,
+            pmm_doc_id: pmmDocId,
             uploader_id: user.id,
             filename: file.originalname,
             file_type: ext,

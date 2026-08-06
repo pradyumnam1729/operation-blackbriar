@@ -1,0 +1,2225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Hive — UI Redesign Concept</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Roboto:ital,wght@0,300;0,400;0,500;0,700;0,900;1,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+<style>
+  :root{
+    --teal-dark:#015F74;
+    --teal-light:#46B2BE;
+    --teal-darkest:#053445;
+    --red:#EE3135;
+    --bg-page:#F5F7F8;
+    --bg-card:#FFFFFF;
+    --border:#E1E6E9;
+    --border-strong:#D6DDE1;
+    --text-primary:#20282B;
+    --text-secondary:#5B6669;
+    --text-muted:#8D979A;
+    --r-lg:22px;
+    --r-md:16px;
+    --r-sm:11px;
+    --r-pill:999px;
+    --shadow-1:0 1px 2px rgba(5,52,69,.05), 0 6px 20px rgba(5,52,69,.06);
+    --shadow-2:0 12px 32px rgba(5,52,69,.14);
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    font-family:'Roboto',Arial,sans-serif;
+    background:var(--bg-page);
+    color:var(--text-primary);
+    -webkit-font-smoothing:antialiased;
+  }
+  a{color:var(--teal-dark);text-decoration:none;}
+  button{font-family:inherit;cursor:pointer;}
+  .app{display:grid;grid-template-columns:252px 1fr;min-height:100vh;transition:grid-template-columns .18s ease;}
+  .app.collapsed{grid-template-columns:74px 1fr;}
+
+  /* SIDEBAR */
+  .sidebar{
+    background:linear-gradient(180deg,var(--teal-darkest),#04303f);
+    padding:20px 14px;
+    display:flex;flex-direction:column;gap:6px;
+    position:sticky;top:0;height:100vh;
+    overflow:visible;
+  }
+  .sb-toggle{
+    position:absolute;top:50%;right:-14px;transform:translateY(-50%);width:28px;height:28px;border-radius:50%;
+    background:#fff;border:1.5px solid var(--teal-dark);color:var(--teal-dark);
+    display:flex;align-items:center;justify-content:center;font-size:12px;
+    box-shadow:var(--shadow-2);z-index:30;
+  }
+  .sb-toggle:hover{background:var(--teal-dark);color:#fff;}
+  .brand{display:flex;align-items:center;gap:10px;padding:6px 8px 6px 10px;}
+  .brand .wordmark{color:#fff;font-weight:900;font-size:24px;letter-spacing:2px;line-height:1.1;white-space:nowrap;}
+  .brand .sub{color:#8FBFC9;font-size:11px;white-space:nowrap;}
+  .brand-initial{display:none;color:#fff;font-weight:900;font-size:19px;width:34px;height:34px;align-items:center;justify-content:center;flex-shrink:0;}
+  .navgroup{display:flex;flex-direction:column;gap:6px;}
+  .navlabel{color:#6FA3AE;font-size:11px;font-weight:500;letter-spacing:.04em;text-transform:uppercase;padding:2px 12px;white-space:nowrap;}
+  .navitem{
+    display:flex;align-items:center;gap:10px;
+    padding:10px 12px;border-radius:var(--r-pill);
+    color:#CDE6EA;font-size:14px;border:none;background:transparent;width:100%;text-align:left;
+    position:relative;white-space:nowrap;
+  }
+  .navitem i{width:18px;text-align:center;font-size:14px;flex-shrink:0;}
+  .navitem:hover{background:rgba(255,255,255,.06);}
+  .navitem.active{background:var(--teal-light);color:var(--teal-darkest);font-weight:500;}
+  .navitem .count{margin-left:auto;background:rgba(255,255,255,.14);color:#fff;font-size:11px;padding:1px 7px;border-radius:var(--r-pill);}
+  .navitem-lock{margin-left:auto;font-size:9px;color:#6FA3AE;width:auto!important;text-align:right;flex-shrink:0;}
+  .navitem.active .navitem-lock{color:rgba(5,52,69,.5);}
+  .navitem.active .count{background:rgba(5,52,69,.18);color:var(--teal-darkest);}
+  .sidebar-foot{margin-top:auto;padding:10px 12px;color:#6FA3AE;font-size:11px;border-top:1px solid rgba(255,255,255,.08);padding-top:14px;}
+
+  /* COLLAPSED STATE */
+  .app.collapsed .brand{gap:0;justify-content:center;padding:6px 0;}
+  .app.collapsed .brand-text{display:none;}
+  .app.collapsed .brand-initial{display:flex;width:100%;}
+  .app.collapsed .navitem{justify-content:center;padding:10px 0;gap:0;}
+  .app.collapsed .navitem .navtext,
+  .app.collapsed .navitem .count,
+  .app.collapsed .navitem-lock,
+  .app.collapsed .navlabel,
+  .app.collapsed .sidebar-foot{display:none;}
+  .app.collapsed .sb-toggle{transform:translateY(-50%);}
+  .app.collapsed .navitem:hover::after{
+    content:attr(data-tooltip);
+    position:absolute;left:100%;top:50%;transform:translateY(-50%);
+    margin-left:14px;background:var(--teal-darkest);color:#fff;
+    font-size:12.5px;font-weight:500;padding:7px 12px;border-radius:8px;
+    white-space:nowrap;box-shadow:var(--shadow-2);z-index:200;
+  }
+
+  /* TOPBAR */
+  .main{display:flex;flex-direction:column;min-height:100vh;}
+  .topbar{
+    background:var(--bg-card);
+    border-bottom:1px solid var(--border);
+    padding:9px 24px;
+    display:flex;align-items:center;gap:16px;
+    position:sticky;top:0;z-index:20;
+    min-height:0;
+  }
+  .search{
+    display:flex;align-items:center;gap:8px;
+    background:var(--bg-page);border:1px solid var(--border);
+    border-radius:var(--r-pill);padding:8px 16px;flex:1;max-width:380px;color:var(--text-muted);
+  }
+  .search input{border:none;background:transparent;outline:none;font-size:13px;width:100%;color:var(--text-primary);}
+  .persona-switch{display:flex;background:var(--bg-page);border-radius:var(--r-pill);padding:4px;gap:2px;border:1px solid var(--border);}
+  .persona-switch button{
+    border:none;background:transparent;padding:7px 14px;border-radius:var(--r-pill);font-size:13px;color:var(--text-secondary);
+  }
+  .persona-switch button.active{background:var(--teal-dark);color:#fff;font-weight:500;}
+  .persona-block{margin-bottom:20px;}
+  .persona-label{font-size:12px;font-weight:500;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.05em;margin-bottom:9px;}
+  .persona-switch-lg{padding:4px;display:inline-flex;}
+  .persona-switch-lg button{padding:8px 17px;font-size:13px;}
+  .persona-switch-lg button.active{font-weight:600;box-shadow:var(--shadow-1);}
+  .top-actions{display:flex;align-items:center;gap:12px;margin-left:auto;}
+  .icon-btn{width:32px;height:32px;border-radius:50%;border:1px solid var(--border);background:var(--bg-card);display:flex;align-items:center;justify-content:center;color:var(--text-secondary);position:relative;flex-shrink:0;}
+  .icon-btn .dot{position:absolute;top:6px;right:6px;width:7px;height:7px;background:var(--red);border-radius:50%;}
+  .avatar{width:32px;height:32px;border-radius:50%;background:var(--teal-light);color:var(--teal-darkest);display:flex;align-items:center;justify-content:center;font-weight:500;font-size:12.5px;flex-shrink:0;}
+
+  .content{padding:26px 28px 60px;flex:1;}
+  .view{display:none;}
+  .view.active{display:block;animation:fade .18s ease;}
+  @keyframes fade{from{opacity:0;transform:translateY(4px);}to{opacity:1;transform:none;}}
+
+  h1.pagetitle{font-size:21px;font-weight:500;margin:0 0 4px;}
+  p.pagesub{color:var(--text-secondary);font-size:13.5px;margin:0 0 22px;}
+
+  .card{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--r-lg);padding:20px 22px;box-shadow:var(--shadow-1);}
+  .row-between{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;}
+
+  .pill{border-radius:var(--r-pill);font-size:11.5px;font-weight:500;padding:3px 11px;display:inline-flex;align-items:center;gap:5px;}
+  .pill-added{background:#E4F4EE;color:#0E6B4E;}
+  .pill-changed{background:#FCF0DA;color:#8A5A0B;}
+  .pill-deprecated{background:#FCE8E8;color:#A32D2D;}
+  .pill-pending{background:#FDEFD9;color:#8A5A0B;}
+  .pill-live{background:#E1F0F2;color:var(--teal-dark);}
+  .pill-draft{background:#FDEFD9;color:#8A5A0B;}
+  .pill-review{background:#E1F0F2;color:var(--teal-dark);}
+  .pill-final{background:#E4F4EE;color:#0E6B4E;}
+  .pill-archived{background:#EDEEEE;color:#6B6F70;}
+  .pill-lock{background:#FCE8E8;color:#A32D2D;}
+
+  select, .btn-input{
+    border:1px solid var(--border-strong);border-radius:var(--r-pill);
+    padding:8px 14px;font-size:13px;background:#fff;color:var(--text-primary);
+  }
+  select{
+    appearance:none;-webkit-appearance:none;-moz-appearance:none;
+    padding:8px 36px 8px 16px;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' fill='none' stroke='%235B6669' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+    background-repeat:no-repeat;
+    background-position:right 15px center;
+    background-size:10px 6px;
+    line-height:1.2;
+  }
+
+  /* custom rounded dropdown (replaces native select popup, which can't be styled) */
+  .dd{position:relative;display:inline-block;}
+  .dd-btn{
+    border:1px solid var(--border-strong);border-radius:var(--r-pill);
+    padding:8px 36px 8px 16px;font-size:13px;background:#fff;color:var(--text-primary);
+    display:inline-flex;align-items:center;white-space:nowrap;position:relative;
+  }
+  .dd-btn::after{
+    content:"";position:absolute;right:15px;top:50%;width:10px;height:6px;transform:translateY(-50%);
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' fill='none' stroke='%235B6669' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+    background-repeat:no-repeat;background-size:10px 6px;
+  }
+  .dd-btn:hover{background:var(--bg-page);}
+  .dd-btn.open{border-color:var(--teal-light);}
+  .dd-panel{
+    position:absolute;top:calc(100% + 8px);left:0;min-width:100%;
+    background:#fff;border:1px solid var(--border);border-radius:var(--r-md);
+    box-shadow:var(--shadow-2);padding:6px;z-index:100;
+    display:none;max-height:260px;overflow-y:auto;
+  }
+  .dd-panel.open{display:block;}
+  .dd-option{padding:8px 12px;border-radius:var(--r-sm);font-size:13px;color:var(--text-primary);cursor:pointer;white-space:nowrap;}
+  .dd-option:hover{background:var(--bg-page);}
+  .dd-option.selected{background:#E1F0F2;color:var(--teal-dark);font-weight:500;}
+  .btn{
+    border-radius:var(--r-pill);padding:9px 16px;font-size:13px;font-weight:500;border:1px solid var(--border-strong);background:#fff;color:var(--text-primary);
+    display:inline-flex;align-items:center;gap:7px;
+  }
+  .btn:hover{background:var(--bg-page);}
+  .btn-primary{background:var(--teal-dark);border-color:var(--teal-dark);color:#fff;}
+  .btn-primary:hover{background:#014C5D;}
+  .btn-danger{background:#fff;border-color:#F3C9C9;color:var(--red);}
+  .btn-danger:hover{background:#FCEBEB;}
+  .btn-sm{padding:6px 12px;font-size:12px;}
+
+  .grid{display:grid;gap:16px;}
+  .grid-2{grid-template-columns:repeat(2,minmax(0,1fr));}
+  .grid-3{grid-template-columns:repeat(3,minmax(0,1fr));}
+  .grid-4{grid-template-columns:repeat(4,minmax(0,1fr));}
+
+  .metric{background:var(--bg-page);border-radius:var(--r-md);padding:16px 18px;}
+  .metric .label{font-size:12px;color:var(--text-secondary);margin-bottom:6px;}
+  .metric .val{font-size:24px;font-weight:500;}
+
+  .quick-card{
+    background:var(--bg-card);border:1px solid var(--border);border-radius:var(--r-lg);padding:18px;
+    display:flex;flex-direction:column;gap:10px;transition:transform .12s ease, box-shadow .12s ease;
+  }
+  .quick-card:hover{box-shadow:var(--shadow-2);transform:translateY(-2px);}
+  .quick-card .qicon{width:38px;height:38px;border-radius:var(--r-sm);background:#E1F0F2;color:var(--teal-dark);display:flex;align-items:center;justify-content:center;}
+  .quick-card h3{font-size:14.5px;margin:0;font-weight:500;}
+  .quick-card p{font-size:12.5px;color:var(--text-secondary);margin:0;line-height:1.5;}
+  .quick-card .go{font-size:12px;color:var(--teal-dark);font-weight:500;margin-top:auto;}
+
+  .section-label{font-size:13px;font-weight:500;color:var(--text-secondary);margin:26px 0 12px;text-transform:uppercase;letter-spacing:.03em;}
+
+  .chat-hero{
+    background:linear-gradient(180deg,#F2FAFB,var(--bg-card));
+    border:2px solid var(--teal-light);border-radius:var(--r-lg);
+    padding:26px 28px;box-shadow:var(--shadow-2);margin-bottom:8px;
+  }
+  .chat-heading{
+    font-size:19px;font-weight:600;color:var(--teal-darkest);
+    display:flex;align-items:center;gap:9px;margin-bottom:16px;
+  }
+  .chat-heading i{color:var(--teal-light);font-size:18px;}
+  .chat-input-row{
+    display:flex;align-items:center;gap:12px;
+    background:#fff;border:1.5px solid var(--border-strong);border-radius:var(--r-pill);
+    padding:8px 10px 8px 20px;
+  }
+  .chat-input-row:focus-within{border-color:var(--teal-light);}
+  .chat-input-row input{
+    flex:1;border:none;outline:none;font-size:15px;background:transparent;color:var(--text-primary);padding:8px 0;
+  }
+  .chat-send{
+    width:38px;height:38px;border-radius:50%;border:none;background:var(--teal-dark);color:#fff;
+    display:flex;align-items:center;justify-content:center;flex-shrink:0;
+  }
+  .chat-send:hover{background:#014C5D;}
+  .chip-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;}
+  .sugg-chip{
+    border:1px solid var(--border-strong);background:#fff;border-radius:var(--r-pill);
+    padding:7px 14px;font-size:12.5px;color:var(--text-secondary);
+  }
+  .sugg-chip:hover{background:var(--bg-page);color:var(--text-primary);}
+  #chatThread{margin-bottom:4px;}
+  #chatThread:not(:empty){margin-bottom:16px;}
+  .chat-bubble{display:flex;gap:10px;margin-bottom:12px;}
+  .chat-bubble .av{width:28px;height:28px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:500;}
+  .chat-bubble.user .av{background:var(--teal-light);color:var(--teal-darkest);}
+  .chat-bubble.bot .av{background:var(--teal-dark);color:#fff;}
+  .chat-bubble .msg{background:#fff;border:1px solid var(--border);border-radius:var(--r-md);padding:10px 14px;font-size:13.5px;line-height:1.5;max-width:88%;}
+  .chat-bubble.user .msg{background:#EFFAFB;border-color:#D7EEF1;}
+
+  table{width:100%;border-collapse:collapse;font-size:13px;}
+  th{text-align:left;color:var(--text-secondary);font-weight:500;font-size:11.5px;text-transform:uppercase;letter-spacing:.03em;padding:8px 12px;border-bottom:1px solid var(--border);}
+  td{padding:12px;border-bottom:1px solid var(--border);vertical-align:middle;}
+  tr.rowhover:hover{background:var(--bg-page);cursor:pointer;}
+  tbody tr:last-child td{border-bottom:none;}
+
+  .bar-row{display:flex;align-items:center;gap:10px;margin-bottom:10px;}
+  .bar-row .lab{width:110px;font-size:12.5px;color:var(--text-secondary);}
+  .bar-track{flex:1;height:10px;background:var(--bg-page);border-radius:var(--r-pill);overflow:hidden;}
+  .bar-fill{height:100%;background:var(--teal-light);border-radius:var(--r-pill);}
+  .bar-val{width:34px;text-align:right;font-size:12px;color:var(--text-secondary);}
+
+  .feature-card{border:1px solid var(--border);border-radius:var(--r-md);padding:16px;background:var(--bg-card);}
+  .feature-card .top{display:flex;justify-content:space-between;gap:8px;}
+  .feature-card h4{margin:0 0 4px;font-size:14px;font-weight:500;}
+  .feature-card p{margin:6px 0 10px;color:var(--text-secondary);font-size:12.5px;line-height:1.5;}
+  .feature-card .meta{display:flex;justify-content:space-between;align-items:center;font-size:11.5px;color:var(--text-muted);}
+
+  .dropzone{
+    border:2px dashed var(--border-strong);border-radius:var(--r-lg);
+    padding:34px 20px;text-align:center;color:var(--text-secondary);background:#FBFCFC;
+  }
+  .dropzone.drag{border-color:var(--teal-light);background:#EFFAFB;}
+  .dropzone i{font-size:26px;color:var(--teal-light);margin-bottom:8px;display:block;}
+  .filechip{display:flex;align-items:center;gap:8px;background:var(--bg-page);border-radius:var(--r-pill);padding:6px 12px;font-size:12.5px;}
+  .filechip i{color:var(--teal-dark);}
+  .filechip .rm{margin-left:4px;color:var(--text-muted);border:none;background:none;}
+
+  .tab-row{display:flex;gap:6px;background:var(--bg-page);padding:4px;border-radius:var(--r-pill);width:fit-content;margin-bottom:18px;}
+  .tab-row button{border:none;background:transparent;padding:8px 16px;border-radius:var(--r-pill);font-size:13px;color:var(--text-secondary);}
+  .tab-row button.active{background:var(--bg-card);color:var(--text-primary);font-weight:500;box-shadow:var(--shadow-1);}
+
+  .step-pills{display:flex;gap:8px;margin-bottom:18px;flex-wrap:wrap;}
+  .step-pill{border:1px solid var(--border-strong);border-radius:var(--r-pill);padding:9px 16px;font-size:13px;background:#fff;color:var(--text-primary);}
+  .step-pill.active{background:var(--teal-dark);border-color:var(--teal-dark);color:#fff;}
+
+  .template-card{border:1px solid var(--border);border-radius:var(--r-md);overflow:hidden;background:#fff;cursor:pointer;}
+  .template-card .thumb{height:90px;background:linear-gradient(135deg,#E1F0F2,#CFE8EA);display:flex;align-items:center;justify-content:center;color:var(--teal-dark);font-size:22px;}
+  .template-card .tname{padding:10px 12px;font-size:12.5px;font-weight:500;}
+  .template-card.selected{border-color:var(--teal-dark);box-shadow:0 0 0 2px rgba(1,95,116,.15);}
+
+  .prompt-item{border:1px solid var(--border);border-radius:var(--r-md);padding:12px 14px;margin-bottom:8px;font-size:13px;cursor:pointer;}
+  .prompt-item.selected{border-color:var(--teal-dark);background:#F2FAFB;}
+  .prompt-item .t{font-weight:500;margin-bottom:2px;}
+  .prompt-item .d{color:var(--text-secondary);font-size:12px;}
+
+  .check-row{display:flex;align-items:center;gap:8px;font-size:13px;padding:6px 0;}
+  .check-row i.pass{color:#0E6B4E;}
+  .check-row i.fail{color:var(--red);}
+
+  .asset-card{border:1px solid var(--border);border-radius:var(--r-lg);padding:16px;background:#fff;display:flex;flex-direction:column;gap:8px;}
+  .asset-card .thumb2{height:70px;border-radius:var(--r-sm);background:var(--bg-page);display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:20px;}
+
+  .overlay{
+    position:absolute;inset:0;background:rgba(5,52,69,.32);display:flex;justify-content:flex-end;z-index:50;
+  }
+  .overlay.hidden{display:none;}
+  .drawer{width:420px;max-width:92%;background:#fff;height:100%;padding:22px;overflow-y:auto;border-radius:var(--r-lg) 0 0 var(--r-lg);box-shadow:var(--shadow-2);}
+  .drawer .close{border:none;background:var(--bg-page);width:30px;height:30px;border-radius:50%;color:var(--text-secondary);}
+
+  .modalwrap{position:absolute;inset:0;background:rgba(5,52,69,.32);display:flex;align-items:center;justify-content:center;z-index:60;}
+  .modalwrap.hidden{display:none;}
+  .modal{background:#fff;border-radius:var(--r-lg);padding:22px;width:400px;box-shadow:var(--shadow-2);}
+  .modal h3{margin:0 0 8px;font-size:16px;}
+  .modal p{color:var(--text-secondary);font-size:13px;line-height:1.5;}
+  .help-row{display:flex;align-items:flex-start;gap:10px;padding:8px 0;font-size:12.5px;color:var(--text-secondary);line-height:1.5;}
+  .help-row i{color:var(--teal-dark);font-size:14px;width:16px;text-align:center;margin-top:3px;flex-shrink:0;}
+  .help-row b{color:var(--text-primary);font-weight:500;}
+
+  /* GENERATOR OVERLAY */
+  .gen-overlay{
+    position:fixed;inset:0;z-index:400;
+    background:radial-gradient(circle at 50% 42%, #0A2A32 0%, #052229 55%, #03181D 100%);
+    display:flex;align-items:center;justify-content:center;
+    opacity:0;pointer-events:none;transition:opacity .25s ease;
+  }
+  .gen-overlay.show{opacity:1;pointer-events:all;}
+  .gen-face{display:none;flex-direction:column;align-items:center;gap:22px;}
+  .gen-face.show{display:flex;}
+  .gen-spinner-wrap{width:130px;height:130px;position:relative;}
+  .gen-spinner{width:100%;height:100%;position:relative;animation:genspin 1.5s linear infinite;}
+  @keyframes genspin{to{transform:rotate(360deg);}}
+  .gen-dot{position:absolute;top:50%;left:50%;border-radius:50%;background:var(--teal-light);transform-origin:0 0;}
+  .gen-caption{color:#fff;font-size:15px;font-weight:500;letter-spacing:.2px;display:flex;align-items:center;gap:8px;}
+  .gen-sub{color:#7FB8C4;font-size:12.5px;text-align:center;max-width:280px;line-height:1.5;}
+  .gen-dotsline{display:inline-flex;gap:4px;}
+  .gen-dotsline span{width:5px;height:5px;border-radius:50%;background:var(--teal-light);display:inline-block;animation:gendotpulse 1.2s infinite ease-in-out;}
+  .gen-dotsline span:nth-child(2){animation-delay:.2s;}
+  .gen-dotsline span:nth-child(3){animation-delay:.4s;}
+  @keyframes gendotpulse{0%,80%,100%{opacity:.25;transform:scale(.8);}40%{opacity:1;transform:scale(1.2);}}
+
+  .gen-result{
+    background:var(--bg-card);border-radius:var(--r-lg);box-shadow:0 24px 60px rgba(0,0,0,.35);
+    max-width:560px;width:min(92vw,560px);max-height:82vh;overflow-y:auto;
+    padding:26px 26px 22px;opacity:0;transform:translateY(10px) scale(.98);
+    transition:opacity .3s ease, transform .3s ease;
+  }
+  .gen-result.show{opacity:1;transform:translateY(0) scale(1);}
+  .gen-result-head{display:flex;align-items:flex-start;gap:12px;margin-bottom:16px;}
+  .gen-result-head .qicon{width:38px;height:38px;border-radius:var(--r-sm);background:#E1F0F2;color:var(--teal-dark);display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+  .gen-result-head h3{font-size:16px;margin:0 0 3px;}
+  .gen-result-head .close{margin-left:auto;border:none;background:var(--bg-page);width:28px;height:28px;border-radius:50%;color:var(--text-secondary);flex-shrink:0;}
+  .gen-body h4{font-size:11.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--teal-dark);font-weight:600;margin:16px 0 6px;}
+  .gen-body h4:first-child{margin-top:0;}
+  .gen-body p{font-size:13.5px;color:var(--text-primary);line-height:1.65;margin:0 0 8px;}
+  .gen-body ul{margin:0 0 8px;padding-left:18px;}
+  .gen-body li{font-size:13.5px;color:var(--text-primary);line-height:1.6;margin-bottom:6px;}
+  .gen-body li b{font-weight:500;}
+  .gen-meta{font-size:11.5px;color:var(--text-secondary);margin-top:16px;padding-top:12px;border-top:1px solid var(--border);display:flex;align-items:center;gap:6px;}
+  .gen-actions{display:flex;gap:10px;margin-top:18px;}
+
+  .thread{border:1px solid var(--border);border-radius:var(--r-md);padding:12px 14px;margin-bottom:10px;}
+  .thread.resolved{opacity:.55;}
+  .thread .who{display:flex;align-items:center;gap:8px;margin-bottom:6px;}
+  .thread .who .av{width:26px;height:26px;border-radius:50%;background:var(--teal-light);color:var(--teal-darkest);font-size:11px;display:flex;align-items:center;justify-content:center;font-weight:500;}
+  .mention{background:#E1F0F2;color:var(--teal-dark);border-radius:var(--r-pill);padding:1px 7px;font-size:12px;font-weight:500;}
+  .mention.team{background:#FCE8E8;color:var(--red);}
+
+  .empty-note{color:var(--text-muted);font-size:12.5px;padding:14px 0;}
+  .relwrap{position:relative;}
+
+  /* PMM WORKSPACE */
+  .pmmdoc-row{
+    display:flex;align-items:center;gap:14px;background:#fff;border:1px solid var(--border);
+    border-radius:var(--r-md);padding:14px 18px;cursor:pointer;
+  }
+  .pmmdoc-row:hover{box-shadow:var(--shadow-1);border-color:var(--border-strong);}
+  .pmmdoc-row .pmmicon, .grfile-row .pmmicon, .connector-row .pmmicon{width:36px;height:36px;border-radius:var(--r-sm);background:var(--bg-page);color:var(--teal-dark);display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+  .pmmdoc-row .pmmmeta, .grfile-row .pmmmeta, .connector-row .pmmmeta{flex:1;min-width:0;}
+  .pmmdoc-row .pmmmeta .t, .grfile-row .pmmmeta .t, .connector-row .pmmmeta .t{font-size:14px;font-weight:500;margin-bottom:2px;}
+  .pmmdoc-row .pmmmeta .s, .grfile-row .pmmmeta .s, .connector-row .pmmmeta .s{font-size:12px;color:var(--text-muted);}
+  .pmmdoc-row .pmmdate, .grfile-row .pmmdate{font-size:12px;color:var(--text-muted);white-space:nowrap;}
+  .grfile-row{display:flex;align-items:center;gap:14px;background:#fff;border:1px solid var(--border);border-radius:var(--r-md);padding:14px 18px;cursor:pointer;}
+  .grfile-row:hover{box-shadow:var(--shadow-1);border-color:var(--border-strong);}
+  .gr-banner{background:#F2FAFB;border:1px solid #D7EEF1;color:var(--teal-darkest);border-radius:var(--r-md);padding:12px 16px;font-size:13px;margin:16px 0;}
+
+  .connector-row{display:flex;align-items:center;gap:14px;background:#fff;border:1px solid var(--border);border-radius:var(--r-md);padding:14px 18px;}
+  .toggle-switch{width:40px;height:22px;border-radius:var(--r-pill);background:var(--border-strong);position:relative;cursor:pointer;flex-shrink:0;transition:background .15s ease;}
+  .toggle-switch.on{background:var(--teal-dark);}
+  .toggle-switch .thumb{position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#fff;transition:left .15s ease;box-shadow:var(--shadow-1);}
+  .toggle-switch.on .thumb{left:20px;}
+
+  .pmm-part-track{display:flex;gap:6px;flex-wrap:wrap;max-width:640px;margin:0 auto;}
+  .pmm-part-chip{
+    flex:1;text-align:center;font-size:11.5px;font-weight:500;padding:7px 4px;border-radius:var(--r-pill);
+    background:var(--bg-page);color:var(--text-muted);white-space:nowrap;
+  }
+  .pmm-part-chip.done{background:#E4F4EE;color:#0E6B4E;}
+  .pmm-part-chip.current{background:var(--teal-dark);color:#fff;}
+  .pmm-progress-track{max-width:640px;margin:10px auto 0;height:5px;background:var(--bg-page);border-radius:var(--r-pill);overflow:hidden;}
+  .pmm-progress-fill{height:100%;background:var(--teal-light);border-radius:var(--r-pill);transition:width .2s ease;}
+  .pmm-step-card .pmm-step-tag{font-size:11.5px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.03em;margin-bottom:4px;}
+  .pmm-step-card h3{margin:0 0 4px;font-size:16px;}
+  .pmm-step-card .pmm-help{color:var(--text-secondary);font-size:12.5px;margin:0 0 16px;line-height:1.5;}
+  .pmm-field{margin-bottom:16px;}
+  .pmm-field label{display:block;font-size:12.5px;font-weight:500;margin-bottom:6px;}
+  .pmm-field input[type=text], .pmm-field textarea{
+    width:100%;border:1px solid var(--border-strong);border-radius:var(--r-md);
+    padding:10px 14px;font-size:13px;font-family:inherit;color:var(--text-primary);resize:vertical;
+  }
+  .pmm-field textarea{min-height:80px;line-height:1.5;}
+  .pmm-field input[type=text]{border-radius:var(--r-pill);}
+
+  .pmm-rows-table{border:1px solid var(--border);border-radius:var(--r-md);overflow:hidden;}
+  .pmm-rows-head{display:flex;background:var(--bg-page);font-size:11px;font-weight:500;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.02em;}
+  .pmm-rows-head div, .pmm-row-item div{flex:1;padding:8px 10px;min-width:0;}
+  .pmm-row-item{display:flex;border-top:1px solid var(--border);align-items:flex-start;}
+  .pmm-row-item:first-child{border-top:none;}
+  .pmm-row-item textarea{width:100%;border:none;font-size:12.5px;font-family:inherit;resize:vertical;min-height:40px;padding:0;background:transparent;}
+  .pmm-row-item .pmm-row-rm{flex:0 0 auto;width:32px;display:flex;align-items:center;justify-content:center;color:var(--text-muted);border-left:1px solid var(--border);cursor:pointer;}
+  .pmm-addrow{margin-top:8px;}
+
+  .pmm-persona-card{border:1px solid var(--border);border-radius:var(--r-md);padding:14px;margin-bottom:12px;position:relative;}
+  .pmm-persona-card .pmm-persona-rm{position:absolute;top:10px;right:10px;color:var(--text-muted);border:none;background:none;cursor:pointer;}
+
+  .pmm-render h4{font-size:14px;font-weight:500;color:var(--teal-darkest);margin:22px 0 8px;border-bottom:1px solid var(--border);padding-bottom:6px;}
+  .pmm-render h4:first-child{margin-top:0;}
+  .pmm-render p{font-size:13px;color:var(--text-primary);line-height:1.6;margin:0 0 8px;white-space:pre-wrap;}
+  .pmm-render table{width:100%;font-size:12.5px;border-collapse:collapse;margin-bottom:6px;}
+  .pmm-render th{background:var(--bg-page);text-align:left;padding:6px 10px;font-weight:500;color:var(--text-secondary);}
+  .pmm-render td{padding:6px 10px;border-bottom:1px solid var(--border);vertical-align:top;white-space:pre-wrap;}
+
+  .pmm-callout{border-left:3px solid var(--red);background:#FCEBEB;border-radius:0 var(--r-md) var(--r-md) 0;padding:12px 16px;margin-bottom:16px;font-size:13px;color:#791F1F;}
+  .pmm-callout .who{font-weight:500;font-size:12px;margin-bottom:4px;color:#501313;}
+  .pmm-approve-box{background:var(--bg-page);border-radius:var(--r-md);padding:16px;margin-top:16px;}
+  .pmm-approve-box textarea{width:100%;border:1px solid var(--border-strong);border-radius:var(--r-md);padding:10px 14px;font-size:13px;font-family:inherit;min-height:60px;margin-bottom:10px;}
+  .pmm-banner{background:#E4F4EE;color:#0E6B4E;border-radius:var(--r-md);padding:10px 16px;font-size:13px;margin-bottom:14px;display:flex;align-items:center;gap:8px;}
+
+  ::placeholder{color:var(--text-muted);}
+</style>
+</head>
+<body>
+
+<div class="app relwrap" id="appRoot">
+  <aside class="sidebar">
+    <button class="sb-toggle" id="sbToggle" aria-label="Collapse sidebar"><i class="fa-solid fa-chevron-left" id="sbToggleIcon"></i></button>
+
+    <div class="brand">
+      <div class="brand-initial">H</div>
+      <div class="brand-text">
+        <div class="wordmark">hive</div>
+        <div class="sub">by Aurigo</div>
+      </div>
+    </div>
+
+    <div class="navgroup">
+      <button class="navitem active" data-view="home" data-tooltip="Home"><i class="fa-solid fa-house"></i><span class="navtext">Home</span></button>
+      <button class="navitem" data-view="catalog" data-tooltip="Feature catalog"><i class="fa-solid fa-layer-group"></i><span class="navtext">Feature catalog</span><span class="count" id="navCatalogCount">3</span></button>
+      <button class="navitem" data-view="winloss" data-tooltip="Win / loss"><i class="fa-solid fa-chart-column"></i><span class="navtext">Win / loss</span></button>
+      <button class="navitem" data-view="intake" data-tooltip="Intake & uploads"><i class="fa-solid fa-upload"></i><span class="navtext">Intake &amp; uploads</span></button>
+      <button class="navitem" data-view="studio" data-tooltip="Asset studio"><i class="fa-solid fa-wand-magic-sparkles"></i><span class="navtext">Asset studio</span></button>
+      <button class="navitem" data-view="templatelibrary" data-tooltip="Template library"><i class="fa-solid fa-swatchbook"></i><span class="navtext">Template library</span></button>
+      <button class="navitem" data-view="repository" data-tooltip="Repository"><i class="fa-solid fa-box-archive"></i><span class="navtext">Repository</span></button>
+    </div>
+
+    <div class="navgroup">
+      <div class="navlabel">Admin</div>
+      <button class="navitem" data-view="uploadsconsole" data-tooltip="Uploads console"><i class="fa-solid fa-shield-halved"></i><span class="navtext">Uploads console</span></button>
+      <button class="navitem" data-view="connectors" data-tooltip="Connectors"><i class="fa-solid fa-plug"></i><span class="navtext">Connectors</span><i class="fa-solid fa-lock navitem-lock" title="Admin only"></i></button>
+      <button class="navitem" data-view="guardrails" data-tooltip="Guardrails"><i class="fa-solid fa-road-barrier"></i><span class="navtext">Guardrails</span><i class="fa-solid fa-lock navitem-lock" title="Admin only"></i></button>
+      <button class="navitem" data-view="pmmworkspace" data-tooltip="PMM Workspace"><i class="fa-solid fa-file-signature"></i><span class="navtext">PMM Workspace</span><i class="fa-solid fa-lock navitem-lock" title="Admin only"></i></button>
+    </div>
+
+    <div class="sidebar-foot">Signed in as Anupam Rawat<br>anupam.rawat@aurigo.com</div>
+  </aside>
+
+  <div class="main">
+    <div class="topbar">
+      <div class="top-actions" style="margin-left:0;"></div>
+      <div class="top-actions">
+        <button class="icon-btn" id="helpBtn" aria-label="Help"><i class="fa-regular fa-circle-question"></i></button>
+        <button class="icon-btn"><i class="fa-regular fa-bell"></i><span class="dot"></span></button>
+        <div class="avatar">AR</div>
+      </div>
+    </div>
+
+    <div class="content">
+
+      <!-- HOME -->
+      <section class="view active" id="view-home">
+        <h1 class="pagetitle">Good afternoon, Anupam</h1>
+        <p class="pagesub" id="homeSub">Here's what's relevant to Sales today.</p>
+
+        <div class="persona-block">
+          <div class="persona-label">Who's asking?</div>
+          <div class="persona-switch persona-switch-lg" id="personaSwitch">
+            <button class="active" data-persona="sales">Sales</button>
+            <button data-persona="marketing">Marketing</button>
+            <button data-persona="proposals">Proposals</button>
+            <button data-persona="elt">ELT</button>
+          </div>
+        </div>
+
+        <div class="chat-hero">
+          <div class="chat-heading"><i class="fa-solid fa-sparkles"></i> Ask Hive</div>
+          <div id="chatThread"></div>
+          <form id="chatForm" class="chat-input-row">
+            <i class="fa-solid fa-message" style="color:var(--teal-light);font-size:15px;"></i>
+            <input type="text" id="chatInput" placeholder="Ask Hive anything...">
+            <button type="submit" class="chat-send"><i class="fa-solid fa-arrow-up"></i></button>
+          </form>
+          <div class="chip-row" id="chatSuggestions"></div>
+        </div>
+
+        <h3 class="section-label">Quick actions</h3>
+        <div class="grid grid-3" id="quickGrid"></div>
+      </section>
+
+      <!-- CATALOG -->
+      <section class="view" id="view-catalog">
+        <h1 class="pagetitle">Product feature catalog</h1>
+        <p class="pagesub">Live feature lists synced from release notes, per product.</p>
+
+        <div class="card" style="margin-bottom:18px;">
+          <div class="row-between" style="margin-bottom:14px;">
+            <select id="productSelect">
+              <option value="Masterworks">Masterworks</option>
+              <option value="Essentials">Essentials</option>
+              <option value="Primus">Primus</option>
+              <option value="Lumina">Lumina</option>
+            </select>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <span class="pill pill-live"><i class="fa-solid fa-circle-nodes" style="font-size:10px"></i> SharePoint sync: stubbed (flag off)</span>
+              <button class="btn btn-sm"><i class="fa-solid fa-rotate"></i> Re-scan folder</button>
+            </div>
+          </div>
+          <div id="diffBanner" class="row-between" style="background:var(--bg-page);border-radius:var(--r-md);padding:12px 16px;"></div>
+        </div>
+
+        <div class="grid grid-3" id="featureGrid"></div>
+      </section>
+
+      <!-- WIN/LOSS -->
+      <section class="view" id="view-winloss">
+        <div class="row-between" style="margin-bottom:4px;">
+          <div>
+            <h1 class="pagetitle">Win / loss analysis</h1>
+            <p class="pagesub">Synced nightly from Salesforce (sandbox). <span id="lastSynced" style="color:var(--text-primary);font-weight:500;"></span></p>
+          </div>
+          <button class="btn btn-primary" id="refreshBtn"><i class="fa-solid fa-rotate"></i> Refresh now</button>
+        </div>
+
+        <div class="grid grid-4" style="margin-bottom:18px;">
+          <div class="metric"><div class="label">Closed-won</div><div class="val" id="mWon">-</div></div>
+          <div class="metric"><div class="label">Closed-lost</div><div class="val" id="mLost">-</div></div>
+          <div class="metric"><div class="label">Win rate</div><div class="val" id="mRate">-</div></div>
+          <div class="metric"><div class="label">Avg deal size</div><div class="val" id="mAvg">-</div></div>
+        </div>
+
+        <div class="card" style="margin-bottom:18px;">
+          <div class="row-between" style="margin-bottom:14px;flex-wrap:wrap;gap:10px;">
+            <select id="fCompetitor"><option value="">All competitors</option></select>
+            <select id="fProduct"><option value="">All product lines</option></select>
+            <select id="fReason"><option value="">All loss reasons</option></select>
+            <select id="fBand"><option value="">All deal sizes</option></select>
+          </div>
+          <div id="lossBars"></div>
+        </div>
+
+        <div class="card">
+          <h3 style="margin:0 0 12px;font-size:15px;font-weight:500;">Opportunities</h3>
+          <table>
+            <thead><tr><th>Account</th><th>Product</th><th>Stage</th><th>Competitor</th><th>Loss reason</th><th>Amount</th></tr></thead>
+            <tbody id="oppRows"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- INTAKE -->
+      <section class="view" id="view-intake">
+        <h1 class="pagetitle">Context-rich intake</h1>
+        <p class="pagesub">Attach source material to any request — transcripts, decks, briefs.</p>
+
+        <div class="card">
+          <div class="dropzone" id="dropzone">
+            <i class="fa-solid fa-cloud-arrow-up"></i>
+            Drag files here, or <a href="#" id="browseLink">browse</a><br>
+            <span style="font-size:12px;color:var(--text-muted);">PDF, DOCX, PPTX, TXT, VTT, SRT</span>
+          </div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;" id="fileList"></div>
+          <div style="margin-top:16px;text-align:right;">
+            <button class="btn btn-primary"><i class="fa-solid fa-paper-plane"></i> Submit request</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ASSET STUDIO -->
+      <section class="view" id="view-studio">
+        <h1 class="pagetitle">Asset creation studio</h1>
+        <p class="pagesub">Pick a type, a brand template, and a prompt — output lands in Canva as a draft.</p>
+
+        <div class="step-pills" id="assetTypePills">
+          <button class="step-pill active" data-type="Datasheet">Datasheet</button>
+          <button class="step-pill" data-type="Deck">Deck</button>
+          <button class="step-pill" data-type="FAQ">FAQ</button>
+          <button class="step-pill" data-type="One-pager">One-pager</button>
+        </div>
+
+        <div class="grid grid-2" style="align-items:start;">
+          <div>
+            <div class="card" style="margin-bottom:16px;">
+              <h3 style="margin:0 0 12px;font-size:14px;font-weight:500;">Brand templates</h3>
+              <div class="grid grid-2" id="templateGrid"></div>
+            </div>
+            <div class="card">
+              <h3 style="margin:0 0 12px;font-size:14px;font-weight:500;">Prompt library</h3>
+              <div id="promptList"></div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="row-between" style="margin-bottom:10px;">
+              <h3 style="margin:0;font-size:14px;font-weight:500;">Output preview</h3>
+              <span class="pill pill-draft" id="outputStatusPill">Draft</span>
+            </div>
+            <div id="outputBody" style="background:var(--bg-page);border-radius:var(--r-md);padding:16px;font-size:13px;color:var(--text-secondary);min-height:90px;">
+              Select a template and a prompt, then generate.
+            </div>
+            <button class="btn" style="margin-top:12px;width:100%;justify-content:center;" id="generateBtn"><i class="fa-solid fa-sparkles"></i> Generate draft</button>
+
+            <div style="margin-top:16px;border-top:1px solid var(--border);padding-top:14px;" id="checksBlock" style="display:none;">
+              <div style="font-size:12.5px;font-weight:500;margin-bottom:4px;">Automated content check</div>
+              <div class="check-row"><i class="fa-solid fa-circle-check pass"></i> Forbidden-words list — clear</div>
+              <div class="check-row"><i class="fa-solid fa-circle-check pass"></i> Brand / voice rules — clear</div>
+              <button class="btn btn-primary" style="margin-top:8px;width:100%;justify-content:center;" id="markFinalBtn" disabled>Mark as final</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TEMPLATE LIBRARY -->
+      <section class="view" id="view-templatelibrary">
+        <h1 class="pagetitle">Template library</h1>
+        <p class="pagesub">Every approved brand template, browsable by asset type.</p>
+        <div class="step-pills" id="tlTypePills">
+          <button class="step-pill active" data-type="Datasheet">Datasheet</button>
+          <button class="step-pill" data-type="Deck">Deck</button>
+          <button class="step-pill" data-type="FAQ">FAQ</button>
+          <button class="step-pill" data-type="One-pager">One-pager</button>
+        </div>
+        <div class="grid grid-3" id="tlGrid" style="margin-top:16px;"></div>
+      </section>
+
+      <!-- REPOSITORY -->
+      <section class="view" id="view-repository">
+        <h1 class="pagetitle">Content repository</h1>
+        <p class="pagesub">Every finished asset, versioned. Non-admins see final only.</p>
+
+        <div class="row-between" style="margin-bottom:16px;flex-wrap:wrap;gap:10px;">
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <select id="repoProduct"><option value="">All products</option></select>
+            <select id="repoType"><option value="">All types</option></select>
+            <select id="repoPersona"><option value="">All personas</option></select>
+          </div>
+        </div>
+        <div class="grid grid-3" id="repoGrid"></div>
+      </section>
+
+      <!-- CONNECTORS -->
+      <section class="view" id="view-connectors">
+        <h1 class="pagetitle">Connectors <span class="pill pill-lock" style="margin-left:6px;"><i class="fa-solid fa-lock" style="font-size:9px"></i> Admin only</span></h1>
+        <p class="pagesub">Turn on the systems Hive pulls from and pushes to.</p>
+        <div style="display:flex;flex-direction:column;gap:10px;margin-top:16px;" id="connectorList"></div>
+      </section>
+
+      <!-- GUARDRAILS -->
+      <section class="view" id="view-guardrails">
+        <div class="row-between" style="margin-bottom:4px;">
+          <div>
+            <h1 class="pagetitle">Guardrails <span class="pill pill-lock" style="margin-left:6px;"><i class="fa-solid fa-lock" style="font-size:9px"></i> Admin only</span></h1>
+            <p class="pagesub">The grounding files behind every Hive output — keeps answers consistent no matter who's asking.</p>
+          </div>
+          <button class="btn btn-primary" id="grNewBtn"><i class="fa-solid fa-plus"></i> New file</button>
+        </div>
+        <div class="gr-banner"><i class="fa-solid fa-circle-info" style="margin-right:6px;"></i>Every answer Hive generates — chat replies, battlecards, generated assets, PMM documents — is checked against these files first. Edit with care.</div>
+        <div id="grList" style="display:flex;flex-direction:column;gap:10px;"></div>
+      </section>
+
+      <!-- GUARDRAILS — editor -->
+      <section class="view" id="view-guardrailedit">
+        <button class="btn btn-sm" id="grEditBack" style="margin-bottom:16px;"><i class="fa-solid fa-arrow-left"></i> Guardrails</button>
+        <div class="card" style="max-width:720px;margin:0 auto;">
+          <label style="font-size:12.5px;font-weight:500;display:block;margin-bottom:6px;">File name</label>
+          <input type="text" id="grEditTitle" style="width:100%;border:1px solid var(--border-strong);border-radius:var(--r-pill);padding:9px 16px;font-size:13px;margin-bottom:16px;">
+          <label style="font-size:12.5px;font-weight:500;display:block;margin-bottom:6px;">Content (Markdown)</label>
+          <textarea id="grEditContent" style="width:100%;min-height:360px;border:1px solid var(--border-strong);border-radius:var(--r-md);padding:14px;font-size:13px;font-family:var(--font-mono,monospace);line-height:1.6;"></textarea>
+          <div class="row-between" style="margin-top:16px;">
+            <span style="font-size:12px;color:var(--text-muted);" id="grEditMeta"></span>
+            <button class="btn btn-primary" id="grSaveBtn"><i class="fa-solid fa-check"></i> Save</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- PMM WORKSPACE — doc list -->
+      <section class="view" id="view-pmmworkspace">
+        <div class="row-between" style="margin-bottom:4px;">
+          <div>
+            <h1 class="pagetitle">PMM Workspace <span class="pill pill-lock" style="margin-left:6px;"><i class="fa-solid fa-lock" style="font-size:9px"></i> Admin only</span></h1>
+            <p class="pagesub">Build Positioning &amp; Messaging documents — answer the standard question set, attach source material, send for Director review.</p>
+          </div>
+          <button class="btn btn-primary" id="pmmNewDocBtn"><i class="fa-solid fa-plus"></i> New document</button>
+        </div>
+
+        <div class="tab-row" id="pmmStatusTabs" style="margin-top:14px;">
+          <button class="active" data-status="">All</button>
+          <button data-status="draft">Draft</button>
+          <button data-status="pending">Pending approval</button>
+          <button data-status="changes">Changes requested</button>
+          <button data-status="approved">Approved</button>
+        </div>
+
+        <div id="pmmDocList" style="display:flex;flex-direction:column;gap:10px;"></div>
+      </section>
+
+      <!-- PMM WORKSPACE — wizard -->
+      <section class="view" id="view-pmmwizard">
+        <div class="row-between" style="margin-bottom:14px;">
+          <button class="btn btn-sm" id="pmmWizardExit"><i class="fa-solid fa-arrow-left"></i> Exit</button>
+          <div id="pmmWizardModeLabel" style="font-size:12.5px;color:var(--text-secondary);"></div>
+        </div>
+
+        <div id="pmmWizardSetup" class="card" style="max-width:560px;margin:0 auto 18px;">
+          <h3 style="margin:0 0 4px;font-size:16px;">New Positioning &amp; Messaging document</h3>
+          <p style="color:var(--text-secondary);font-size:13px;margin:0 0 16px;">Answer the standard question set below, section by section. You can save as a draft and come back any time.</p>
+          <label style="font-size:12.5px;font-weight:500;display:block;margin-bottom:6px;">Which product is this for?</label>
+          <div class="step-pills" id="pmmProductPills">
+            <button class="step-pill active" data-product="Masterworks">Masterworks</button>
+            <button class="step-pill" data-product="Essentials">Essentials</button>
+            <button class="step-pill" data-product="Primus">Primus</button>
+            <button class="step-pill" data-product="Lumina">Lumina</button>
+          </div>
+          <label style="font-size:12.5px;font-weight:500;display:block;margin:16px 0 6px;">Document title</label>
+          <input type="text" id="pmmTitleInput" style="width:100%;border:1px solid var(--border-strong);border-radius:var(--r-pill);padding:9px 16px;font-size:13px;">
+          <button class="btn btn-primary" style="margin-top:18px;width:100%;justify-content:center;" id="pmmSetupStart">Start <i class="fa-solid fa-arrow-right"></i></button>
+        </div>
+
+        <div id="pmmWizardForm" class="hidden">
+          <div class="pmm-part-track" id="pmmPartTrack"></div>
+          <div class="pmm-progress-track"><div class="pmm-progress-fill" id="pmmProgressFill"></div></div>
+          <div class="card pmm-step-card" id="pmmStepCard" style="max-width:640px;margin:18px auto;"></div>
+          <div style="max-width:640px;margin:0 auto;display:flex;justify-content:space-between;align-items:center;">
+            <button class="btn" id="pmmBackBtn"><i class="fa-solid fa-arrow-left"></i> Back</button>
+            <button class="btn" id="pmmSaveExitBtn">Save as draft &amp; exit</button>
+            <button class="btn btn-primary" id="pmmNextBtn">Next <i class="fa-solid fa-arrow-right"></i></button>
+          </div>
+        </div>
+
+        <div id="pmmWizardAttach" class="hidden card" style="max-width:640px;margin:18px auto;">
+          <h3 style="margin:0 0 4px;font-size:16px;">Attach source material</h3>
+          <p style="color:var(--text-secondary);font-size:13px;margin:0 0 16px;">Optional — PRDs, call transcripts, research reports. These stay attached for reference; they won't be auto-summarized into the document.</p>
+          <div class="dropzone" id="pmmDropzone">
+            <i class="fa-solid fa-cloud-arrow-up"></i>
+            Drag files here, or <a href="#" id="pmmBrowseLink">browse</a><br>
+            <span style="font-size:12px;color:var(--text-muted);">PDF, DOCX, PPTX, XLSX, TXT</span>
+          </div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;" id="pmmFileList"></div>
+          <div style="display:flex;justify-content:space-between;margin-top:20px;">
+            <button class="btn" id="pmmAttachBackBtn"><i class="fa-solid fa-arrow-left"></i> Back</button>
+            <button class="btn btn-primary" id="pmmAttachNextBtn">Review <i class="fa-solid fa-arrow-right"></i></button>
+          </div>
+        </div>
+
+        <div id="pmmWizardReview" class="hidden card" style="max-width:640px;margin:18px auto;">
+          <h3 style="margin:0 0 4px;font-size:16px;">Review &amp; submit</h3>
+          <p style="color:var(--text-secondary);font-size:13px;margin:0 0 16px;">This goes to the Director of PMM for approval once submitted.</p>
+          <div id="pmmReviewSummary" style="background:var(--bg-page);border-radius:var(--r-md);padding:14px 16px;font-size:13px;"></div>
+          <div style="display:flex;justify-content:space-between;margin-top:20px;">
+            <button class="btn" id="pmmReviewBackBtn"><i class="fa-solid fa-arrow-left"></i> Back</button>
+            <button class="btn btn-primary" id="pmmSubmitBtn">Submit for approval</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- PMM WORKSPACE — doc detail -->
+      <section class="view" id="view-pmmdocdetail">
+        <button class="btn btn-sm" id="pmmDetailBack" style="margin-bottom:16px;"><i class="fa-solid fa-arrow-left"></i> PMM Workspace</button>
+        <div id="pmmDetailBody"></div>
+      </section>
+
+      <!-- UPLOADS CONSOLE -->
+      <section class="view" id="view-uploadsconsole">
+        <h1 class="pagetitle">Uploads console</h1>
+        <p class="pagesub">Admin-only. Every file across every request.</p>
+        <div class="card">
+          <table>
+            <thead><tr><th>File</th><th>Uploader</th><th>Linked request</th><th>Type</th><th>Visibility</th><th></th></tr></thead>
+            <tbody id="uploadsRows"></tbody>
+          </table>
+        </div>
+      </section>
+
+    </div>
+  </div>
+
+  <div class="overlay hidden" id="oppDrawerOverlay">
+    <div class="drawer" id="oppDrawer"></div>
+  </div>
+
+  <div class="overlay hidden" id="assetDrawerOverlay">
+    <div class="drawer" id="assetDrawer"></div>
+  </div>
+
+  <div class="modalwrap hidden" id="helpModal">
+    <div class="modal" style="width:440px;">
+      <div class="row-between" style="margin-bottom:4px;">
+        <h3 style="margin:0;">What is Hive?</h3>
+        <button class="close" id="helpClose"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <p>Hive is Aurigo's GTM co-pilot — one place for Sales, Marketing, and ELT to find messaging, competitive intel, and content without hunting across drives and channels.</p>
+      <div style="border-top:1px solid var(--border);padding-top:12px;margin-top:4px;">
+        <div class="help-row"><i class="fa-solid fa-house"></i><div><b>Home</b> — ask Hive anything, or jump into a quick action for your role.</div></div>
+        <div class="help-row"><i class="fa-solid fa-layer-group"></i><div><b>Feature catalog</b> — every product feature, synced from release notes.</div></div>
+        <div class="help-row"><i class="fa-solid fa-chart-column"></i><div><b>Win / loss</b> — Salesforce won and lost deals, by competitor and reason.</div></div>
+        <div class="help-row"><i class="fa-solid fa-upload"></i><div><b>Intake &amp; uploads</b> — attach source material to any request.</div></div>
+        <div class="help-row"><i class="fa-solid fa-wand-magic-sparkles"></i><div><b>Asset studio</b> — generate on-brand collateral from approved templates.</div></div>
+        <div class="help-row"><i class="fa-solid fa-box-archive"></i><div><b>Repository</b> — every finished asset, versioned.</div></div>
+        <div class="help-row"><i class="fa-solid fa-shield-halved"></i><div><b>Admin tools</b> — the uploads console keeps source files governed.</div></div>
+      </div>
+      <button class="btn btn-primary" style="margin-top:14px;width:100%;justify-content:center;" id="helpGotIt">Got it</button>
+    </div>
+  </div>
+
+  <div class="gen-overlay" id="genOverlay">
+    <div class="gen-face show" id="genFaceLoading">
+      <div class="gen-spinner-wrap"><div class="gen-spinner" id="genSpinner"></div></div>
+      <div class="gen-caption">Your content is generating<span class="gen-dotsline"><span></span><span></span><span></span></span></div>
+      <div class="gen-sub" id="genSubtext">Pulling from the GTM War Room context, brand guardrails, and your recent activity...</div>
+    </div>
+    <div class="gen-face" id="genFaceResult">
+      <div class="gen-result" id="genResult"></div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+/* ---------- MOCK DATA ---------- */
+const products = {
+  Masterworks: {
+    diff: {added:2, changed:1, deprecated:1},
+    features: [
+      {name:"Predictive schedule risk agent", desc:"Flags capital projects at risk of schedule slippage before it happens.", date:"2026-07-14", category:"AI agents", status:"live", src:"#"},
+      {name:"Right of way tracker 2.0", desc:"Centralizes right of way acquisition status across parcels.", date:"2026-06-30", category:"Capital planning", status:"live", src:"#"},
+      {name:"Contingency draw forecasting", desc:"Projects contingency drawdown against program budget in real time.", date:"2026-06-02", category:"Financials", status:"pending", src:"#"},
+      {name:"Federal compliance pack (BPA)", desc:"Pre-built reporting templates for USDOT BPA compliance.", date:"2026-05-18", category:"Compliance", status:"live", src:"#"},
+    ]
+  },
+  Essentials: {
+    diff: {added:1, changed:1, deprecated:0},
+    features: [
+      {name:"Local agency budget snapshot", desc:"One-screen budget vs. actuals for local and regional agencies.", date:"2026-07-01", category:"Financials", status:"live", src:"#"},
+      {name:"Change order quick-approve", desc:"Mobile approval flow for field change orders.", date:"2026-06-10", category:"Mobile", status:"live", src:"#"},
+      {name:"Paper-based audit trail export", desc:"One-click export of the full audit trail for grant reporting.", date:"2026-05-22", category:"Compliance", status:"live", src:"#"},
+    ]
+  },
+  Primus: {
+    diff: {added:1, changed:0, deprecated:0},
+    features: [
+      {name:"Facility portfolio rollup", desc:"Consolidated view of capital portfolio performance across facilities.", date:"2026-07-20", category:"Capital planning", status:"live", src:"#"},
+      {name:"Business case scenario modeler", desc:"Models scenarios for competing capital investments.", date:"2026-06-25", category:"Financials", status:"pending", src:"#"},
+      {name:"Data center expansion template", desc:"Pre-configured project template for data center build-outs.", date:"2026-05-30", category:"Templates", status:"live", src:"#"},
+    ]
+  },
+  Lumina: {
+    diff: {added:2, changed:0, deprecated:0},
+    features: [
+      {name:"Lumina data model v3", desc:"Unified data layer powering Masterworks AI and Primus AI agents.", date:"2026-07-10", category:"Platform", status:"live", src:"#"},
+      {name:"Execution agent (beta)", desc:"Automates routine capital program execution tasks.", date:"2026-06-18", category:"AI agents", status:"live", src:"#"},
+      {name:"Risk manager copilot", desc:"Surfaces emerging program risk from linked data sources.", date:"2026-05-05", category:"AI agents", status:"pending", src:"#"},
+    ]
+  }
+};
+
+const competitors = ["Oracle","Kahua","Procore","e-Builder","In-house / Excel"];
+const productLines = ["Masterworks","Essentials","Primus"];
+const lossReasons = ["Price","Missing feature","Timeline","Incumbent relationship","No decision"];
+const bands = ["<$100K","$100K-$500K","$500K-$1M","$1M+"];
+const accounts = ["Nevada DOT","Harris County","City of Aurora","Metro Water Auth","Vantage Data Centers","Bay Area Transit","State of Ohio DOT","Riverside County","Pacific Utilities","GreenPoint Manufacturing"];
+
+function seedOpps(){
+  const rows=[];
+  for(let i=0;i<20;i++){
+    const won = Math.random() > 0.45;
+    rows.push({
+      id:i+1,
+      account: accounts[i % accounts.length] + (i>=accounts.length? " II": ""),
+      product: productLines[i % productLines.length],
+      stage: won ? "Closed-won" : "Closed-lost",
+      competitor: competitors[i % competitors.length],
+      reason: won ? "-" : lossReasons[i % lossReasons.length],
+      amount: [80000,150000,320000,620000,910000,1250000][i % 6],
+      band: bands[i % bands.length]
+    });
+  }
+  return rows;
+}
+const opps = seedOpps();
+
+const assets = [
+  {id:1, name:"Masterworks vs. Oracle battlecard", type:"One-pager", product:"Masterworks", persona:"Sales", status:"final", versions:[
+    {v:1, date:"Jun 2", editor:"J. Alvarez", note:"First draft"},
+    {v:2, date:"Jun 18", editor:"R. Chen", note:"Updated pricing objection"},
+    {v:3, date:"Jul 22", editor:"J. Alvarez", note:"Added Q2 win quote"}]},
+  {id:2, name:"Essentials local agency FAQ", type:"FAQ", product:"Essentials", persona:"Marketing", status:"in review", versions:[
+    {v:1, date:"Jul 1", editor:"M. Park", note:"Draft from intake request #211"},
+    {v:2, date:"Jul 15", editor:"M. Park", note:"Voice/brand pass"}]},
+  {id:3, name:"Primus data center launch deck", type:"Deck", product:"Primus", persona:"Marketing", status:"draft", versions:[
+    {v:1, date:"Jul 28", editor:"S. Iyer", note:"Generated from Asset Studio"}]},
+  {id:4, name:"Lumina AI datasheet", type:"Datasheet", product:"Lumina", persona:"Sales", status:"final", versions:[
+    {v:1, date:"May 5", editor:"J. Alvarez", note:"Initial"},
+    {v:2, date:"Jun 30", editor:"R. Chen", note:"Aligned to AI-native messaging rule"}]},
+  {id:5, name:"Masterworks DOT elevator pitch", type:"One-pager", product:"Masterworks", persona:"Sales", status:"final", versions:[{v:1, date:"Apr 10", editor:"J. Alvarez", note:"Initial"}]},
+  {id:6, name:"Kahua competitive teardown", type:"Deck", product:"Masterworks", persona:"Sales", status:"archived", versions:[{v:1, date:"Jan 12", editor:"R. Chen", note:"Superseded by battlecard #1"}]},
+];
+
+const uploads = [
+  {file:"discovery-call-transcript.vtt", uploader:"J. Alvarez", request:"Battlecard #58", type:"VTT", restricted:true, promoted:false},
+  {file:"q2-competitive-brief.pdf", uploader:"R. Chen", request:"Battlecard #58", type:"PDF", restricted:false, promoted:true},
+  {file:"customer-interview-notes.docx", uploader:"M. Park", request:"Case study #14", type:"DOCX", restricted:false, promoted:false},
+  {file:"launch-deck-v1.pptx", uploader:"S. Iyer", request:"Primus launch", type:"PPTX", restricted:false, promoted:false},
+];
+
+/* ---------- NAV ---------- */
+document.querySelectorAll('.navitem').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    document.querySelectorAll('.navitem').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+    document.getElementById('view-'+btn.dataset.view).classList.add('active');
+  });
+});
+
+/* ---------- HELP MODAL ---------- */
+document.getElementById('helpBtn').addEventListener('click', ()=>document.getElementById('helpModal').classList.remove('hidden'));
+document.getElementById('helpClose').addEventListener('click', ()=>document.getElementById('helpModal').classList.add('hidden'));
+document.getElementById('helpGotIt').addEventListener('click', ()=>document.getElementById('helpModal').classList.add('hidden'));
+
+/* ---------- SIDEBAR COLLAPSE ---------- */
+document.getElementById('sbToggle').addEventListener('click', ()=>{
+  const collapsed = document.getElementById('appRoot').classList.toggle('collapsed');
+  const icon = document.getElementById('sbToggleIcon');
+  icon.className = collapsed ? 'fa-solid fa-chevron-right' : 'fa-solid fa-chevron-left';
+  document.getElementById('sbToggle').setAttribute('aria-label', collapsed ? 'Expand sidebar' : 'Collapse sidebar');
+});
+
+/* ---------- PERSONA SWITCH ---------- */
+const quickActions = {
+  sales: [
+    {icon:"fa-bolt", title:"Elevator pitch", desc:"Tell it who you're calling — get a 30-second opener and discovery questions.", view:"home"},
+    {icon:"fa-shield-halved", title:"Competitive intel", desc:"Strengths, weaknesses, landmines, and talk track by competitor.", view:"repository"},
+    {icon:"fa-lightbulb", title:"Value proposition", desc:"The value prop and proof points that win, by persona.", view:"repository"},
+    {icon:"fa-magnifying-glass", title:"Enablement assets", desc:"Search proof points and case studies by industry tag.", view:"repository"},
+    {icon:"fa-star", title:"Customer proof points", desc:"Real quotes and metrics, matched to the prospect's industry.", view:"repository"},
+    {icon:"fa-linkedin", title:"LinkedIn content kit", desc:"Ready-made posts and a posting guide.", view:"studio"},
+  ],
+  marketing: [
+    {icon:"fa-video", title:"Video script generator", desc:"Pick product, audience, channel — get hook, structure, CTA.", view:"studio"},
+    {icon:"fa-wand-magic-sparkles", title:"Asset creation studio", desc:"Datasheets, decks, FAQs on approved brand templates.", view:"studio"},
+    {icon:"fa-box-archive", title:"Content repository", desc:"Browse finished assets by product, type, and persona.", view:"repository"},
+    {icon:"fa-users", title:"Case study builder", desc:"Turn a raw customer interview into a proof asset.", view:"intake"},
+  ],
+  proposals: [
+    {icon:"fa-layer-group", title:"Feature catalog", desc:"See every recent feature by product, straight from release notes.", view:"catalog"},
+  ],
+  elt: [
+    {icon:"fa-microphone-lines", title:"Keynote talk-track builder", desc:"Pick a topic and audience for 8–10 talking points built from recent shipped features and a proof point.", view:"studio"},
+    {icon:"fa-feather-pointed", title:"Thought-leadership draft generator", desc:"Pick a theme for a byline/LinkedIn outline in your voice, drawn from call transcripts and win/loss data.", view:"studio"},
+    {icon:"fa-chart-pie", title:"Quarterly exec summary", desc:"One-page rollup of win rate by competitor, launch results, and content usage — in board language.", view:"repository"},
+    {icon:"fa-newspaper", title:"Analyst/press briefing brief", desc:"Feature list, competitive positioning, and 2–3 cleared proof points, ready before a call.", view:"catalog"},
+  ]
+};
+const homeSubs = {
+  sales:"Here's what's relevant to Sales today.",
+  marketing:"Here's what's relevant to Marketing today.",
+  proposals:"Here's what's relevant to Proposals today.",
+  elt:"A strategic pulse across GTM programs."
+};
+
+/* ---------- QUICK ACTION CONTENT GENERATOR ---------- */
+const generatedContent = {
+  "Elevator pitch": {
+    tag:"Draft", body:`
+      <h4>30-second opener</h4>
+      <p>Most transportation agencies feel the strain long before it shows up as a budget shortfall — staff turnover, a paper-based audit trail, and a capital program that outgrew the spreadsheet years ago. Masterworks AI gives program managers one system of record from planning through construction, so program knowledge doesn't leave when one person does.</p>
+      <h4>Discovery questions</h4>
+      <ul>
+        <li>How is your team tracking program budget versus actuals today — one system, or five?</li>
+        <li>When a project's scope changes mid-construction, how many sign-offs before the record updates?</li>
+        <li>What happens to program knowledge when a senior PM retires?</li>
+      </ul>`
+  },
+  "Competitive intel": {
+    tag:"Battlecard", body:`
+      <h4>Strengths</h4>
+      <p>Deep enterprise install base for scheduling. Hard to dislodge as the tool of record for the schedule itself.</p>
+      <h4>Weaknesses</h4>
+      <ul>
+        <li>Built for scheduling, not program-wide budget or right-of-way tracking — agencies stitch in three or four other tools around it.</li>
+        <li>Configuration-heavy. New program managers need weeks of training before they're productive.</li>
+      </ul>
+      <h4>Landmine to avoid</h4>
+      <p>Don't lead with "replace it." Most agencies keep their scheduling tool. Lead with the gaps around it.</p>
+      <h4>Talk track</h4>
+      <p>If they bring up their scheduling tool, don't argue scheduling. Ask where budget, right-of-way, and change orders live today. That's usually three more tools — and that's the opening.</p>`
+  },
+  "Value proposition": {
+    tag:"Reference", body:`
+      <h4>Value proposition</h4>
+      <p>For government agencies running multi-year capital programs, Masterworks AI keeps program managers on track and on budget — one AI-native system instead of five disconnected tools.</p>
+      <h4>Proof points by persona</h4>
+      <ul>
+        <li><b>CIP Director</b> — full program visibility across every active project, without waiting on a status email.</li>
+        <li><b>Program manager</b> — audit-ready records by default, not a scramble before the review.</li>
+        <li><b>IT / CIO</b> — one system of record instead of five integrations to maintain.</li>
+      </ul>`
+  },
+  "Enablement assets": {
+    tag:"Search results", body:`
+      <h4>Matched to your industry tag</h4>
+      <ul>
+        <li><b>State DOT case study</b> — Masterworks AI · Proof asset</li>
+        <li><b>Data center capital portfolio one-pager</b> — Primus · Battlecard</li>
+        <li><b>Local agency FAQ</b> — Essentials · Sales deck</li>
+      </ul>
+      <p>All three are pulled from the Repository on their current approved version.</p>`
+  },
+  "Customer proof points": {
+    tag:"Matched", body:`
+      <h4>Matched quotes</h4>
+      <ul>
+        <li>"We used to lose a week every quarter reconciling budget across spreadsheets. Now it's real time." — <b>CIP Director, State DOT</b></li>
+        <li>"Audit prep went from three weeks to three days." — <b>Program Manager, Regional Transit Authority</b></li>
+      </ul>
+      <p>Both are cleared for external use and tagged to the prospect's industry.</p>`
+  },
+  "LinkedIn content kit": {
+    tag:"3 drafts", body:`
+      <h4>Post draft 1</h4>
+      <p>"A capital program is only as strong as its weakest spreadsheet." Talked to a CIP Director this week who said exactly that. Here's what changed when they moved to one system of record.</p>
+      <h4>Post draft 2</h4>
+      <p>Staff turnover shouldn't mean program knowledge walks out the door. That's the real cost of tribal-knowledge planning.</p>
+      <h4>Post draft 3</h4>
+      <p>Audit prep in three days, not three weeks. One agency's story on what changed.</p>
+      <h4>Posting guide</h4>
+      <p>Space these 4-5 days apart. Tag the customer only if they've approved the quote for social use.</p>`
+  },
+  "Video script generator": {
+    tag:"Script outline", body:`
+      <h4>Hook (0:00–0:05)</h4>
+      <p>"Your capital program has five tools. It should have one."</p>
+      <h4>Structure</h4>
+      <ul>
+        <li><b>0:05–0:20</b> — the old way: spreadsheets, email chains, a schedule that's already out of date.</li>
+        <li><b>0:20–0:40</b> — what changed: one AI-native system spanning planning through construction.</li>
+        <li><b>0:40–0:55</b> — proof point: audit prep in days, not weeks.</li>
+      </ul>
+      <h4>CTA</h4>
+      <p>"See it on your program — book a walkthrough."</p>`
+  },
+  "Asset creation studio": {
+    tag:"Datasheet outline", body:`
+      <h4>Header</h4>
+      <p>Outcome-led headline naming the audience and the specific result.</p>
+      <h4>Sections</h4>
+      <ul>
+        <li>The challenge, in the reader's language — not Aurigo's.</li>
+        <li>How it works, two to three sentences, no jargon.</li>
+        <li>Proof — one named metric or customer outcome.</li>
+      </ul>
+      <h4>CTA</h4>
+      <p>One action, clearly named. Built on the approved brand template.</p>`
+  },
+  "Content repository": {
+    tag:"3 matches", body:`
+      <h4>Matched assets</h4>
+      <ul>
+        <li><b>Masterworks AI launch deck</b> — Final</li>
+        <li><b>Essentials FAQ — local agencies</b> — Final</li>
+        <li><b>Primus capital portfolio one-pager</b> — Pending review</li>
+      </ul>
+      <p>Filtered by product, type, and persona from your last search.</p>`
+  },
+  "Case study builder": {
+    tag:"Draft outline", body:`
+      <h4>Situation</h4>
+      <p>Program running on five disconnected tools; audit prep took three weeks each quarter.</p>
+      <h4>Approach</h4>
+      <p>Moved budget, schedule, and right-of-way tracking into one AI-native system of record.</p>
+      <h4>Outcome</h4>
+      <p>Audit prep down to three days. Full program visibility without a status meeting.</p>
+      <h4>Pull quote</h4>
+      <p>"We used to lose a week every quarter reconciling budget across spreadsheets. Now it's real time."</p>`
+  },
+  "Feature catalog": {
+    tag:"RFP-ready", body:`
+      <h4>Recent features by product</h4>
+      <ul>
+        <li><b>Masterworks AI</b> — automated change-order tracking with full audit trail.</li>
+        <li><b>Primus</b> — capital portfolio forecasting across facility types.</li>
+        <li><b>Essentials</b> — simplified budget-to-actuals view for local and regional agencies.</li>
+      </ul>
+      <p>Each line is phrased for direct reuse in an RFP capability response.</p>`
+  },
+  "Keynote talk-track builder": {
+    tag:"8 talking points", body:`
+      <h4>Old way → what changed → why it matters → what's now possible</h4>
+      <ul>
+        <li>Old way: budget, schedule, and right-of-way lived in five different tools.</li>
+        <li>What changed: one AI-native system of record, planning through construction.</li>
+        <li>Why it matters: program managers stop reconciling and start deciding.</li>
+        <li>What's now possible: audit-ready records by default, not by scramble.</li>
+        <li>Old way: program knowledge lived with two or three senior staff.</li>
+        <li>What changed: the system carries the institutional knowledge forward.</li>
+        <li>Why it matters: staff turnover stops being a program risk.</li>
+        <li>What's now possible: same team, far greater program capacity.</li>
+      </ul>
+      <p>Proof point: audit prep down from three weeks to three days at a regional transit authority.</p>`
+  },
+  "Thought-leadership draft generator": {
+    tag:"Byline outline", body:`
+      <h4>Hook</h4>
+      <p>"A capital program is only as strong as its weakest spreadsheet."</p>
+      <h4>Body</h4>
+      <ul>
+        <li>The real cost of tribal-knowledge planning — what happens when a senior PM retires.</li>
+        <li>Why deterministic work belongs to agents, and judgment calls stay with people.</li>
+        <li>What changes for government agencies when the system of record actually holds.</li>
+      </ul>
+      <h4>Close</h4>
+      <p>Ties back to program outcomes, not headcount — "do more with the same people."</p>`
+  },
+  "Quarterly exec summary": {
+    tag:"Board language", body:`
+      <h4>Win rate by competitor</h4>
+      <p>Up 6 points quarter over quarter against the two most common scheduling-tool incumbents.</p>
+      <h4>Launch results</h4>
+      <p>Two features shipped this quarter with measurable adoption in the first 30 days.</p>
+      <h4>Content usage</h4>
+      <p>Enablement assets opened 3x more than last quarter, concentrated in the two largest deal bands.</p>
+      <p style="margin-top:10px;">Framed in pipeline and program-outcome language, not PMM metrics.</p>`
+  },
+  "Analyst/press briefing brief": {
+    tag:"Briefing doc", body:`
+      <h4>Feature list</h4>
+      <p>Current shipped capabilities across Masterworks AI, Primus, and Essentials — pulled live from the Feature catalog.</p>
+      <h4>Competitive positioning</h4>
+      <p>One AI-native system of record vs. point tools stitched together after the fact.</p>
+      <h4>Cleared proof points</h4>
+      <ul>
+        <li>Audit prep down from three weeks to three days — Regional Transit Authority.</li>
+        <li>Full program visibility without a status meeting — State DOT.</li>
+      </ul>`
+  }
+};
+function buildSpinnerDots(){
+  const wrap = document.getElementById('genSpinner');
+  if(!wrap || wrap.childElementCount) return;
+  const count = 14;
+  for(let i=0;i<count;i++){
+    const dot = document.createElement('div');
+    dot.className = 'gen-dot';
+    const angle = (i/count) * 300; // comet arc, not a full closed ring
+    const t = i/(count-1);
+    const size = 4 + t*10;
+    const radius = 58;
+    dot.style.width = size+'px';
+    dot.style.height = size+'px';
+    dot.style.opacity = (0.15 + t*0.85).toFixed(2);
+    dot.style.boxShadow = t>0.6 ? `0 0 ${6+t*10}px rgba(70,178,190,${0.5+t*0.4})` : 'none';
+    dot.style.transform = `rotate(${angle}deg) translate(${radius}px) rotate(${-angle}deg) translate(${-size/2}px,${-size/2}px)`;
+    wrap.appendChild(dot);
+  }
+}
+function openGenerator(card){
+  buildSpinnerDots();
+  const overlay = document.getElementById('genOverlay');
+  const faceLoading = document.getElementById('genFaceLoading');
+  const faceResult = document.getElementById('genFaceResult');
+  faceResult.classList.remove('show');
+  faceLoading.classList.add('show');
+  document.getElementById('genResult').classList.remove('show');
+  overlay.classList.add('show');
+  const subtexts = [
+    "Pulling from the GTM War Room context, brand guardrails, and your recent activity...",
+    "Checking against the brand and tone guardrails...",
+    "Matching proof points and templates to this request..."
+  ];
+  let si = 0;
+  const subEl = document.getElementById('genSubtext');
+  subEl.textContent = subtexts[0];
+  const subInterval = setInterval(()=>{ si=(si+1)%subtexts.length; subEl.textContent = subtexts[si]; }, 700);
+  const delay = 1600 + Math.random()*700;
+  setTimeout(()=>{
+    clearInterval(subInterval);
+    const data = generatedContent[card.title] || {tag:"Draft", body:`<p>${card.desc}</p><p>This is a working prototype — full generation for this action is coming soon.</p>`};
+    document.getElementById('genResult').innerHTML = `
+      <div class="gen-result-head">
+        <div class="qicon"><i class="fa-solid ${card.icon}"></i></div>
+        <div><h3>${card.title}</h3><span class="pill pill-live">${data.tag}</span></div>
+        <button class="close" id="genCloseBtn"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="gen-body">${data.body}</div>
+      <div class="gen-meta"><i class="fa-solid fa-shield-halved"></i> Checked against Guardrails · About Aurigo, Brand and tone</div>
+      <div class="gen-actions">
+        <button class="btn btn-primary" id="genOpenViewBtn"><i class="fa-solid fa-arrow-right"></i> Open in ${viewLabel(card.view)}</button>
+        <button class="btn" id="genCopyBtn"><i class="fa-regular fa-copy"></i> Copy</button>
+      </div>`;
+    faceLoading.classList.remove('show');
+    faceResult.classList.add('show');
+    requestAnimationFrame(()=>document.getElementById('genResult').classList.add('show'));
+    document.getElementById('genCloseBtn').addEventListener('click', closeGenerator);
+    document.getElementById('genCopyBtn').addEventListener('click', (e)=>{
+      e.target.closest('button').innerHTML = '<i class="fa-solid fa-check"></i> Copied';
+    });
+    document.getElementById('genOpenViewBtn').addEventListener('click', ()=>{
+      closeGenerator();
+      document.querySelector(`.navitem[data-view="${card.view}"]`)?.click();
+    });
+  }, delay);
+}
+function closeGenerator(){
+  document.getElementById('genOverlay').classList.remove('show');
+}
+document.getElementById('genOverlay').addEventListener('click', (e)=>{
+  if(e.target.id === 'genOverlay') closeGenerator();
+});
+function viewLabel(view){
+  const labels = {home:"Home", catalog:"Feature catalog", winloss:"Win / loss", intake:"Intake & uploads", studio:"Asset studio", templatelibrary:"Template library", repository:"Repository"};
+  return labels[view] || view;
+}
+
+function renderQuickGrid(persona){
+  const grid = document.getElementById('quickGrid');
+  const cards = quickActions[persona];
+  grid.innerHTML = cards.map((q,i)=>`
+    <div class="quick-card" data-idx="${i}">
+      <div class="qicon"><i class="fa-solid ${q.icon}"></i></div>
+      <h3>${q.title}</h3>
+      <p>${q.desc}</p>
+      <span class="go">Generate <i class="fa-solid fa-arrow-right" style="font-size:10px"></i></span>
+    </div>`).join('');
+  document.getElementById('homeSub').textContent = homeSubs[persona];
+  grid.querySelectorAll('.quick-card').forEach(c=>{
+    c.addEventListener('click', ()=>{
+      openGenerator(cards[+c.dataset.idx]);
+    });
+  });
+}
+document.querySelectorAll('#personaSwitch button').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    document.querySelectorAll('#personaSwitch button').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    activePersona = btn.dataset.persona;
+    renderQuickGrid(activePersona);
+    renderChatSuggestions(activePersona);
+  });
+});
+renderQuickGrid('sales');
+
+/* ---------- HOME CHAT BAR ---------- */
+const chatPlaceholders = {
+  sales:"Ask for a talk track, a battlecard, or a business case...",
+  marketing:"Ask for a video script, a datasheet, or messaging guidance...",
+  proposals:"Ask for RFP language, capability statements, or proof assets...",
+  elt:"Ask for a KPI snapshot, a roadmap pulse, or a governance check..."
+};
+const chatSuggestions = {
+  sales: [
+    "Give me a talk track for a state DOT worried about staff turnover",
+    "Build a battlecard against Oracle for a Masterworks deal",
+    "Find proof points for an airport client"
+  ],
+  marketing: [
+    "Write a 60-second video script for the Primus launch",
+    "Draft a FAQ for Essentials local agency buyers",
+    "Check this paragraph against our brand voice rules"
+  ],
+  proposals: [
+    "Draft a compliant answer for the security & compliance RFP section",
+    "Find a proof asset for a data center facility owner",
+    "Summarize technical differentiators for this RFP"
+  ],
+  elt: [
+    "Summarize win rate trend for Q2 vs. Q1",
+    "What shipped across all products this quarter",
+    "Show me the asset governance mix right now"
+  ]
+};
+const chatReplies = {
+  sales:"Here's a starting point based on your GTM War Room context — I'd pair this with the matching battlecard in the Repository.",
+  marketing:"Drafted on your approved brand template. Run it through the content check in Asset Studio before marking it final.",
+  proposals:"Pulled from the RFP answer library and proof assets in the Repository — double-check against the current RFP requirement theme before submitting.",
+  elt:"Pulled from the latest synced data. Full breakdown is in Win / loss and the Feature catalog if you want to go deeper."
+};
+let activePersona = 'sales';
+
+function renderChatSuggestions(persona){
+  document.getElementById('chatInput').placeholder = chatPlaceholders[persona];
+  document.getElementById('chatSuggestions').innerHTML = chatSuggestions[persona].map(s=>
+    `<button type="button" class="sugg-chip">${s}</button>`).join('');
+  document.querySelectorAll('.sugg-chip').forEach(chip=>{
+    chip.addEventListener('click', ()=>{
+      document.getElementById('chatInput').value = chip.textContent;
+      document.getElementById('chatForm').requestSubmit();
+    });
+  });
+}
+function addChatBubble(role, text){
+  const thread = document.getElementById('chatThread');
+  const av = role==='user' ? 'AR' : '<i class="fa-solid fa-sparkles" style="font-size:11px"></i>';
+  thread.insertAdjacentHTML('beforeend', `
+    <div class="chat-bubble ${role}">
+      <div class="av">${av}</div>
+      <div class="msg">${text}</div>
+    </div>`);
+}
+document.getElementById('chatForm').addEventListener('submit', e=>{
+  e.preventDefault();
+  const input = document.getElementById('chatInput');
+  const text = input.value.trim();
+  if(!text) return;
+  addChatBubble('user', text);
+  input.value = '';
+  setTimeout(()=> addChatBubble('bot', chatReplies[activePersona]), 350);
+});
+renderChatSuggestions('sales');
+
+/* ---------- CATALOG ---------- */
+function renderCatalog(){
+  const p = products[document.getElementById('productSelect').value];
+  document.getElementById('diffBanner').innerHTML = `
+    <div style="display:flex;gap:10px;">
+      <span class="pill pill-added"><i class="fa-solid fa-plus" style="font-size:9px"></i> ${p.diff.added} added</span>
+      <span class="pill pill-changed"><i class="fa-solid fa-pen" style="font-size:9px"></i> ${p.diff.changed} changed</span>
+      <span class="pill pill-deprecated"><i class="fa-solid fa-minus" style="font-size:9px"></i> ${p.diff.deprecated} deprecated</span>
+    </div>
+    <span style="font-size:12px;color:var(--text-secondary);">since last release note processed</span>`;
+  document.getElementById('featureGrid').innerHTML = p.features.map(f=>`
+    <div class="feature-card">
+      <div class="top">
+        <h4>${f.name}</h4>
+        <span class="pill ${f.status==='live'?'pill-live':'pill-pending'}">${f.status==='live'?'Live':'Pending review'}</span>
+      </div>
+      <p>${f.desc}</p>
+      <div class="meta">
+        <span>${f.category} · ${f.date}</span>
+        <a href="${f.src}"><i class="fa-solid fa-arrow-up-right-from-square"></i> Source</a>
+      </div>
+    </div>`).join('');
+}
+document.getElementById('productSelect').addEventListener('change', renderCatalog);
+renderCatalog();
+
+/* ---------- WIN/LOSS ---------- */
+function fillSelect(id, list){
+  const sel = document.getElementById(id);
+  list.forEach(v=>{ const o=document.createElement('option'); o.value=v; o.textContent=v; sel.appendChild(o); });
+}
+fillSelect('fCompetitor', competitors);
+fillSelect('fProduct', productLines);
+fillSelect('fReason', lossReasons);
+fillSelect('fBand', bands);
+
+function currentFilters(){
+  return {
+    competitor: document.getElementById('fCompetitor').value,
+    product: document.getElementById('fProduct').value,
+    reason: document.getElementById('fReason').value,
+    band: document.getElementById('fBand').value
+  };
+}
+function filteredOpps(){
+  const f = currentFilters();
+  return opps.filter(o=>
+    (!f.competitor || o.competitor===f.competitor) &&
+    (!f.product || o.product===f.product) &&
+    (!f.reason || o.reason===f.reason) &&
+    (!f.band || o.band===f.band)
+  );
+}
+function fmt$(n){ return "$"+Math.round(n).toLocaleString(); }
+
+function renderWinLoss(){
+  const rows = filteredOpps();
+  const won = rows.filter(r=>r.stage==="Closed-won").length;
+  const lost = rows.filter(r=>r.stage==="Closed-lost").length;
+  document.getElementById('mWon').textContent = won;
+  document.getElementById('mLost').textContent = lost;
+  document.getElementById('mRate').textContent = (won+lost) ? Math.round((won/(won+lost))*100)+"%" : "-";
+  const avg = rows.length ? rows.reduce((s,r)=>s+r.amount,0)/rows.length : 0;
+  document.getElementById('mAvg').textContent = rows.length ? fmt$(avg) : "-";
+
+  const lossByCompetitor = {};
+  rows.filter(r=>r.stage==="Closed-lost").forEach(r=>{ lossByCompetitor[r.competitor]=(lossByCompetitor[r.competitor]||0)+1; });
+  const max = Math.max(1, ...Object.values(lossByCompetitor));
+  document.getElementById('lossBars').innerHTML = Object.keys(lossByCompetitor).length ?
+    Object.entries(lossByCompetitor).map(([c,n])=>`
+      <div class="bar-row"><div class="lab">${c}</div><div class="bar-track"><div class="bar-fill" style="width:${(n/max)*100}%"></div></div><div class="bar-val">${n}</div></div>
+    `).join('') : '<div class="empty-note">No losses in this filter set.</div>';
+
+  document.getElementById('oppRows').innerHTML = rows.map(o=>`
+    <tr class="rowhover" data-id="${o.id}">
+      <td>${o.account}</td><td>${o.product}</td>
+      <td><span class="pill ${o.stage==='Closed-won'?'pill-final':'pill-deprecated'}">${o.stage}</span></td>
+      <td>${o.competitor}</td><td>${o.reason}</td><td>${fmt$(o.amount)}</td>
+    </tr>`).join('');
+  document.querySelectorAll('#oppRows tr').forEach(tr=>{
+    tr.addEventListener('click', ()=> openOppDrawer(rows.find(r=>r.id==tr.dataset.id)));
+  });
+}
+['fCompetitor','fProduct','fReason','fBand'].forEach(id=>document.getElementById(id).addEventListener('change', renderWinLoss));
+
+function setSynced(){
+  document.getElementById('lastSynced').textContent = "Last synced " + new Date().toLocaleString([], {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'});
+}
+setSynced();
+renderWinLoss();
+document.getElementById('refreshBtn').addEventListener('click', ()=>{
+  const b = document.getElementById('refreshBtn');
+  b.innerHTML = '<i class="fa-solid fa-rotate fa-spin"></i> Syncing...';
+  setTimeout(()=>{ setSynced(); b.innerHTML='<i class="fa-solid fa-rotate"></i> Refresh now'; }, 900);
+});
+
+function openOppDrawer(o){
+  document.getElementById('oppDrawer').innerHTML = `
+    <div class="row-between" style="margin-bottom:16px;"><h3 style="margin:0;font-size:16px;">${o.account}</h3><button class="close" onclick="closeOverlay('oppDrawerOverlay')"><i class="fa-solid fa-xmark"></i></button></div>
+    <span class="pill ${o.stage==='Closed-won'?'pill-final':'pill-deprecated'}">${o.stage}</span>
+    <table style="margin-top:16px;">
+      <tr><td style="color:var(--text-secondary);border:none;padding:6px 0;">Product line</td><td style="text-align:right;border:none;">${o.product}</td></tr>
+      <tr><td style="color:var(--text-secondary);border:none;padding:6px 0;">Amount</td><td style="text-align:right;border:none;">${fmt$(o.amount)}</td></tr>
+      <tr><td style="color:var(--text-secondary);border:none;padding:6px 0;">Deal size band</td><td style="text-align:right;border:none;">${o.band}</td></tr>
+      <tr><td style="color:var(--text-secondary);border:none;padding:6px 0;">Competitor</td><td style="text-align:right;border:none;">${o.competitor}</td></tr>
+      <tr><td style="color:var(--text-secondary);border:none;padding:6px 0;">Loss reason</td><td style="text-align:right;border:none;">${o.reason}</td></tr>
+    </table>
+    <p style="font-size:12px;color:var(--text-muted);margin-top:14px;">Synced from Salesforce · Opportunity ${o.id}</p>`;
+  document.getElementById('oppDrawerOverlay').classList.remove('hidden');
+}
+function closeOverlay(id){ document.getElementById(id).classList.add('hidden'); }
+
+/* ---------- INTAKE ---------- */
+const dz = document.getElementById('dropzone');
+const fileListEl = document.getElementById('fileList');
+let files = [];
+function renderFiles(){
+  fileListEl.innerHTML = files.map((f,i)=>`<div class="filechip"><i class="fa-solid fa-file"></i>${f}<button class="rm" data-i="${i}">✕</button></div>`).join('');
+  fileListEl.querySelectorAll('.rm').forEach(b=>b.addEventListener('click', ()=>{ files.splice(+b.dataset.i,1); renderFiles(); }));
+}
+['dragenter','dragover'].forEach(ev=>dz.addEventListener(ev, e=>{ e.preventDefault(); dz.classList.add('drag'); }));
+['dragleave','drop'].forEach(ev=>dz.addEventListener(ev, e=>{ e.preventDefault(); dz.classList.remove('drag'); }));
+dz.addEventListener('drop', e=>{
+  const dropped = [...e.dataTransfer.files].map(f=>f.name);
+  files = files.concat(dropped.length ? dropped : ["discovery-call-transcript.vtt"]);
+  renderFiles();
+});
+document.getElementById('browseLink').addEventListener('click', e=>{
+  e.preventDefault();
+  files.push("competitive-brief.pdf");
+  renderFiles();
+});
+
+/* ---------- ASSET STUDIO ---------- */
+let currentType = "Datasheet";
+const templatesByType = {
+  Datasheet:["Masterworks datasheet", "Essentials datasheet", "Primus datasheet"],
+  Deck:["Enterprise pitch deck", "Launch deck", "Board update deck"],
+  FAQ:["Public-sector FAQ", "Commercial FAQ"],
+  "One-pager":["Sales one-pager", "Elevator pitch card"]
+};
+const promptsByType = {
+  Datasheet:[{t:"Feature-led datasheet", d:"Lead with outcome, list top 5 capabilities."}],
+  Deck:[{t:"Launch narrative deck", d:"7-step arc: old way, tension, cost of inaction, proof."},{t:"Board update", d:"KPI-first, terse, three slides max."}],
+  FAQ:[{t:"Buyer objection FAQ", d:"Natural-language questions, direct answers."}],
+  "One-pager":[{t:"Elevator pitch card", d:"30-second why-us, one proof point."}]
+};
+let selectedTemplate=null, selectedPrompt=null;
+
+function renderStudio(){
+  document.getElementById('templateGrid').innerHTML = templatesByType[currentType].map((t,i)=>`
+    <div class="template-card" data-i="${i}"><div class="thumb"><i class="fa-solid fa-image"></i></div><div class="tname">${t}</div></div>`).join('');
+  document.querySelectorAll('.template-card').forEach(c=>c.addEventListener('click', ()=>{
+    document.querySelectorAll('.template-card').forEach(x=>x.classList.remove('selected'));
+    c.classList.add('selected'); selectedTemplate = c.querySelector('.tname').textContent;
+  }));
+  document.getElementById('promptList').innerHTML = promptsByType[currentType].map((p,i)=>`
+    <div class="prompt-item" data-i="${i}"><div class="t">${p.t}</div><div class="d">${p.d}</div></div>`).join('');
+  document.querySelectorAll('.prompt-item').forEach(c=>c.addEventListener('click', ()=>{
+    document.querySelectorAll('.prompt-item').forEach(x=>x.classList.remove('selected'));
+    c.classList.add('selected'); selectedPrompt = c.querySelector('.t').textContent;
+  }));
+  document.getElementById('outputBody').textContent = "Select a template and a prompt, then generate.";
+  document.getElementById('checksBlock').style.display='none';
+  document.getElementById('outputStatusPill').className='pill pill-draft'; document.getElementById('outputStatusPill').textContent='Draft';
+}
+document.querySelectorAll('#assetTypePills .step-pill').forEach(p=>p.addEventListener('click', ()=>{
+  document.querySelectorAll('#assetTypePills .step-pill').forEach(x=>x.classList.remove('active'));
+  p.classList.add('active'); currentType = p.dataset.type; selectedTemplate=null; selectedPrompt=null; renderStudio();
+}));
+renderStudio();
+
+/* ---------- TEMPLATE LIBRARY ---------- */
+let tlType = 'Datasheet';
+function renderTemplateLibrary(){
+  document.getElementById('tlGrid').innerHTML = templatesByType[tlType].map(name=>`
+    <div class="template-card">
+      <div class="thumb"><i class="fa-solid fa-image"></i></div>
+      <div class="tname">${name}</div>
+      <div style="padding:0 12px 12px;"><a href="#" class="tl-use" data-name="${name}" style="font-size:11.5px;">Use in Asset Studio <i class="fa-solid fa-arrow-right" style="font-size:9px"></i></a></div>
+    </div>`).join('');
+  document.querySelectorAll('.tl-use').forEach(l=>l.addEventListener('click', e=>{
+    e.preventDefault();
+    document.querySelectorAll('.navitem').forEach(b=>b.classList.remove('active'));
+    document.querySelector('.navitem[data-view="studio"]').classList.add('active');
+    document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+    document.getElementById('view-studio').classList.add('active');
+    currentType = tlType;
+    document.querySelectorAll('#assetTypePills .step-pill').forEach(p=>p.classList.toggle('active', p.dataset.type===tlType));
+    renderStudio();
+    const target = l.dataset.name;
+    document.querySelectorAll('#templateGrid .template-card').forEach(c=>{
+      if(c.querySelector('.tname').textContent===target){ c.classList.add('selected'); selectedTemplate = target; }
+    });
+  }));
+}
+document.querySelectorAll('#tlTypePills .step-pill').forEach(p=>p.addEventListener('click', ()=>{
+  document.querySelectorAll('#tlTypePills .step-pill').forEach(x=>x.classList.remove('active'));
+  p.classList.add('active'); tlType = p.dataset.type; renderTemplateLibrary();
+}));
+renderTemplateLibrary();
+
+document.getElementById('generateBtn').addEventListener('click', ()=>{
+  if(!selectedTemplate || !selectedPrompt){ alert("Pick a template and a prompt first."); return; }
+  document.getElementById('outputBody').textContent = `Draft "${selectedPrompt}" generated on "${selectedTemplate}" — populated directly into Canva. Review the design in Canva, then return here to run the content check.`;
+  document.getElementById('checksBlock').style.display='block';
+  document.getElementById('markFinalBtn').disabled = false;
+});
+document.getElementById('markFinalBtn').addEventListener('click', ()=>{
+  document.getElementById('outputStatusPill').className='pill pill-final';
+  document.getElementById('outputStatusPill').textContent='Final';
+});
+
+/* ---------- REPOSITORY ---------- */
+fillSelect('repoProduct', ["Masterworks","Essentials","Primus","Lumina"]);
+fillSelect('repoType', ["Datasheet","Deck","FAQ","One-pager"]);
+fillSelect('repoPersona', ["Sales","Marketing"]);
+
+function statusPillClass(s){ return {draft:"pill-draft","in review":"pill-review", final:"pill-final", archived:"pill-archived"}[s]; }
+
+function renderRepo(){
+  const f = {
+    product: document.getElementById('repoProduct').value,
+    type: document.getElementById('repoType').value,
+    persona: document.getElementById('repoPersona').value
+  };
+  const rows = assets.filter(a =>
+    (!f.product || a.product===f.product) &&
+    (!f.type || a.type===f.type) &&
+    (!f.persona || a.persona===f.persona)
+  );
+  document.getElementById('repoGrid').innerHTML = rows.length ? rows.map(a=>`
+    <div class="asset-card" data-id="${a.id}">
+      <div class="thumb2"><i class="fa-solid fa-file-lines"></i></div>
+      <div class="row-between"><h4 style="margin:0;font-size:13.5px;">${a.name}</h4><span class="pill ${statusPillClass(a.status)}">${a.status}</span></div>
+      <div style="font-size:11.5px;color:var(--text-muted);">${a.type} · ${a.product} · ${a.persona}</div>
+      <a href="#" class="viewhist" data-id="${a.id}" style="font-size:12px;">View history (v${a.versions.length}) &rarr;</a>
+    </div>`).join('') : '<div class="empty-note">No assets match these filters.</div>';
+  document.querySelectorAll('.viewhist').forEach(l=>l.addEventListener('click', e=>{ e.preventDefault(); openAssetDrawer(assets.find(a=>a.id==l.dataset.id)); }));
+}
+['repoProduct','repoType','repoPersona'].forEach(id=>document.getElementById(id).addEventListener('change', renderRepo));
+renderRepo();
+
+function openAssetDrawer(a){
+  document.getElementById('assetDrawer').innerHTML = `
+    <div class="row-between" style="margin-bottom:16px;"><h3 style="margin:0;font-size:16px;">${a.name}</h3><button class="close" onclick="closeOverlay('assetDrawerOverlay')"><i class="fa-solid fa-xmark"></i></button></div>
+    <div style="font-size:12.5px;color:var(--text-secondary);margin-bottom:14px;">${a.type} · ${a.product} · ${a.persona} · <span class="pill ${statusPillClass(a.status)}">${a.status}</span></div>
+    <h4 style="font-size:13px;margin:0 0 8px;">Version history</h4>
+    ${a.versions.slice().reverse().map(v=>`
+      <div style="border:1px solid var(--border);border-radius:var(--r-md);padding:10px 12px;margin-bottom:8px;">
+        <div class="row-between"><b style="font-size:13px;">v${v.v}</b><span style="font-size:11.5px;color:var(--text-muted);">${v.date}</span></div>
+        <div style="font-size:12.5px;color:var(--text-secondary);margin:4px 0 8px;">${v.note} — ${v.editor}</div>
+        ${v.v!==a.versions.length ? `<button class="btn btn-sm" onclick="alert('Rolled back to v${v.v}')">Roll back to this version</button>` : `<span class="pill pill-live">Current</span>`}
+      </div>`).join('')}
+    <h4 style="font-size:13px;margin:16px 0 8px;">Discussion</h4>
+    <div class="thread"><div class="who"><div class="av">RC</div><b style="font-size:12.5px;">R. Chen</b></div><div style="font-size:13px;">Should we add the <span class="mention">@Sales</span> objection language here too?</div></div>
+    <div class="thread resolved"><div class="who"><div class="av">MP</div><b style="font-size:12.5px;">M. Park</b></div><div style="font-size:13px;">Confirmed with <span class="mention">@Product</span> — resolved.</div></div>
+    <textarea placeholder="Add a comment, @mention a person or team..." style="width:100%;border:1px solid var(--border-strong);border-radius:var(--r-md);padding:10px;font-size:13px;margin-top:8px;min-height:60px;"></textarea>
+    `;
+  document.getElementById('assetDrawerOverlay').classList.remove('hidden');
+}
+
+/* ---------- UPLOADS CONSOLE ---------- */
+function renderUploads(){
+  document.getElementById('uploadsRows').innerHTML = uploads.map((u,i)=>`
+    <tr>
+      <td><i class="fa-solid fa-file" style="margin-right:6px;color:var(--teal-dark);"></i>${u.file}</td>
+      <td>${u.uploader}</td><td>${u.request}</td><td>${u.type}</td>
+      <td>${u.restricted ? '<span class="pill pill-lock"><i class="fa-solid fa-lock" style="font-size:9px"></i> Admin + requester</span>' : '<span class="pill pill-live">All</span>'}</td>
+      <td style="text-align:right;white-space:nowrap;">
+        <button class="btn btn-sm" title="Download"><i class="fa-solid fa-download"></i></button>
+      </td>
+    </tr>`).join('');
+}
+renderUploads();
+
+/* ---------- PMM WORKSPACE ---------- */
+const pmmPartNames = {A:'Foundation', B:'Messaging', C:'Personas', D:'Battlecards', E:'Activation kits'};
+const pmmPartOrder = ['A','B','C','D','E'];
+
+const pmmSteps = [
+  {part:'A', code:'A1', title:'The why (Golden Circle)', help:"Why do you exist, beyond making money? What deserves this product a right to exist?", kind:'fields', fields:[
+    {key:'why', label:'Why', type:'textarea', placeholder:'Public infrastructure shapes every community...'},
+    {key:'how', label:'How', type:'textarea', placeholder:'By building on...'},
+    {key:'what', label:'What', type:'textarea', placeholder:'The product, in one sentence.'}
+  ]},
+  {part:'A', code:'A2', title:'Market & category', help:'What category do you own, and why does it matter now?', kind:'fields', fields:[
+    {key:'category', label:'Market category', type:'text', placeholder:'AI for capital program management'},
+    {key:'whynow', label:'Why now', type:'textarea', placeholder:'What changed in the market that makes this urgent?'},
+    {key:'context', label:'Market context & stats', type:'textarea', placeholder:'Any market-size figures or benchmarks — flag sources to confirm.'}
+  ]},
+  {part:'A', code:'A3', title:'Best-fit customer & ICP', help:'Who is this for, and who is it explicitly not for?', kind:'fields', fields:[
+    {key:'bestfit', label:'Best-fit description', type:'textarea'},
+    {key:'room', label:"Who's in the room / buying triggers", type:'textarea'},
+    {key:'notfit', label:'Not a fit — walk-away signals', type:'textarea'}
+  ]},
+  {part:'A', code:'A4', title:'Competitive alternatives & right to win', help:'What do buyers do instead of choosing you, and why do you win anyway?', kind:'fields', fields:[
+    {key:'alternatives', label:'What buyers do instead', type:'textarea'},
+    {key:'cantcopy', label:"Three things competitors can't copy", type:'textarea'},
+    {key:'proof', label:"Proof it's real", type:'textarea'}
+  ]},
+  {part:'A', code:'A5', title:'Positioning statement', help:'The classic positioning statement, plus what makes it unique.', kind:'fields', fields:[
+    {key:'statement', label:'Classic positioning statement', type:'textarea', placeholder:'For [best-fit customer] who [need], [product] is [category] that [outcome]. Unlike [alternatives], we [differentiator].'},
+    {key:'unique', label:'Unique attributes', type:'textarea'},
+    {key:'value', label:'Value & proof', type:'textarea'}
+  ]},
+  {part:'B', code:'B1', title:'Umbrella message & taglines', help:'The one message every other message rolls up to.', kind:'fields', fields:[
+    {key:'hero', label:'Hero / umbrella message', type:'text', placeholder:'Turn capital program insights into action — faster.'},
+    {key:'oneliner', label:'One-liner tagline (≤10 words)', type:'text'},
+    {key:'short', label:'Short tagline (~25 words)', type:'textarea'}
+  ]},
+  {part:'B', code:'B2', title:'Top value pillars', help:'The 3–4 ways this delivers value — customer needs, not features.', kind:'fields', fields:[
+    {key:'pillars', label:'Value pillars', type:'rows', columns:['Pillar','What it means for the customer','Proof'], minRows:3}
+  ]},
+  {part:'B', code:'B3', title:'What it does', help:'Plain language — what would you tell someone who has never heard of this product?', kind:'fields', fields:[
+    {key:'plain', label:'Plain-language description', type:'textarea'},
+    {key:'paragraph', label:'One-paragraph product description', type:'textarea'}
+  ]},
+  {part:'B', code:'B4', title:'Messaging matrix', help:'Map each customer pain to the capability that solves it.', kind:'fields', fields:[
+    {key:'matrix', label:'Messaging matrix', type:'rows', columns:['Customer pain','Capability','Why us','Benefit'], minRows:3}
+  ]},
+  {part:'B', code:'B5', title:'Key capabilities & agent catalog', help:'The building blocks of the value story.', kind:'fields', fields:[
+    {key:'agents', label:'Capabilities / agents', type:'rows', columns:['Capability','Group','What it does','Outcome'], minRows:3}
+  ]},
+  {part:'B', code:'B6', title:'The AI story & platform', help:'How the underlying platform makes the value story credible.', kind:'fields', fields:[
+    {key:'possible', label:'What the platform makes possible', type:'textarea'},
+    {key:'trust', label:'Built for enterprise trust', type:'textarea'}
+  ]},
+  {part:'B', code:'B7', title:'Proof points & testimonials', help:'Named customers, quantified outcomes, quotes cleared for use.', kind:'fields', fields:[
+    {key:'proofpoints', label:'Proof points / testimonials', type:'textarea'}
+  ]},
+  {part:'C', code:'C', title:'Persona value props', help:'One card per buyer or user in the room.', kind:'group', groupFields:[
+    {key:'name', label:'Persona name', type:'text', placeholder:'Capital Program / PMO Director'},
+    {key:'pain', label:'Top pain', type:'textarea'},
+    {key:'value', label:'Value prop', type:'textarea'},
+    {key:'pitch', label:'Elevator pitch (30 sec)', type:'textarea'}
+  ]},
+  {part:'D', code:'D1', title:'How we stack up', help:'A side-by-side against the alternatives.', kind:'fields', fields:[
+    {key:'stackup', label:'Comparison', type:'rows', columns:['Dimension','Us','Bolt-on AI','Legacy / DIY'], minRows:3}
+  ]},
+  {part:'D', code:'D2', title:'Where the competition is on AI', help:'Named competitors and how you win against each.', kind:'fields', fields:[
+    {key:'competitors', label:'Competitor breakdown', type:'rows', columns:['Competitor','Where they are today','How we win'], minRows:2}
+  ]},
+  {part:'D', code:'D3', title:'Head-to-head battlecards', help:'What they say, how you counter.', kind:'fields', fields:[
+    {key:'battlecards', label:'Battlecards', type:'rows', columns:['Scenario','They say','You counter'], minRows:2}
+  ]},
+  {part:'D', code:'D4', title:'Objection handling', help:'The pushbacks that stall deals, and how to turn each one.', kind:'fields', fields:[
+    {key:'objections', label:'Objections', type:'rows', columns:['Objection','Counter'], minRows:3}
+  ]},
+  {part:'E', code:'E1', title:'Marketing kit', help:'Campaign themes and funnel messaging.', kind:'fields', fields:[
+    {key:'themes', label:'Campaign themes', type:'textarea'},
+    {key:'funnel', label:'Messaging by funnel stage', type:'rows', columns:['Stage','Lead message','Assets / CTA'], minRows:3}
+  ]},
+  {part:'E', code:'E2', title:'Sales kit', help:'What reps say, and how they open.', kind:'fields', fields:[
+    {key:'pitch', label:'Company elevator pitch', type:'textarea'},
+    {key:'email', label:'Cold email — trigger & subject', type:'textarea'},
+    {key:'discovery', label:'Discovery script', type:'textarea'}
+  ]},
+  {part:'E', code:'E3', title:'Proposals / RFP kit', help:'Reusable answers for RFPs and security questionnaires.', kind:'fields', fields:[
+    {key:'rfp', label:'RFP requirement mapping', type:'rows', columns:['Requirement theme','Response','Proof'], minRows:3}
+  ]}
+];
+
+function pmmBlankRows(field){ const rows=[]; for(let i=0;i<(field.minRows||3);i++) rows.push(field.columns.map(()=>'')); return rows; }
+function pmmBlankGroupItem(step){ const o={}; step.groupFields.forEach(f=>o[f.key]=''); return o; }
+function pmmBlankAnswers(){
+  const a = {};
+  pmmSteps.forEach(s=>{
+    if(s.kind==='group') a[s.code] = [pmmBlankGroupItem(s), pmmBlankGroupItem(s)];
+    else { a[s.code]={}; s.fields.forEach(f=> a[s.code][f.key] = f.type==='rows' ? pmmBlankRows(f) : ''); }
+  });
+  return a;
+}
+function mkAnswers(overrides){
+  const base = pmmBlankAnswers();
+  Object.keys(overrides||{}).forEach(code=>{
+    if(Array.isArray(overrides[code])) base[code] = overrides[code];
+    else base[code] = Object.assign(base[code]||{}, overrides[code]);
+  });
+  return base;
+}
+
+const seedMasterworksAnswers = mkAnswers({
+  A1:{why:"Public infrastructure shapes every community — and the teams who plan, fund, and deliver it deserve tools that help them anticipate and act, not just record work.",
+      how:"By building Masterworks AI on Lumina AI, Aurigo's AI platform grounded in 20+ years of capital-program data, so intelligence operates within the workflows teams already use — governed, explainable, and human-in-the-loop.",
+      what:"Masterworks AI — Copilot and ready-to-use agents that help capital teams find answers, predict risk, and take action without leaving their capital program."},
+  A2:{category:"AI for capital program management", whynow:"Complexity has outrun the tools. Expertise is walking out the door as veteran planners retire. Data is siloed and insight comes late.", context:"$4.5B projected construction AI market size by 2026. 15–20% forecast-accuracy gains reported with AI. To confirm: source and date for these figures."},
+  A3:{bestfit:"Public infrastructure and facility owners running active, funded capital programs who need to do more with lean teams while staying auditable and in control.", room:"Capital program / PMO directors, engineering & delivery leaders, finance & budget officers, IT & security teams. Triggers: a new bond or funding program, audit pressure, leadership turnover.", notfit:"No active capital program or funding source. Content with spreadsheets and no executive pressure. Cloud or AI blocked by agency policy."},
+  A4:{alternatives:"Generic or bolt-on AI assistants, legacy systems of record, building it in-house, or the status quo of spreadsheets and manual review.", cantcopy:"20+ years of capital-program data. Built into the system of action, not a bolt-on. Enterprise trust by design (FedRAMP-Class C Certified, ISO 42001 in progress).", proof:"300+ infrastructure and facility owners. $300B+ in capital programs managed on Aurigo. 7 agents out of the box, plus Agent Builder."},
+  A5:{statement:"For public infrastructure and facility owners who must deliver growing capital programs with lean teams, Masterworks AI is capital program management with AI built in that helps teams find answers, predict risk, and act inside the workflows they already use. Unlike bolt-on AI assistants or generic models, Masterworks AI is grounded in 20+ years of capital-program data, runs inside the system of action, and is governed, explainable, and enterprise-secure.", unique:"Domain-grounded Lumina foundation data model. AI inside the system of action. Governed and explainable. 7 ready-to-use agents plus Agent Builder.", value:"Faster decisions, earlier risk detection, more team capacity. Utah DOT ($19.5M/year) and Las Vegas (3+ months/year), on the Aurigo Masterworks platform."},
+  B1:{hero:"Turn capital program insights into action — faster.", oneliner:"AI built into your capital program — find answers, predict risk, act.", short:"Masterworks AI brings Copilot and ready-to-use agents into your capital program, so teams find answers, predict risks earlier, and act — inside the workflows they already use."},
+  B2:{pillars:[
+    ["Do more with the team you have","Automate routine work and preserve institutional knowledge.","PM agent performs 50%+ of admin work; up to 25% of capacity freed."],
+    ["Stay ahead of growing complexity","Manage expanding portfolios, funding rules, and stakeholders.","One governed platform spanning plan, fund, and deliver."],
+    ["Turn disconnected data into confident decisions","Bring projects, funding, contracts, and assets together.","95% faster retrieval; cited, source-linked answers."],
+    ["Anticipate issues before they become problems","Identify schedule, budget, and compliance risk early.","Alerts 1–2 reporting cycles earlier; 100% of active projects monitored."]
+  ]},
+  B3:{plain:"Masterworks AI brings Copilot and ready-to-use agents directly into the workflows teams use to plan, deliver, and maintain capital programs.", paragraph:"Masterworks AI is the AI layer of Aurigo Masterworks, built on the Lumina platform and grounded in more than 20 years of capital-program data. Copilot lets teams ask questions in plain language and get cited answers. Ready-to-use agents take on defined jobs and route work for human approval."},
+  B5:{agents:[
+    ["Document Search Agent","Copilot","Scans large document sets for citation-backed answers.","95% faster retrieval."],
+    ["Risk Prediction Agent","Delivery","Continuously evaluates active projects for cost / schedule risk.","Alerts 1–2 cycles early."],
+    ["Funding Agent","Planning","Identifies eligible funding and the best mix per project.","Maximizes every funding dollar."]
+  ]},
+  D2:{competitors:[
+    ["Kahua","Kahua Enterprise AI + 'Noa' assistant — first platform cleared to run AI inside FedRAMP.","Lumina also predicts risk and acts, with 7 agents live plus Agent Builder."],
+    ["Procore","Procore AI 'Helix' layer — contractor-first, owner AI arrived in 2026 and is shallow.","Lumina is purpose-built for owners with 20+ years of program data."]
+  ]},
+  D4:{objections:[
+    ["AI just makes things up — I can't trust it for funding calls.","Lumina answers only from your program data and cites every source — no source, no answer."],
+    ["We can't put our data into an AI model.","Nothing leaves Masterworks and your data never trains public models."]
+  ]}
+});
+const seedEssentialsAnswers = mkAnswers({
+  A1:{why:"Local and regional agencies deserve capital tools built for lean teams, not enterprise-only complexity.", how:"", what:"Essentials brings core capital planning and delivery workflows to local and regional agencies."},
+  A3:{bestfit:"Local and regional agencies running smaller capital programs with limited staff.", room:"", notfit:""},
+  B1:{hero:"Capital planning, sized for local government.", oneliner:"", short:""}
+});
+const seedPrimusAnswers = mkAnswers({
+  A1:{why:"Facility owners need the same rigor DOTs get, applied to private capital portfolios.", how:"", what:""},
+  A2:{category:"AI for commercial capital portfolio management", whynow:"", context:""}
+});
+
+let pmmDocs = [
+  {id:1, title:"Masterworks AI — Positioning & Messaging", product:"Masterworks", status:"approved", owner:"Lakshmi", updated:"Jul 4", approvedBy:"Director of PMM", approvedAt:"Jul 6", answers:seedMasterworksAnswers, files:["masterworks-ai-enablement-deck.pptx","competitor-battlecard-notes.docx"], comments:[]},
+  {id:2, title:"Essentials — Positioning & Messaging", product:"Essentials", status:"pending", owner:"Anupam Rawat", submittedBy:"Anupam Rawat", submittedAt:"Aug 5", updated:"Aug 5", answers:seedEssentialsAnswers, files:["essentials-prd.pdf"], comments:[]},
+  {id:3, title:"Primus — Positioning & Messaging", product:"Primus", status:"changes", owner:"Anupam Rawat", updated:"Aug 3", answers:seedPrimusAnswers, files:[], comments:[{who:"Director of PMM", when:"Aug 4", text:"Needs named proof points before this can move forward — right now every claim could be said by any competitor. Also confirm ICP: data centers specifically, or facility owners broadly?"}]},
+  {id:4, title:"Lumina — Positioning & Messaging", product:"Lumina", status:"draft", owner:"Anupam Rawat", updated:"Aug 6", answers:mkAnswers({}), files:[], comments:[]}
+];
+let pmmNextId = 5;
+
+function pmmStatusMeta(s){ return {draft:{label:'Draft',cls:'pill-draft'}, pending:{label:'Pending approval',cls:'pill-pending'}, changes:{label:'Changes requested',cls:'pill-deprecated'}, approved:{label:'Approved',cls:'pill-final'}}[s]; }
+function pmmToday(){ return new Date().toLocaleDateString('en-US',{month:'short',day:'numeric'}); }
+function pmmShowView(id){ document.querySelectorAll('.view').forEach(v=>v.classList.remove('active')); document.getElementById(id).classList.add('active'); }
+function pmmSetNavActive(){ document.querySelectorAll('.navitem').forEach(b=>b.classList.remove('active')); document.querySelector('.navitem[data-view="pmmworkspace"]').classList.add('active'); }
+
+let pmmStatusFilter = '';
+function renderPmmList(){
+  const rows = pmmDocs.filter(d=> !pmmStatusFilter || d.status===pmmStatusFilter);
+  const list = document.getElementById('pmmDocList');
+  list.innerHTML = rows.length ? rows.map(d=>{
+    const m = pmmStatusMeta(d.status);
+    return `<div class="pmmdoc-row" data-id="${d.id}">
+      <div class="pmmicon"><i class="fa-solid fa-file-signature"></i></div>
+      <div class="pmmmeta"><div class="t">${d.title}</div><div class="s">${d.product} · ${d.owner} · updated ${d.updated}</div></div>
+      <span class="pill ${m.cls}">${m.label}</span>
+      <div class="pmmdate"><i class="fa-solid fa-chevron-right"></i></div>
+    </div>`;
+  }).join('') : '<div class="empty-note">No documents in this status yet.</div>';
+  list.querySelectorAll('.pmmdoc-row').forEach(r=>r.addEventListener('click', ()=>openPmmDoc(+r.dataset.id)));
+}
+document.querySelectorAll('#pmmStatusTabs button').forEach(b=>b.addEventListener('click', ()=>{
+  document.querySelectorAll('#pmmStatusTabs button').forEach(x=>x.classList.remove('active'));
+  b.classList.add('active'); pmmStatusFilter = b.dataset.status; renderPmmList();
+}));
+
+let wizardState = null;
+
+function pmmNewWizardState(){ return {mode:'new', docId:null, origStatus:null, product:'Masterworks', title:'', index:0, answers:pmmBlankAnswers(), files:[]}; }
+
+document.getElementById('pmmNewDocBtn').addEventListener('click', ()=>{
+  wizardState = pmmNewWizardState();
+  pmmShowView('view-pmmwizard');
+  document.getElementById('pmmWizardModeLabel').textContent = 'New document';
+  document.getElementById('pmmWizardSetup').classList.remove('hidden');
+  document.getElementById('pmmWizardForm').classList.add('hidden');
+  document.getElementById('pmmWizardAttach').classList.add('hidden');
+  document.getElementById('pmmWizardReview').classList.add('hidden');
+  document.getElementById('pmmTitleInput').value = '';
+  document.querySelectorAll('#pmmProductPills .step-pill').forEach(p=>p.classList.toggle('active', p.dataset.product==='Masterworks'));
+});
+document.querySelectorAll('#pmmProductPills .step-pill').forEach(p=>p.addEventListener('click', ()=>{
+  document.querySelectorAll('#pmmProductPills .step-pill').forEach(x=>x.classList.remove('active'));
+  p.classList.add('active'); wizardState.product = p.dataset.product;
+  if(!document.getElementById('pmmTitleInput').value.trim()) document.getElementById('pmmTitleInput').value = p.dataset.product+' — Positioning & Messaging';
+}));
+document.getElementById('pmmSetupStart').addEventListener('click', ()=>{
+  wizardState.title = document.getElementById('pmmTitleInput').value.trim() || (wizardState.product+' — Positioning & Messaging');
+  wizardState.index = 0;
+  document.getElementById('pmmWizardSetup').classList.add('hidden');
+  document.getElementById('pmmWizardForm').classList.remove('hidden');
+  pmmRenderStep();
+});
+
+function pmmRenderPartTrack(){
+  const currentPart = pmmSteps[wizardState.index].part;
+  const ci = pmmPartOrder.indexOf(currentPart);
+  document.getElementById('pmmPartTrack').innerHTML = pmmPartOrder.map((p,i)=>{
+    const cls = 'pmm-part-chip'+(i===ci?' current':(i<ci?' done':''));
+    return `<div class="${cls}">${p} · ${pmmPartNames[p]}</div>`;
+  }).join('');
+  document.getElementById('pmmProgressFill').style.width = Math.round((wizardState.index/pmmSteps.length)*100)+'%';
+}
+function pmmFieldHtml(stepCode, field, value){
+  if(field.type==='text'){
+    return `<div class="pmm-field"><label>${field.label}</label><input type="text" data-code="${stepCode}" data-key="${field.key}" value="${(value||'').replace(/"/g,'&quot;')}" placeholder="${field.placeholder||''}"></div>`;
+  }
+  if(field.type==='textarea'){
+    return `<div class="pmm-field"><label>${field.label}</label><textarea data-code="${stepCode}" data-key="${field.key}" placeholder="${field.placeholder||''}">${value||''}</textarea></div>`;
+  }
+  if(field.type==='rows'){
+    const rows = value && value.length ? value : field.columns.map(()=>'');
+    return `<div class="pmm-field"><label>${field.label}</label>
+      <div class="pmm-rows-table" data-rows-code="${stepCode}" data-rows-key="${field.key}">
+        <div class="pmm-rows-head">${field.columns.map(c=>`<div>${c}</div>`).join('')}</div>
+        ${rows.map((row,ri)=>`<div class="pmm-row-item" data-ri="${ri}">${field.columns.map((c,ci)=>`<div><textarea data-cell="${ci}">${row[ci]||''}</textarea></div>`).join('')}<div class="pmm-row-rm" title="Remove row"><i class="fa-solid fa-xmark"></i></div></div>`).join('')}
+      </div>
+      <button class="btn btn-sm pmm-addrow" data-add-code="${stepCode}" data-add-key="${field.key}"><i class="fa-solid fa-plus"></i> Add row</button>
+    </div>`;
+  }
+  return '';
+}
+function pmmGroupHtml(step, items){
+  return items.map((item,idx)=>`
+    <div class="pmm-persona-card" data-idx="${idx}">
+      <button class="pmm-persona-rm" data-rm-idx="${idx}"><i class="fa-solid fa-xmark"></i></button>
+      ${step.groupFields.map(f=> f.type==='textarea'
+        ? `<div class="pmm-field"><label>${f.label}</label><textarea data-gkey="${f.key}" data-gidx="${idx}" placeholder="${f.placeholder||''}">${item[f.key]||''}</textarea></div>`
+        : `<div class="pmm-field"><label>${f.label}</label><input type="text" data-gkey="${f.key}" data-gidx="${idx}" value="${(item[f.key]||'').replace(/"/g,'&quot;')}" placeholder="${f.placeholder||''}"></div>`
+      ).join('')}
+    </div>`).join('') + `<button class="btn btn-sm" id="pmmAddPersonaBtn"><i class="fa-solid fa-plus"></i> Add persona</button>`;
+}
+function pmmRenderStep(){
+  const step = pmmSteps[wizardState.index];
+  pmmRenderPartTrack();
+  const card = document.getElementById('pmmStepCard');
+  let body = `<div class="pmm-step-tag">Part ${step.part} · ${pmmPartNames[step.part]}</div><h3>${step.title}</h3><p class="pmm-help">${step.help}</p>`;
+  body += step.kind==='group' ? pmmGroupHtml(step, wizardState.answers[step.code]) : step.fields.map(f=>pmmFieldHtml(step.code, f, wizardState.answers[step.code][f.key])).join('');
+  card.innerHTML = body;
+  card.querySelectorAll('input[data-code], textarea[data-code]').forEach(el=>{
+    el.addEventListener('input', ()=>{ wizardState.answers[el.dataset.code][el.dataset.key] = el.value; });
+  });
+  card.querySelectorAll('.pmm-rows-table').forEach(table=>{
+    const code=table.dataset.rowsCode, key=table.dataset.rowsKey;
+    table.querySelectorAll('.pmm-row-item').forEach(rowEl=>{
+      const ri = +rowEl.dataset.ri;
+      rowEl.querySelectorAll('textarea[data-cell]').forEach(cell=>{
+        cell.addEventListener('input', ()=>{ wizardState.answers[code][key][ri][+cell.dataset.cell] = cell.value; });
+      });
+      rowEl.querySelector('.pmm-row-rm').addEventListener('click', ()=>{ wizardState.answers[code][key].splice(ri,1); pmmRenderStep(); });
+    });
+  });
+  card.querySelectorAll('.pmm-addrow').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const code=btn.dataset.addCode, key=btn.dataset.addKey;
+      const field = step.fields.find(f=>f.key===key);
+      wizardState.answers[code][key].push(field.columns.map(()=>''));
+      pmmRenderStep();
+    });
+  });
+  if(step.kind==='group'){
+    card.querySelectorAll('input[data-gkey], textarea[data-gkey]').forEach(el=>{
+      el.addEventListener('input', ()=>{ wizardState.answers[step.code][+el.dataset.gidx][el.dataset.gkey] = el.value; });
+    });
+    card.querySelectorAll('.pmm-persona-rm').forEach(btn=> btn.addEventListener('click', ()=>{ wizardState.answers[step.code].splice(+btn.dataset.rmIdx,1); pmmRenderStep(); }));
+    const addBtn = card.querySelector('#pmmAddPersonaBtn');
+    if(addBtn) addBtn.addEventListener('click', ()=>{ wizardState.answers[step.code].push(pmmBlankGroupItem(step)); pmmRenderStep(); });
+  }
+  document.getElementById('pmmBackBtn').style.visibility = wizardState.index===0 ? 'hidden' : 'visible';
+  document.getElementById('pmmNextBtn').innerHTML = wizardState.index===pmmSteps.length-1 ? 'Continue <i class="fa-solid fa-arrow-right"></i>' : 'Next <i class="fa-solid fa-arrow-right"></i>';
+}
+document.getElementById('pmmBackBtn').addEventListener('click', ()=>{ if(wizardState.index>0){ wizardState.index--; pmmRenderStep(); } });
+document.getElementById('pmmNextBtn').addEventListener('click', ()=>{
+  if(wizardState.index < pmmSteps.length-1){ wizardState.index++; pmmRenderStep(); }
+  else { document.getElementById('pmmWizardForm').classList.add('hidden'); document.getElementById('pmmWizardAttach').classList.remove('hidden'); renderPmmFileList(); }
+});
+function pmmSaveDraftAndExit(){
+  if(wizardState.docId){
+    const d = pmmDocs.find(x=>x.id===wizardState.docId);
+    d.title=wizardState.title; d.product=wizardState.product; d.answers=wizardState.answers; d.files=wizardState.files; d.updated=pmmToday();
+  } else {
+    pmmDocs.unshift({id:pmmNextId++, title:wizardState.title||'Untitled document', product:wizardState.product, status:'draft', owner:'Anupam Rawat', updated:pmmToday(), answers:wizardState.answers, files:wizardState.files, comments:[]});
+  }
+  wizardState = null;
+  pmmStatusFilter=''; document.querySelectorAll('#pmmStatusTabs button').forEach((b,i)=>b.classList.toggle('active', i===0));
+  renderPmmList(); pmmSetNavActive(); pmmShowView('view-pmmworkspace');
+}
+document.getElementById('pmmSaveExitBtn').addEventListener('click', pmmSaveDraftAndExit);
+document.getElementById('pmmWizardExit').addEventListener('click', pmmSaveDraftAndExit);
+
+let pmmDropAttached=false;
+function wirePmmDropzoneOnce(){
+  if(pmmDropAttached) return; pmmDropAttached=true;
+  const dz = document.getElementById('pmmDropzone');
+  ['dragenter','dragover'].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.classList.add('drag');}));
+  ['dragleave','drop'].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.classList.remove('drag');}));
+  dz.addEventListener('drop', e=>{
+    const dropped=[...e.dataTransfer.files].map(f=>f.name);
+    wizardState.files = wizardState.files.concat(dropped.length?dropped:['research-report.pdf']);
+    renderPmmFileList();
+  });
+  document.getElementById('pmmBrowseLink').addEventListener('click', e=>{ e.preventDefault(); wizardState.files.push('supporting-doc.pdf'); renderPmmFileList(); });
+}
+function renderPmmFileList(){
+  wirePmmDropzoneOnce();
+  document.getElementById('pmmFileList').innerHTML = wizardState.files.map((f,i)=>`<div class="filechip"><i class="fa-solid fa-file"></i>${f}<button class="rm" data-i="${i}">✕</button></div>`).join('');
+  document.querySelectorAll('#pmmFileList .rm').forEach(b=>b.addEventListener('click', ()=>{ wizardState.files.splice(+b.dataset.i,1); renderPmmFileList(); }));
+}
+document.getElementById('pmmAttachBackBtn').addEventListener('click', ()=>{
+  document.getElementById('pmmWizardAttach').classList.add('hidden'); document.getElementById('pmmWizardForm').classList.remove('hidden');
+  wizardState.index = pmmSteps.length-1; pmmRenderStep();
+});
+document.getElementById('pmmAttachNextBtn').addEventListener('click', ()=>{
+  document.getElementById('pmmWizardAttach').classList.add('hidden'); document.getElementById('pmmWizardReview').classList.remove('hidden'); renderPmmReview();
+});
+
+function pmmCountCompleted(){
+  let done=0;
+  pmmSteps.forEach(s=>{
+    if(s.kind==='group'){ if(wizardState.answers[s.code].some(item=>Object.values(item).some(v=>v&&v.trim()))) done++; }
+    else { const a=wizardState.answers[s.code]; const has=s.fields.some(f=> f.type==='rows' ? (a[f.key]||[]).some(row=>row.some(c=>c&&c.trim())) : (a[f.key]&&a[f.key].trim())); if(has) done++; }
+  });
+  return done;
+}
+function pmmSubmitLabel(){
+  if(wizardState.mode==='new') return 'Submit for approval';
+  if(wizardState.origStatus==='changes') return 'Resubmit for approval';
+  if(wizardState.origStatus==='draft') return 'Submit for approval';
+  return 'Save changes';
+}
+function renderPmmReview(){
+  const done = pmmCountCompleted();
+  document.getElementById('pmmReviewSummary').innerHTML = `
+    <div class="row-between" style="margin-bottom:8px;"><b>${wizardState.title}</b><span class="pill pill-live">${wizardState.product}</span></div>
+    <div style="color:var(--text-secondary);">${done} of ${pmmSteps.length} sections have content · ${wizardState.files.length} file(s) attached</div>
+    ${done < pmmSteps.length ? '<div style="margin-top:8px;color:var(--text-muted);">Blank sections will show as "not yet provided" in the document — you can fill these in later.</div>' : ''}`;
+  document.getElementById('pmmSubmitBtn').textContent = pmmSubmitLabel();
+}
+document.getElementById('pmmReviewBackBtn').addEventListener('click', ()=>{
+  document.getElementById('pmmWizardReview').classList.add('hidden'); document.getElementById('pmmWizardAttach').classList.remove('hidden'); renderPmmFileList();
+});
+document.getElementById('pmmSubmitBtn').addEventListener('click', ()=>{
+  const label = pmmSubmitLabel();
+  let goId;
+  if(wizardState.docId){
+    const d = pmmDocs.find(x=>x.id===wizardState.docId);
+    d.title=wizardState.title; d.product=wizardState.product; d.answers=wizardState.answers; d.files=wizardState.files; d.updated=pmmToday();
+    if(label==='Save changes'){ if(d.status==='approved'){ d.lastEditedBy='Anupam Rawat'; d.lastEditedAt=pmmToday(); } }
+    else { d.status='pending'; d.submittedBy='Anupam Rawat'; d.submittedAt=pmmToday(); }
+    goId = d.id;
+  } else {
+    const nd = {id:pmmNextId++, title:wizardState.title, product:wizardState.product, status:'pending', owner:'Anupam Rawat', submittedBy:'Anupam Rawat', submittedAt:pmmToday(), updated:pmmToday(), answers:wizardState.answers, files:wizardState.files, comments:[]};
+    pmmDocs.unshift(nd); goId = nd.id;
+  }
+  wizardState = null;
+  renderPmmList();
+  openPmmDoc(goId);
+});
+
+function pmmEnterEditMode(doc){
+  wizardState = {mode:'edit', docId:doc.id, origStatus:doc.status, product:doc.product, title:doc.title, index:0, answers:JSON.parse(JSON.stringify(doc.answers)), files:doc.files.slice()};
+  pmmShowView('view-pmmwizard');
+  document.getElementById('pmmWizardModeLabel').textContent = 'Editing · '+doc.title;
+  document.getElementById('pmmWizardSetup').classList.add('hidden');
+  document.getElementById('pmmWizardAttach').classList.add('hidden');
+  document.getElementById('pmmWizardReview').classList.add('hidden');
+  document.getElementById('pmmWizardForm').classList.remove('hidden');
+  pmmRenderStep();
+}
+
+function pmmRenderAnswerContent(step, value){
+  if(step.kind==='group'){
+    const items = (value||[]).filter(it=>Object.values(it).some(v=>v&&v.trim()));
+    if(!items.length) return '';
+    return items.map(it=>`<div style="margin-bottom:12px;"><b>${it.name||'Persona'}</b><br>${step.groupFields.filter(f=>f.key!=='name').map(f=> it[f.key] ? `<div style="margin-top:4px;"><span style="color:var(--text-muted);">${f.label}:</span> ${it[f.key]}</div>`:'').join('')}</div>`).join('');
+  }
+  let html='';
+  step.fields.forEach(f=>{
+    const v = value[f.key];
+    if(f.type==='rows'){
+      const rows=(v||[]).filter(r=>r.some(c=>c&&c.trim()));
+      if(!rows.length) return;
+      html += `<table><tr>${f.columns.map(c=>`<th>${c}</th>`).join('')}</tr>${rows.map(r=>`<tr>${r.map(c=>`<td>${c||''}</td>`).join('')}</tr>`).join('')}</table>`;
+    } else if(v && v.trim()){ html += `<p><b>${f.label}:</b> ${v}</p>`; }
+  });
+  return html;
+}
+function pmmRenderDoc(doc){
+  let html='';
+  pmmSteps.forEach(s=>{
+    const content = pmmRenderAnswerContent(s, doc.answers[s.code]);
+    html += `<h4>${s.part} · ${s.title}</h4>` + (content || '<p style="color:var(--text-muted);">Not yet provided.</p>');
+  });
+  return html;
+}
+function openPmmDoc(id){
+  const doc = pmmDocs.find(d=>d.id===id);
+  const m = pmmStatusMeta(doc.status);
+  let actions='';
+  if(doc.status==='draft'){
+    actions = `<button class="btn btn-primary" id="pmmContinueBtn"><i class="fa-solid fa-pen"></i> Continue editing</button> <button class="btn btn-danger" id="pmmDeleteBtn"><i class="fa-solid fa-trash"></i> Delete draft</button>`;
+  } else if(doc.status==='pending'){
+    actions = `<div class="pmm-approve-box"><div style="font-weight:500;font-size:13px;margin-bottom:8px;">Director review</div>
+      <textarea id="pmmCommentInput" placeholder="Add a comment (required if requesting changes)..."></textarea>
+      <div style="display:flex;gap:8px;"><button class="btn" id="pmmEditBtn"><i class="fa-solid fa-pen"></i> Edit</button> <button class="btn btn-danger" id="pmmRejectBtn"><i class="fa-solid fa-rotate-left"></i> Request changes</button> <button class="btn btn-primary" id="pmmApproveBtn"><i class="fa-solid fa-check"></i> Approve</button></div></div>`;
+  } else if(doc.status==='changes'){
+    actions = `<button class="btn btn-primary" id="pmmContinueBtn"><i class="fa-solid fa-pen"></i> Revise &amp; resubmit</button>`;
+  } else if(doc.status==='approved'){
+    actions = `<button class="btn" id="pmmEditBtn"><i class="fa-solid fa-pen"></i> Edit document</button> <span style="font-size:12px;color:var(--text-muted);">Editable by PMM Workspace admins only</span>`;
+  }
+  const commentsHtml = (doc.comments||[]).map(c=>`<div class="pmm-callout"><div class="who">${c.who} · ${c.when}</div>${c.text}</div>`).join('');
+  const filesHtml = (doc.files&&doc.files.length) ? `<div class="card" style="margin-top:16px;"><h4 style="margin:0 0 10px;font-size:13px;font-weight:500;">Reference files</h4><div style="display:flex;flex-wrap:wrap;gap:8px;">${doc.files.map(f=>`<div class="filechip"><i class="fa-solid fa-file"></i>${f}</div>`).join('')}</div></div>` : '';
+  document.getElementById('pmmDetailBody').innerHTML = `
+    <div class="row-between" style="margin-bottom:6px;">
+      <div><h1 class="pagetitle" style="margin-bottom:2px;">${doc.title}</h1>
+      <p class="pagesub" style="margin:0;">${doc.product} · owner ${doc.owner} · updated ${doc.updated}${doc.approvedBy?' · approved by '+doc.approvedBy+' on '+doc.approvedAt:''}${doc.lastEditedBy?' · last edited by '+doc.lastEditedBy+' on '+doc.lastEditedAt:''}</p></div>
+      <div style="display:flex;align-items:center;gap:10px;"><span class="pill ${m.cls}">${m.label}</span><button class="btn btn-sm" id="pmmCopyMdBtn"><i class="fa-solid fa-copy"></i> Copy as Markdown</button></div>
+    </div>
+    ${commentsHtml}
+    <div class="card" style="margin-top:14px;">${actions}</div>
+    <div class="card pmm-render" style="margin-top:16px;">${pmmRenderDoc(doc)}</div>
+    ${filesHtml}`;
+  const wire=(elId,fn)=>{ const el=document.getElementById(elId); if(el) el.addEventListener('click',fn); };
+  wire('pmmContinueBtn', ()=>pmmEnterEditMode(doc));
+  wire('pmmEditBtn', ()=>pmmEnterEditMode(doc));
+  wire('pmmDeleteBtn', ()=>{ if(confirm('Delete this draft?')){ pmmDocs=pmmDocs.filter(d=>d.id!==doc.id); renderPmmList(); pmmShowView('view-pmmworkspace'); } });
+  wire('pmmApproveBtn', ()=>{ doc.status='approved'; doc.approvedBy='Director of PMM'; doc.approvedAt=pmmToday(); doc.updated=pmmToday(); renderPmmList(); openPmmDoc(doc.id); });
+  wire('pmmRejectBtn', ()=>{
+    const txt=document.getElementById('pmmCommentInput').value.trim();
+    if(!txt){ alert('Add a comment describing what needs to change.'); return; }
+    doc.status='changes'; doc.comments=doc.comments||[]; doc.comments.push({who:'Director of PMM', when:pmmToday(), text:txt}); doc.updated=pmmToday();
+    renderPmmList(); openPmmDoc(doc.id);
+  });
+  wire('pmmCopyMdBtn', ()=>pmmCopyMarkdown(doc));
+  pmmSetNavActive();
+  pmmShowView('view-pmmdocdetail');
+}
+document.getElementById('pmmDetailBack').addEventListener('click', ()=>{ renderPmmList(); pmmShowView('view-pmmworkspace'); });
+
+function pmmCopyMarkdown(doc){
+  let md = `# ${doc.title}\n\n*${doc.product} · ${pmmStatusMeta(doc.status).label} · updated ${doc.updated}*\n\n`;
+  pmmSteps.forEach(s=>{
+    md += `## ${s.part} · ${s.title}\n\n`;
+    if(s.kind==='group'){
+      const items=(doc.answers[s.code]||[]).filter(it=>Object.values(it).some(v=>v&&v.trim()));
+      if(!items.length) md += '_Not yet provided._\n\n';
+      else items.forEach(it=>{ md += `**${it.name||'Persona'}**\n\n`; s.groupFields.filter(f=>f.key!=='name').forEach(f=>{ if(it[f.key]) md += `- ${f.label}: ${it[f.key]}\n`; }); md += '\n'; });
+    } else {
+      let any=false;
+      s.fields.forEach(f=>{
+        const v=doc.answers[s.code][f.key];
+        if(f.type==='rows'){
+          const rows=(v||[]).filter(r=>r.some(c=>c&&c.trim()));
+          if(rows.length){ any=true; md += `| ${f.columns.join(' | ')} |\n| ${f.columns.map(()=>'---').join(' | ')} |\n`; rows.forEach(r=> md += `| ${r.map(c=>(c||'').replace(/\n/g,' ')).join(' | ')} |\n`); md += '\n'; }
+        } else if(v && v.trim()){ any=true; md += `**${f.label}:** ${v}\n\n`; }
+      });
+      if(!any) md += '_Not yet provided._\n\n';
+    }
+  });
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(md).then(()=>alert('Markdown copied to clipboard.')).catch(()=>alert('Clipboard blocked in this preview.'));
+  } else { alert('Clipboard unavailable in this preview.'); }
+}
+renderPmmList();
+
+/* ---------- CONNECTORS ---------- */
+let connectors = [
+  {id:'canva', name:'Canva', desc:'Populate approved brand templates directly in Asset Studio.', icon:'fa-palette', on:false},
+  {id:'salesforce', name:'Salesforce', desc:'Nightly sync of Win / loss opportunity data.', icon:'fa-cloud', on:true},
+  {id:'sharepoint', name:'SharePoint', desc:'Watches release-note folders per product for the Feature Catalog.', icon:'fa-folder-tree', on:false}
+];
+function renderConnectors(){
+  document.getElementById('connectorList').innerHTML = connectors.map(c=>`
+    <div class="connector-row">
+      <div class="pmmicon"><i class="fa-solid ${c.icon}"></i></div>
+      <div class="pmmmeta"><div class="t">${c.name}</div><div class="s">${c.desc}</div></div>
+      <span class="pill ${c.on?'pill-final':'pill-archived'}">${c.on?'Connected':'Not connected'}</span>
+      <div class="toggle-switch ${c.on?'on':''}" data-id="${c.id}" role="switch" aria-checked="${c.on}"><div class="thumb"></div></div>
+    </div>`).join('');
+  document.querySelectorAll('.toggle-switch').forEach(t=>t.addEventListener('click', ()=>{
+    const c = connectors.find(x=>x.id===t.dataset.id);
+    c.on = !c.on;
+    renderConnectors();
+  }));
+}
+renderConnectors();
+
+/* ---------- GUARDRAILS ---------- */
+let grFiles = [
+  {id:1, name:'About Aurigo', updated:'Jun 2', by:'Rameshwari R (Brand)', desc:'Who Aurigo is, the products, the audiences — baseline context for every answer.',
+   content:"# About Aurigo\n\nAurigo builds capital program management software for public infrastructure and facility owners.\n\n## Products\n- Masterworks — capital planning and delivery for government agencies\n- Essentials — for local and regional agencies\n- Primus — for commercial facility owners\n- Lumina — the AI platform underneath Masterworks AI and Primus AI\n\n*To confirm: official \"About Aurigo\" corporate boilerplate, trademark and legal lines.*"},
+  {id:2, name:'Brand and tone', updated:'Jun 2026', by:'Rameshwari R (Brand)', desc:'Voice rules, banned words, and terminology — so nothing sounds off-brand.',
+   content:"# Brand and tone\n\n## The cardinal rule\nEvery piece of content opens from the reader's world — their decision, constraint, or situation right now. Not from Aurigo.\n\n## The six constants\n- Conversational, not corporate\n- Knowledgeable, not jargon-heavy\n- Confident, not hedged\n- Direct, not passive\n- Reader-first, not product-first\n- Precise, not vague\n\n## Banned phrases\n\"AI-powered\" (except SEO metadata), \"hassle-free\", \"effortlessly\", \"circle back\", \"please feel free to reach out\".\n\n## Terminology\nUse \"program\" for public-sector, \"portfolio\" for commercial. Use \"government agencies\", not \"public agencies\". Use \"right of way\" unhyphenated as a standalone noun."},
+  {id:3, name:'Prompt library', updated:'Aug 5', by:'Anupam Rawat', desc:"Reusable starting prompts surfaced in the chat bar and quick actions.",
+   content:"# Prompt library\n\n## Sales\n- Give me a talk track for a state DOT worried about staff turnover\n- Build a battlecard against Oracle for a Masterworks deal\n- Find proof points for an airport client\n\n## Marketing\n- Write a 60-second video script for the Primus launch\n- Draft a FAQ for Essentials local agency buyers\n\n## PMM\n- Draft a positioning statement for [product] using the April Dunford framework\n- Summarize open inputs still needing confirmation before a doc ships"}
+];
+let grNextId = 4;
+let grEditingId = null;
+
+function renderGrList(){
+  document.getElementById('grList').innerHTML = grFiles.map(f=>`
+    <div class="grfile-row" data-id="${f.id}">
+      <div class="pmmicon"><i class="fa-solid fa-file-lines"></i></div>
+      <div class="pmmmeta"><div class="t">${f.name}</div><div class="s">${f.desc}</div></div>
+      <div class="pmmdate">Updated ${f.updated} · ${f.by}</div>
+    </div>`).join('');
+  document.querySelectorAll('.grfile-row').forEach(r=>r.addEventListener('click', ()=>openGrEdit(+r.dataset.id)));
+}
+function openGrEdit(id){
+  const f = grFiles.find(x=>x.id===id);
+  grEditingId = id;
+  document.getElementById('grEditTitle').value = f.name;
+  document.getElementById('grEditContent').value = f.content;
+  document.getElementById('grEditMeta').textContent = 'Last updated '+f.updated+' by '+f.by;
+  pmmShowView('view-guardrailedit');
+}
+document.getElementById('grNewBtn').addEventListener('click', ()=>{
+  grEditingId = null;
+  document.getElementById('grEditTitle').value = '';
+  document.getElementById('grEditContent').value = '';
+  document.getElementById('grEditMeta').textContent = 'New file — not yet saved';
+  pmmShowView('view-guardrailedit');
+});
+document.getElementById('grEditBack').addEventListener('click', ()=> pmmShowView('view-guardrails'));
+document.getElementById('grSaveBtn').addEventListener('click', ()=>{
+  const name = document.getElementById('grEditTitle').value.trim() || 'Untitled file';
+  const content = document.getElementById('grEditContent').value;
+  if(grEditingId){
+    const f = grFiles.find(x=>x.id===grEditingId);
+    f.name=name; f.content=content; f.updated=pmmToday(); f.by='Anupam Rawat';
+  } else {
+    grFiles.push({id:grNextId++, name, content, updated:pmmToday(), by:'Anupam Rawat', desc:'Custom guardrail file.'});
+  }
+  renderGrList();
+  pmmShowView('view-guardrails');
+});
+renderGrList();
+
+/* ---------- ROUNDED DROPDOWNS (replace native select popups) ---------- */
+function closeAllDD(){
+  document.querySelectorAll('.dd-panel.open').forEach(p=>p.classList.remove('open'));
+  document.querySelectorAll('.dd-btn.open').forEach(b=>b.classList.remove('open'));
+}
+function enhanceSelect(select){
+  if(select.dataset.enhanced) return;
+  select.dataset.enhanced = "1";
+
+  const wrap = document.createElement('span');
+  wrap.className = 'dd';
+
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'dd-btn';
+  btn.textContent = select.options[select.selectedIndex] ? select.options[select.selectedIndex].textContent : '';
+
+  const panel = document.createElement('div');
+  panel.className = 'dd-panel';
+
+  Array.prototype.forEach.call(select.options, opt=>{
+    const item = document.createElement('div');
+    item.className = 'dd-option' + (opt.value === select.value ? ' selected' : '');
+    item.textContent = opt.textContent;
+    item.addEventListener('click', ()=>{
+      select.value = opt.value;
+      select.dispatchEvent(new Event('change'));
+      btn.textContent = opt.textContent;
+      panel.querySelectorAll('.dd-option').forEach(o=>o.classList.remove('selected'));
+      item.classList.add('selected');
+      closeAllDD();
+    });
+    panel.appendChild(item);
+  });
+
+  btn.addEventListener('click', e=>{
+    e.stopPropagation();
+    const wasOpen = panel.classList.contains('open');
+    closeAllDD();
+    if(!wasOpen){ panel.classList.add('open'); btn.classList.add('open'); }
+  });
+
+  wrap.appendChild(btn);
+  wrap.appendChild(panel);
+  select.style.display = 'none';
+  select.parentNode.insertBefore(wrap, select);
+}
+document.addEventListener('click', closeAllDD);
+document.querySelectorAll('select').forEach(enhanceSelect);
+</script>
+</body>
+</html>

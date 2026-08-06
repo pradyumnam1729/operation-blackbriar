@@ -66,39 +66,70 @@ export function matchProductByFilename<T extends { name: string }>(
   );
 }
 
+export interface ContentClassification {
+  docType: string | null;
+  productName: string | null;
+}
+
 /**
- * Content-based classification for files whose name carries no type signal
- * (e.g. "Asset condition management_ product walkthrough and feedback.docx"
- * is a call transcript, not a release note). Cheap Haiku call over the first
- * few thousand characters; null on any failure so the folder default applies.
+ * Content-based classification for type and product. Type matters when the
+ * filename carries no signal (e.g. "Asset condition management_ product
+ * walkthrough and feedback.docx" is a call transcript, not a release note);
+ * product matters so questionnaire evidence is scoped to the product it is
+ * actually about. Cheap Haiku call over the first few thousand characters;
+ * nulls on any failure so the caller's defaults apply.
  */
-export async function classifyDocTypeByContent(text: string): Promise<string | null> {
-  if (!process.env.ANTHROPIC_API_KEY) return null;
+export async function classifyContent(
+  text: string,
+  productNames: string[]
+): Promise<ContentClassification> {
+  const none: ContentClassification = { docType: null, productName: null };
+  if (!process.env.ANTHROPIC_API_KEY) return none;
   try {
     const client = new Anthropic();
     const res = await client.messages.create({
       model: "claude-haiku-4-5-20251001",
-      max_tokens: 10,
+      max_tokens: 100,
       system: [
-        "Classify the document excerpt as exactly one of: release_note, prd, jtbd, transcript, battlecard, other.",
+        "Classify the document excerpt. Return ONLY a JSON object, no fences, no commentary:",
+        '{"doc_type":"<label>","product":"<name or shared>"}',
+        "",
+        "doc_type is exactly one of: release_note, prd, jtbd, transcript, battlecard, other.",
         "transcript = a transcription of a call, meeting, demo, or walkthrough (speaker turns, dialogue, timestamps, conversational filler).",
         "release_note = product release/version notes listing shipped changes.",
         "prd = product requirements document. jtbd = jobs-to-be-done research.",
         "battlecard = competitive sales battlecard. Anything else = other.",
-        "Reply with the label only.",
+        "",
+        `product is the ONE product this document is about, chosen from exactly this list: ${productNames.join(", ")}.`,
+        'If the document spans several products, matches none of them, or you are not confident, use "shared".',
       ].join("\n"),
       messages: [{ role: "user", content: text.slice(0, 6000) }],
     });
-    const label = res.content
+    const raw = res.content
       .filter((b): b is Anthropic.TextBlock => b.type === "text")
       .map((b) => b.text)
       .join("")
-      .trim()
-      .toLowerCase();
-    return DOC_TYPES.includes(label) ? label : null;
+      .trim();
+    const start = raw.indexOf("{");
+    const end = raw.lastIndexOf("}");
+    if (start === -1 || end <= start) return none;
+    const parsed = JSON.parse(raw.slice(start, end + 1)) as {
+      doc_type?: unknown;
+      product?: unknown;
+    };
+    const docType =
+      typeof parsed.doc_type === "string" && DOC_TYPES.includes(parsed.doc_type.toLowerCase())
+        ? parsed.doc_type.toLowerCase()
+        : null;
+    const productName =
+      typeof parsed.product === "string"
+        ? productNames.find((n) => n.toLowerCase() === (parsed.product as string).toLowerCase()) ??
+          null
+        : null;
+    return { docType, productName };
   } catch (err) {
     console.error("[local-folders] content classification failed:", (err as Error).message);
-    return null;
+    return none;
   }
 }
 
@@ -150,14 +181,23 @@ async function ingestOne(filePath: string, cfg: LocalFoldersConfig): Promise<str
   if (status !== "done" || text.trim() === "") return `skipped ${filename} (${status})`;
 
   const { data: products } = await sb.from("products").select("id, name, line");
-  const product =
+
+  // Classify per file — type AND product. Filename first, then content, then
+  // the folder defaults. A doc scoped to the wrong product would feed another
+  // product's questionnaire, so an unconfident product match stays null (shared).
+  let docType = detectDocType(filename);
+  let product = matchProductByFilename(filename, products ?? []);
+  if (!docType || !product) {
+    const cls = await classifyContent(text, (products ?? []).map((p) => p.name));
+    docType = docType ?? cls.docType;
+    product =
+      product ?? products?.find((p) => p.name === cls.productName) ?? null;
+  }
+  docType = docType ?? cfg.docType;
+  const lineDefault =
     products?.find(
       (p) => cfg.productLine && p.line.toLowerCase() === cfg.productLine!.toLowerCase()
     ) ?? null;
-
-  // Classify per file: filename first, then content, then the folder default.
-  const docType =
-    detectDocType(filename) ?? (await classifyDocTypeByContent(text)) ?? cfg.docType;
 
   // Chunk into the knowledge base first (dedupe happens here). Admin-configured
   // source, so documents are AI-enabled immediately.
@@ -168,7 +208,7 @@ async function ingestOne(filePath: string, cfg: LocalFoldersConfig): Promise<str
     source: "local_folder",
     docType,
     productId: product?.id ?? null,
-    productName: product?.name ?? cfg.productLine ?? null,
+    productName: product?.name ?? null,
     aiEnabled: true,
   });
   if (ingest.deduped) {
@@ -176,7 +216,7 @@ async function ingestOne(filePath: string, cfg: LocalFoldersConfig): Promise<str
   }
 
   if (docType === "release_note") {
-    const releaseProduct = product ?? products?.[0];
+    const releaseProduct = product ?? lineDefault ?? products?.[0];
     if (!releaseProduct) return `no product match for ${filename}`;
     const { data: rn } = await sb
       .from("release_notes")
@@ -207,13 +247,12 @@ async function ingestOne(filePath: string, cfg: LocalFoldersConfig): Promise<str
   // The Foundation Questionnaire extracts from context_docs, not the chunked
   // knowledge base — mirror non-release-note docs there or the questionnaire
   // reports "no sources" even though retrieval can see the file.
-  const ctxProduct = matchProductByFilename(filename, products ?? []);
   await sb.from("context_docs").delete().eq("title", filename).eq("source", "folder_watch");
   await sb.from("context_docs").insert({
     title: filename,
     source: "folder_watch",
     doc_type: docType,
-    product_id: ctxProduct?.id ?? null,
+    product_id: product?.id ?? null,
     content: text.slice(0, 200_000),
     approved: false,
   });
