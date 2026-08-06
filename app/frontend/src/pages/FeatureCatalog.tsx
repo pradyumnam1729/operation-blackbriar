@@ -46,6 +46,14 @@ interface ProcessResult {
   ai_unavailable: boolean;
 }
 
+interface BuildResult {
+  applied: number;
+  queued: number;
+  skipped: number;
+  extracted: number;
+  documents_used: string[];
+}
+
 const STATUS_PILL: Record<Feature["status"], { cls: string; label: string }> = {
   active: { cls: "pill-live", label: "Live" },
   changed: { cls: "pill-changed", label: "Changed" },
@@ -95,6 +103,10 @@ export function FeatureCatalog() {
   const [procFilename, setProcFilename] = useState("");
   const [procText, setProcText] = useState("");
   const [procResult, setProcResult] = useState<ProcessResult | null>(null);
+
+  // Build-from-documents (admin)
+  const [buildBusy, setBuildBusy] = useState(false);
+  const [buildResult, setBuildResult] = useState<BuildResult | null>(null);
 
   // Release-note deep link: scroll to + flash the matching note entry (or the card).
   const notesCardRef = useRef<HTMLDivElement | null>(null);
@@ -171,6 +183,23 @@ export function FeatureCatalog() {
 
   const refreshAll = async () => {
     await Promise.all([loadCatalog(productId), loadReviews()]);
+  };
+
+  const buildFromDocs = async () => {
+    setBuildBusy(true);
+    setError("");
+    setBuildResult(null);
+    try {
+      const r = await apiPost<BuildResult>("/api/features/build-from-documents", {
+        product_id: productId,
+      });
+      setBuildResult(r);
+      await refreshAll();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBuildBusy(false);
+    }
   };
 
   const processNote = async () => {
@@ -250,8 +279,9 @@ export function FeatureCatalog() {
     <div>
       <h1 className="pagetitle">Product feature catalog</h1>
       <p className="pagesub">
-        What each module ships, when it shipped, and what changed — kept current from processed
-        release notes across the product life cycle.
+        What each module ships, when it shipped, and what changed — built from the uploaded
+        documents in the knowledge base and kept current from processed release notes across the
+        product life cycle.
       </p>
 
       {error && <p style={{ color: "var(--red)" }}>{error}</p>}
@@ -266,10 +296,50 @@ export function FeatureCatalog() {
               </option>
             ))}
           </select>
-          <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>
-            {productName ? `${productName} · ${features.length} feature${features.length === 1 ? "" : "s"}` : ""}
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 12 }}>
+            <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+              {productName ? `${productName} · ${features.length} feature${features.length === 1 ? "" : "s"}` : ""}
+            </span>
+            {isAdmin && (
+              <button
+                className="btn btn-primary btn-sm"
+                onClick={buildFromDocs}
+                disabled={buildBusy || !productId}
+                title="Extract this product's features from the uploaded documents in the knowledge base"
+              >
+                <i className="fa-solid fa-wand-magic-sparkles" />{" "}
+                {buildBusy ? "Building…" : "Build from documents"}
+              </button>
+            )}
           </span>
         </div>
+        {buildBusy && (
+          <p style={{ fontSize: 12.5, color: "var(--text-muted)", margin: "0 0 12px" }}>
+            Reading the knowledge base and extracting features for {productName}… this can take up
+            to a minute.
+          </p>
+        )}
+        {buildResult && !buildBusy && (
+          <div
+            style={{
+              background: "#F2FAFB",
+              border: "1px solid var(--border)",
+              borderRadius: "var(--r-md)",
+              padding: "10px 14px",
+              marginBottom: 12,
+              fontSize: 12.5,
+              color: "var(--text-secondary)",
+            }}
+          >
+            <strong style={{ color: "var(--text-primary)" }}>
+              {buildResult.extracted} feature{buildResult.extracted === 1 ? "" : "s"} extracted
+            </strong>{" "}
+            — {buildResult.applied} applied to the catalog, {buildResult.queued} queued for review
+            {buildResult.skipped > 0 ? `, ${buildResult.skipped} already in the catalog` : ""}.
+            <br />
+            Sources: {buildResult.documents_used.join(", ")}
+          </div>
+        )}
         <div
           className="row-between"
           style={{ background: "var(--bg-page)", borderRadius: "var(--r-md)", padding: "12px 16px" }}
@@ -445,11 +515,18 @@ export function FeatureCatalog() {
                       Confidence: {Math.round(Number(r.confidence) * 100)}%
                     </span>
                   </div>
-                  {r.release_notes?.filename && (
+                  {r.release_notes?.filename ? (
                     <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "6px 0 0" }}>
                       from {r.release_notes.filename}
                     </p>
-                  )}
+                  ) : r.proposed.source === "knowledge_base" ? (
+                    <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "6px 0 0" }}>
+                      from uploaded documents
+                      {Array.isArray(r.proposed.source_documents)
+                        ? `: ${(r.proposed.source_documents as string[]).join(", ")}`
+                        : ""}
+                    </p>
+                  ) : null}
                   <div style={{ fontSize: 12.5, color: "var(--text-secondary)", margin: "10px 0 14px" }}>
                     {PROPOSED_FIELDS.filter(
                       ([key]) => typeof r.proposed[key] === "string" && r.proposed[key] !== ""

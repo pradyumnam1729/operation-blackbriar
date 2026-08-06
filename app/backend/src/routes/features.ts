@@ -337,6 +337,157 @@ featuresRouter.post("/process", requireAdmin, async (req, res) => {
   res.json({ applied, queued, ai_unavailable: aiUnavailable, release_note_id: note.id });
 });
 
+// ---------- POST /build-from-documents — build the catalog from the knowledge base ----------
+// Uses the uploaded/ingested documents (PRDs, transcripts, etc.) as the source
+// instead of a release note. Same confidence gate: >= 0.75 lands in the catalog,
+// below that goes to the review queue with the source documents recorded.
+featuresRouter.post("/build-from-documents", requireAdmin, async (req, res) => {
+  const sb = supabase();
+  if (!sb) return res.status(503).json({ error: "Database not configured" });
+
+  const { product_id } = (req.body ?? {}) as { product_id?: string };
+  if (!product_id) return res.status(400).json({ error: "product_id is required" });
+
+  const { data: product } = await sb
+    .from("products")
+    .select("id, name, line, module")
+    .eq("id", product_id)
+    .single();
+  if (!product) return res.status(404).json({ error: "Product not found" });
+
+  // Candidate sources: AI-enabled knowledge-base documents tagged to this
+  // product, plus untagged ones (uploads often carry no product); the prompt
+  // is told to keep only content that is clearly about this product.
+  const { data: docs, error: docsError } = await sb
+    .from("documents")
+    .select("id, title, doc_type, product_id")
+    .eq("ai_enabled", true)
+    .or(`product_id.eq.${product_id},product_id.is.null`);
+  if (docsError) return res.status(500).json({ error: docsError.message });
+  if (!docs || docs.length === 0) {
+    return res.status(400).json({
+      error:
+        "No AI-enabled documents are available for this product. Upload documents (or drop them in the Input folder) and enable them for AI in the Uploads console.",
+    });
+  }
+
+  // Product-tagged documents first so they survive the size cap.
+  const ordered = [...docs].sort(
+    (a, b) => Number(b.product_id === product_id) - Number(a.product_id === product_id)
+  );
+
+  const { data: chunks, error: chunksError } = await sb
+    .from("document_chunks")
+    .select("document_id, chunk_index, content")
+    .in("document_id", ordered.map((d) => d.id))
+    .order("chunk_index", { ascending: true });
+  if (chunksError) return res.status(500).json({ error: chunksError.message });
+
+  const CORPUS_CAP = 120_000;
+  let corpus = "";
+  const docsUsed: string[] = [];
+  for (const doc of ordered) {
+    const body = (chunks ?? [])
+      .filter((c) => c.document_id === doc.id)
+      .map((c) => c.content)
+      .join("\n");
+    if (body.trim() === "") continue;
+    const block = `\n=== SOURCE DOCUMENT: ${doc.title} [${doc.doc_type}] ===\n${body}\n`;
+    if (corpus.length + block.length > CORPUS_CAP) {
+      const room = CORPUS_CAP - corpus.length;
+      if (room > 2000) {
+        corpus += block.slice(0, room);
+        docsUsed.push(`${doc.title} (truncated)`);
+      }
+      break;
+    }
+    corpus += block;
+    docsUsed.push(doc.title);
+  }
+  if (corpus.trim() === "") {
+    return res.status(400).json({ error: "The selected documents have no readable text chunks." });
+  }
+
+  // Skip names the catalog already has for this product so rebuilds are idempotent.
+  const { data: existingRows } = await sb
+    .from("features")
+    .select("name")
+    .eq("product_id", product_id);
+  const existingNames = new Set((existingRows ?? []).map((f) => f.name.trim().toLowerCase()));
+
+  let extracted: ExtractedFeature[] = [];
+  try {
+    const prompt = [
+      `Build the feature catalog for the product "${product.name}" (${product.line} line, ${product.module} module) from the source documents below.`,
+      "The documents are PRDs, walkthrough transcripts, and other uploaded material. Some may cover OTHER products — use only content that is clearly about this product.",
+      "Respond with ONLY a JSON array — no prose before or after — of objects with exactly these keys:",
+      '{"name": string, "description": string, "category": string, "release_date": "YYYY-MM-DD" or null, "change_type": "added", "confidence": number between 0 and 1}',
+      "Rules:",
+      "- One object per distinct, concrete product capability. Aim for the 10-25 most important; no duplicates, no vague themes.",
+      "- Only include capabilities actually described in the documents — never invent. confidence reflects how explicitly the sources support the entry.",
+      "- description is one buyer-readable sentence. category is a short area label (e.g. Inspections, Work Orders).",
+      "- release_date is null unless a document states a real date for that capability.",
+      "",
+      corpus,
+    ].join("\n");
+
+    const answer = await ask(prompt, { maxTokens: 8000 });
+    extracted = parseExtraction(answer);
+  } catch (err) {
+    console.error("[features/build-from-documents] AI extraction failed:", (err as Error).message);
+    return res.status(502).json({ error: `AI extraction failed: ${(err as Error).message}` });
+  }
+  if (extracted.length === 0) {
+    return res
+      .status(422)
+      .json({ error: "The model returned no feature entries from these documents." });
+  }
+
+  let applied = 0;
+  let queued = 0;
+  let skipped = 0;
+  for (const item of extracted) {
+    const key = item.name.trim().toLowerCase();
+    if (existingNames.has(key)) {
+      skipped += 1;
+      continue;
+    }
+    if (item.confidence >= 0.75) {
+      try {
+        await applyChange(sb, product_id, item, null, req.user?.id ?? null);
+        applied += 1;
+        existingNames.add(key);
+        continue;
+      } catch (err) {
+        console.error(
+          "[features/build-from-documents] apply failed, queueing for review:",
+          (err as Error).message
+        );
+      }
+    }
+    const { error } = await sb.from("feature_reviews").insert({
+      release_note_id: null,
+      product_id,
+      proposed: { ...item, source: "knowledge_base", source_documents: docsUsed },
+      change_type: item.change_type,
+      confidence: item.confidence,
+      status: "pending",
+    });
+    if (!error) queued += 1;
+  }
+
+  await logActivity("product", product_id, req.user?.id ?? null, "catalog_built_from_documents", {
+    product: product.name,
+    documents: docsUsed,
+    extracted: extracted.length,
+    applied,
+    queued,
+    skipped,
+  });
+
+  res.json({ applied, queued, skipped, extracted: extracted.length, documents_used: docsUsed });
+});
+
 // ---------- GET /reviews — review queue with product names ----------
 featuresRouter.get("/reviews", requireAdmin, async (req, res) => {
   const sb = supabase();
