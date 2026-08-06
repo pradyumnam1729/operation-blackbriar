@@ -4,62 +4,30 @@ import { ask } from "./claude";
 import { markdownToHtml } from "./html";
 import { chunksToContext, retrieveChunks } from "./ingestion";
 import { readUrl, searchWeb } from "./jina";
+import {
+  assertAgentEnabled,
+  composeAgentPrompt,
+  getAgentConfig,
+  resolveModel,
+} from "./agents";
+import { COMPETITIVE_EVIDENCE_RULES, COMPETITIVE_PRODUCT_MAP } from "./agentPrompts";
 
 // Competitive Intelligence engine. Competitor facts come ONLY from scraped
 // sources (Jina Reader); Aurigo facts come ONLY from the knowledge base
 // (local folders + uploads) and the war room. The model is instructed to say
 // "not confirmed in available sources" rather than invent.
+//
+// PRODUCT_MAP + EVIDENCE_RULES are the `competitive-compare` agent's
+// overridable body (canonical text in agentPrompts.ts, re-exported here); the
+// scraped-sources / knowledge-base / question blocks are locked runtime
+// structure appended by composeAgentPrompt (Agents blueprint §2.2-3).
 
 const STALE_DAYS = 30;
 
 // Aurigo product mapping — the routing brief given to the model verbatim.
-const PRODUCT_MAP = `
-AURIGO PRODUCT MAPPING — pick the ONE Aurigo product that actually competes
-with this competitor; compare against multiple only if the competitor genuinely
-spans multiple markets. State which product you compared and why (one line).
+export const PRODUCT_MAP = COMPETITIVE_PRODUCT_MAP;
 
-- Aurigo Primus — AI-native capital program platform for commercial facility
-  owners: data centers, energy/utilities, manufacturing, life sciences.
-  Modules: Plan (capital planning/portfolio optimization), Build (construction
-  PM/execution), ROW (right-of-way/land acquisition), Community Engagement,
-  Docs, Primus AI (scenario planning/optimization). Differentiators: single
-  connected platform across plan -> ROW -> build, AI-native scenario modeling
-  embedded in planning, pre-built ERP integration (SAP/Oracle), deploys in
-  months. Known gap: launched Dec 2025, no large closed commercial reference
-  base yet — be honest about this if the competitor has an established
-  customer base. Compare here for: data center, energy/utility, manufacturing,
-  life-sciences owner-side tools (e.g. Procore, Kahua commercial, Autodesk ACC,
-  Oracle Primavera, Planview, Sitetracker).
-
-- Aurigo Masterworks — end-to-end capital program platform for public sector
-  agencies (federal, state, large local gov) managing $100M+ annual capital
-  spend: capital planning -> design -> ROW -> construction -> maintenance.
-  Built-in federal compliance (Davis-Bacon, DBE/MBE/WBE, Buy America, NEPA),
-  FHWA/FTA/FRA reimbursement tracking, GIS-integrated mapping, multi-agency
-  portfolio management, AI Copilot/Prediction Agents. 20+ years, 12 state
-  DOTs, 24 states. Compare here for: DOT/transit/airport/public-works
-  software, government capital program tools.
-
-- Aurigo Essentials — capital management for mid-market agencies (50-500
-  users, $50M-$500M annual capital spend) without enterprise complexity: core
-  project management, vendor/contract management, pre-built federal compliance
-  templates, 50+ standard reports, SSO/AD integration. Compare here for
-  smaller/simpler public-sector competitors.
-`;
-
-const EVIDENCE_RULES = `
-EVIDENCE RULES (non-negotiable):
-- Competitor facts: only state what is actually present in the SCRAPED
-  COMPETITOR SOURCES below. If something cannot be confirmed there, write
-  "not confirmed in available sources" — never invent a competitor capability,
-  quote, customer, or price.
-- Aurigo facts: ground them in the AURIGO KNOWLEDGE BASE excerpts and war-room
-  content provided. Do not invent Aurigo capabilities either.
-- Answer the actual question directly and briefly: a short feature table or a
-  plain list of the top N differences, whichever fits the question. No filler.
-- Open with one line naming the Aurigo product compared and why.
-- End with a Sources line listing the competitor URLs used.
-`;
+export const EVIDENCE_RULES = COMPETITIVE_EVIDENCE_RULES;
 
 export interface CompetitorRow {
   id: string;
@@ -230,6 +198,11 @@ export async function compare(
     );
   }
 
+  // Agent config (Agents tab): body = prompt_override ?? PRODUCT_MAP+EVIDENCE_RULES.
+  // Disabled agent -> AgentError(409), mapped by the route (kill switch, §0.1-5).
+  const cfg = await getAgentConfig("competitive-compare");
+  assertAgentEnabled(cfg);
+
   const chunks = await retrieveChunks(`${question} ${competitor.name}`, 10);
   const productHint = productOverride ?? competitor.aurigo_product;
 
@@ -240,10 +213,11 @@ export async function compare(
     )
     .join("\n\n");
 
-  const prompt = [
-    PRODUCT_MAP,
+  // Locked runtime structure. Documented ordering delta (§2.2-3): the registry
+  // hint line now follows the whole body instead of sitting between PRODUCT_MAP
+  // and EVIDENCE_RULES — advisory, not structural.
+  const lockedSuffix = [
     productHint ? `Registry hint: this competitor is usually compared against Aurigo ${productHint}. Override only if the question clearly targets a different market.` : "",
-    EVIDENCE_RULES,
     "=== SCRAPED COMPETITOR SOURCES ===",
     competitorContext,
     chunks.length > 0 ? `=== AURIGO KNOWLEDGE BASE (ground truth) ===\n${chunksToContext(chunks)}` : "",
@@ -251,6 +225,8 @@ export async function compare(
   ]
     .filter((s) => s !== "")
     .join("\n\n");
+
+  const prompt = composeAgentPrompt(cfg, {}, lockedSuffix);
 
   const sourceMeta = sources.map((s) => ({
     url: s.url,
@@ -260,7 +236,7 @@ export async function compare(
   const evidenceMeta = chunks.map((c) => ({ title: c.title, docType: c.doc_type }));
 
   try {
-    const md = await ask(prompt, { maxTokens: 8000 });
+    const md = await ask(prompt, { maxTokens: 8000, model: resolveModel(cfg) });
     const answerHtml = markdownToHtml(md);
     const { data: row } = await sb
       .from("comparisons")

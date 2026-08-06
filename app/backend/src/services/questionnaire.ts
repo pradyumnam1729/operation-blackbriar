@@ -1,5 +1,11 @@
 import { supabase } from "./db";
 import { ask } from "./claude";
+import {
+  assertAgentEnabled,
+  composeAgentPrompt,
+  getAgentConfig,
+  resolveModel,
+} from "./agents";
 
 // Foundation Questionnaire extraction pipeline (blueprint §3.1). Two evidence
 // passes (transcripts, documents) answer the seeded question bank with cited
@@ -233,8 +239,8 @@ interface RawAnswerEnvelope {
 }
 
 /** ask() + parseModelJson with one repair retry (blueprint §3.1). */
-async function askJson<T>(prompt: string, extraContext?: string): Promise<T> {
-  const opts = { extraContext, maxTokens: 16000 };
+async function askJson<T>(prompt: string, extraContext?: string, model?: string): Promise<T> {
+  const opts = { extraContext, maxTokens: 16000, model };
   try {
     return parseModelJson<T>(await ask(prompt, opts));
   } catch {
@@ -243,62 +249,41 @@ async function askJson<T>(prompt: string, extraContext?: string): Promise<T> {
   }
 }
 
-function extractionPrompt(
-  product: { name: string; line: string | null },
-  pass: "transcripts" | "documents",
-  questions: QuestionRow[]
+// The overridable extraction/merge bodies live in agentPrompts.ts and reach
+// the model through the `fq-extraction` / `fq-merge` agent config
+// (composeAgentPrompt). The suffix builders below are the LOCKED contract
+// tails — parseModelJson/sanitizeCandidate consume their JSON shape, so they
+// are code-owned and appended unconditionally (Agents blueprint §0.1-2).
+
+/** LOCKED contract suffix for `fq-extraction`: question list + JSON demand. */
+export function buildExtractionSuffix(
+  questions: Pick<QuestionRow, "id" | "prompt" | "guidance">[]
 ): string {
-  const sourceType =
-    pass === "transcripts" ? "call transcripts" : "product documents (PRDs, specs, release notes)";
   const questionsJson = JSON.stringify(
     questions.map((q) => ({ id: q.id, prompt: q.prompt, guidance: q.guidance ?? "" }))
   );
-  return `You are running an evidence-extraction pass for the Foundation Questionnaire.
-
-Product: ${product.name} (${product.line ?? product.name} line).
-Source type for this pass: ${sourceType}.
-The source documents are in the ADDITIONAL WAR ROOM CONTEXT above, each wrapped in <doc id="..." title="...">.
-
-Answer ONLY the questions listed below, using ONLY what the source documents state.
-Rules:
-- Never infer, never fill gaps with prior knowledge, never invent numbers, names, or quotes.
-- If the sources do not support a question, OMIT that question from the output entirely.
-- content: a concise factual answer (max 120 words) preserving concrete numbers and raw customer phrasing.
-- sources: every doc you drew from, each with a verbatim evidence quote of at most 25 words.
-- confidence: 0.0-1.0. 0.9+ = stated explicitly and completely; 0.5 = partial or indirect; below 0.3 = omit the question instead.
-- This is internal fact capture, not customer-facing copy: record facts and quotes exactly as stated, even if the wording violates brand voice.
-
-Questions (JSON):
+  return `Questions (JSON):
 ${questionsJson}
 
 Return ONLY valid JSON — no markdown fences, no commentary — matching exactly:
 {"answers":[{"question_id":"A1-Q1","content":"...","confidence":0.85,"sources":[{"doc_id":"<uuid from the doc tag>","title":"<doc title>","evidence":"<verbatim quote>"}]}]}`;
 }
 
-interface MergeItem {
+export interface MergeItem {
   question_id: string;
   prompt: string;
   transcript_candidate: Candidate | null;
   document_candidate: Candidate | null;
 }
 
-function mergePrompt(items: MergeItem[], feedback?: string): string {
-  const feedbackLine = feedback
-    ? `\n- The PMM reviewer rejected the previous proposal with this feedback — address it directly: "${feedback}"`
+/** LOCKED contract suffix for `fq-merge`. The PMM-feedback line is runtime
+ *  reviewer text (never admin config), so it rides at the top of the suffix —
+ *  after the body and any custom instructions, before the JSON contract. */
+export function buildMergeSuffix(items: MergeItem[], feedback?: string): string {
+  const feedbackBlock = feedback
+    ? `- The PMM reviewer rejected the previous proposal with this feedback — address it directly: "${feedback}"\n\n`
     : "";
-  return `You are reconciling two evidence-extraction passes for the Foundation Questionnaire.
-For each question below you are given a transcript candidate and a document candidate,
-each with source citations.
-
-Propose ONE merged answer per question:
-- Prefer facts the two candidates agree on.
-- Where they conflict: keep the DOCUMENT version for product facts and the TRANSCRIPT
-  version for customer language, and append one bracketed note: [Conflict: <one sentence>].
-- Preserve vivid raw customer phrasing from transcripts.
-- sources: the union of both candidates' citations. Never invent or drop a citation.
-- confidence: the maximum of the two when they agree, the minimum when they conflict.${feedbackLine}
-
-Questions and candidates (JSON):
+  return `${feedbackBlock}Questions and candidates (JSON):
 ${JSON.stringify(items)}
 
 Return ONLY valid JSON: {"answers":[{"question_id":"...","content":"...","confidence":0.8,"sources":[...]}]}`;
@@ -346,8 +331,22 @@ export async function runExtractionPass(
     const sources = await gatherSources(productId, pass);
     if (sources.length === 0) throw new Error(`No ${pass} ingested for this product.`);
 
+    // Agent config, loaded once per run (mid-run changes apply to the next
+    // run, §0.1-7). Disabled -> AgentError; the outer catch records its
+    // message via finishRun('failed', ...) — the kill-switch surface (§0.1-5).
+    const cfg = await getAgentConfig("fq-extraction");
+    assertAgentEnabled(cfg);
+    const model = resolveModel(cfg);
+    const p = product as { name: string; line: string | null };
+    const sourceType =
+      pass === "transcripts" ? "call transcripts" : "product documents (PRDs, specs, release notes)";
+
     const batches = batchDocs(sources);
-    const prompt = extractionPrompt(product as { name: string; line: string | null }, pass, questions);
+    const prompt = composeAgentPrompt(
+      cfg,
+      { product_name: p.name, product_line: p.line ?? p.name, source_type: sourceType },
+      buildExtractionSuffix(questions)
+    );
     const column = pass === "transcripts" ? "transcript_candidate" : "document_candidate";
     const best = new Map<string, Candidate>();
 
@@ -359,7 +358,7 @@ export async function runExtractionPass(
 
       let parsed: RawAnswerEnvelope;
       try {
-        parsed = await askJson<RawAnswerEnvelope>(prompt, docsXml);
+        parsed = await askJson<RawAnswerEnvelope>(prompt, docsXml, model);
       } catch {
         await finishRun(
           runId,
@@ -425,6 +424,12 @@ export async function runMergePass(productId: string, runId: string): Promise<vo
     const sb = supabase();
     if (!sb) throw new Error("Database not configured");
 
+    // Agent config for the merge proposer (§0.1-5/-7: loaded once at run
+    // start; disabled -> failed run naming the Agents tab via the catch).
+    const cfg = await getAgentConfig("fq-merge");
+    assertAgentEnabled(cfg);
+    const model = resolveModel(cfg);
+
     const questions = await loadQuestionBank();
     const { data: answerData } = await sb
       .from("fq_answers")
@@ -486,7 +491,11 @@ export async function runMergePass(productId: string, runId: string): Promise<vo
 
       let parsed: RawAnswerEnvelope;
       try {
-        parsed = await askJson<RawAnswerEnvelope>(mergePrompt(items));
+        parsed = await askJson<RawAnswerEnvelope>(
+          composeAgentPrompt(cfg, {}, buildMergeSuffix(items)),
+          undefined,
+          model
+        );
       } catch {
         await finishRun(
           runId,
@@ -561,6 +570,11 @@ export async function regenerateMerge(answerId: string, feedback: string): Promi
     .eq("id", row.question_id)
     .single();
 
+  // Agent config: synchronous path — a disabled agent throws AgentError(409),
+  // which the decision route maps to its status (kill switch, §0.1-5).
+  const cfg = await getAgentConfig("fq-merge");
+  assertAgentEnabled(cfg);
+
   const items: MergeItem[] = [
     {
       question_id: row.question_id,
@@ -569,7 +583,11 @@ export async function regenerateMerge(answerId: string, feedback: string): Promi
       document_candidate: document,
     },
   ];
-  const parsed = await askJson<RawAnswerEnvelope>(mergePrompt(items, feedback));
+  const parsed = await askJson<RawAnswerEnvelope>(
+    composeAgentPrompt(cfg, {}, buildMergeSuffix(items, feedback)),
+    undefined,
+    resolveModel(cfg)
+  );
 
   const { allowed, titles } = candidateSourceIndex(transcript, document);
   const proposed = sanitizeCandidate((parsed.answers ?? [])[0], allowed, titles);

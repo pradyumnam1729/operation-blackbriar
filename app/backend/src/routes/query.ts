@@ -5,23 +5,20 @@ import { logQuery } from "../services/db";
 import { markdownToHtml } from "../services/html";
 import { requireAuth } from "../middleware/auth";
 import { chunksToContext, retrieveChunks } from "../services/ingestion";
+import {
+  AgentError,
+  assertAgentEnabled,
+  composeAgentPrompt,
+  getAgentConfig,
+  resolveModel,
+} from "../services/agents";
+import { ROLE_FRAMING } from "../services/agentPrompts";
 
-// Persona output framing — Master Instructions §9.2. Every answer is shaped
-// for the asker's role and their metric language (§3.3).
-const ROLE_FRAMING: Record<string, string> = {
-  sales:
-    "The asker is in Sales, supporting an active deal. Frame the answer as talk tracks, objection handling, competitive proof points. Their metrics: SQLs, win rates, deal velocity, pipeline value, average deal size.",
-  proposals:
-    "The asker writes RFP and proposal responses. Frame the answer as compliant, differentiated response language with proof assets and use-case evidence.",
-  marketing:
-    "The asker runs campaigns and content. Frame the answer as messaging hierarchy, channel copy guidance, and campaign framing. Their metrics: MQLs, CPL, conversion rate.",
-  leadership:
-    "The asker is an executive. Lead with metric impact (MRR, NRR, win rate, pipeline) and strategic implications. Keep it brief and decision-oriented.",
-  product:
-    "The asker is in Product. Frame the answer as market signals, adoption barriers, feature positioning, and buyer feedback. Their metrics: activation rate, feature adoption, time-to-value.",
-  cs: "The asker is in Customer Success. Frame the answer as adoption messaging, expansion talk tracks, and churn-risk signals.",
-  sdr: "The asker is an SDR/BDR doing outbound. Frame the answer as persona-specific openers, pain-first copy, and objection one-liners.",
-};
+// Persona output framing — Master Instructions §9.2 — now lives in
+// services/agentPrompts.ts (ROLE_FRAMING) as the code fallback; the
+// `ask-war-room` agent row's defaults.role_framing overrides it per role, and
+// a full prompt_override collapses all roles into one preamble ({{role}}
+// available). Question block stays the locked suffix (Agents blueprint §2.2-2).
 
 export const queryRouter = Router();
 
@@ -31,9 +28,22 @@ queryRouter.post("/", requireAuth, async (req, res) => {
     return res.status(400).json({ error: "question is required" });
   }
 
+  let cfg;
+  try {
+    cfg = await getAgentConfig("ask-war-room");
+    assertAgentEnabled(cfg);
+  } catch (err) {
+    const status = err instanceof AgentError ? err.status : 500;
+    return res.status(status).json({ error: (err as Error).message });
+  }
+
+  const roleOverrides =
+    cfg.defaults.role_framing && typeof cfg.defaults.role_framing === "object"
+      ? (cfg.defaults.role_framing as Record<string, string>)
+      : {};
+  const framingMap: Record<string, string> = { ...ROLE_FRAMING, ...roleOverrides };
   const framing =
-    ROLE_FRAMING[(role ?? "").toLowerCase()] ??
-    "Frame the answer for a general internal audience.";
+    cfg.prompt_override ?? framingMap[(role ?? "").toLowerCase()] ?? framingMap.general;
 
   // Context = war-room files + top-ranked chunks from AI-enabled knowledge-base
   // documents (local folder syncs, promoted uploads).
@@ -47,11 +57,16 @@ queryRouter.post("/", requireAuth, async (req, res) => {
       ? `=== KNOWLEDGE BASE (most relevant excerpts) ===\n${chunksToContext(chunks)}\n\n${warRoom}`
       : warRoom;
 
+  // Locked suffix: the question block. The body is the resolved per-role
+  // framing (base_prompt is empty for this agent — special case, §2.2-2).
+  const prompt = composeAgentPrompt(
+    { base_prompt: framing, custom_instructions: cfg.custom_instructions, prompt_override: null },
+    { role: role ?? "general" },
+    `Question from the ${role ?? "internal"} team:\n${question}`
+  );
+
   try {
-    const answer = await ask(
-      `${framing}\n\nQuestion from the ${role ?? "internal"} team:\n${question}`,
-      { extraContext: corpus }
-    );
+    const answer = await ask(prompt, { extraContext: corpus, model: resolveModel(cfg) });
     void logQuery(role ?? "general", question, answer); // fire-and-forget; feeds C11/C13 metrics
     // The frontend renders formatted HTML only — never raw markdown.
     res.json({ answerHtml: markdownToHtml(answer), role: role ?? "general" });

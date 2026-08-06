@@ -13,6 +13,12 @@ import {
   finishRun,
   loadQuestionBank,
 } from "./questionnaire";
+import {
+  assertAgentEnabled,
+  composeAgentPrompt,
+  getAgentConfig,
+  resolveModel,
+} from "./agents";
 
 // Messaging & Positioning document generation (blueprint §3.2). Generated Part
 // by Part from PMM-approved questionnaire answers only — positioning (A) feeds
@@ -106,8 +112,10 @@ const F4_OWNERSHIP = [
   "- Propose changes through the Foundation Questionnaire review queue — approved answers regenerate this document.",
 ].join("\n");
 
-/** Per-section generation instructions (blueprint §3.2 table). */
-const SECTION_INSTRUCTIONS: Record<string, string> = {
+/** Per-section generation instructions (blueprint §3.2 table). The code map
+ *  is the base; admin entries in the `messaging-doc-generation` agent's
+ *  `defaults.section_instructions` override it per section id at run time. */
+export const SECTION_INSTRUCTIONS: Record<string, string> = {
   A1: "Render the approved answers nearly verbatim under the reference sub-headings Why / How / What. Formatting only — do not add facts.",
   A2: "Render the approved answers nearly verbatim under the sub-headings Category, Why now, and Market context. Formatting only — do not add facts.",
   A3: "Render the approved answers nearly verbatim under the sub-headings Best fit, Segments, Who's in the room, Buying triggers, and Not a fit. Formatting only — do not add facts.",
@@ -134,26 +142,14 @@ const SECTION_INSTRUCTIONS: Record<string, string> = {
   F2: "Preferred word table (approved term / the rule it encodes) derived from the Brand DNA and Voice of Aurigo rules already in the system prompt — not from extraction. Never print a banned term verbatim anywhere: state the approved term and describe the rule instead, so the deterministic word guard stays clean.",
 };
 
-function generationPrompt(part: string, productName: string, sectionLines: string): string {
-  return `Generate Part ${part} of "${productName} — Positioning & Messaging", the unified system
-for how Marketing, Sales, and Proposals talk about ${productName}.
-
-The ADDITIONAL WAR ROOM CONTEXT above contains the PMM-approved questionnaire answers
-(JSON: question id, section, prompt, final answer, sources). These answers are validated
-facts — the ONLY facts you may use beyond the Brand DNA. If a needed fact is missing or
-an answer carries a [Conflict: ...] note, write a one-line "⚠ To confirm: ..." callout
-at that spot instead of guessing.
-
-Produce ONLY these sections, in order, each starting with a heading "## {id} · {title}":
-${sectionLines}
-
-Rules:
-- Markdown only. Tables where the instructions say table. No preamble, no meta-commentary.
-- The customer is the hero; open from the reader's world (cardinal rule).
-- Swap test: if a sentence would still work with a competitor's name in place of Aurigo,
-  rewrite it around the approved unique attributes.
-- Raw quotes from the answers may be paraphrased into brand voice, but numbers, names,
-  and certification wording must be carried over exactly.`;
+/** LOCKED contract suffix for `messaging-doc-generation`: the Produce-ONLY
+ *  section list — splitSections parses exactly these headings, so it is
+ *  code-owned and appended unconditionally by composeAgentPrompt. The
+ *  overridable body lives in agentPrompts.ts (documented ordering delta,
+ *  Agents blueprint §2.2-6: this block moved from mid-prompt to the tail). */
+export function buildProduceSuffix(sectionLines: string): string {
+  return `Produce ONLY these sections, in order, each starting with a heading "## {id} · {title}":
+${sectionLines}`;
 }
 
 /** Split one Part's model output into per-section markdown by the "## {id} · {title}" headings. */
@@ -294,6 +290,17 @@ export async function runGeneration(
     );
     const answersContext = `PMM-approved questionnaire answers (JSON):\n${answersJson}`;
 
+    // Agent config, loaded once before the Part loop (§0.1-7). Disabled ->
+    // AgentError; the outer catch records it via finishRun('failed', ...).
+    const cfg = await getAgentConfig("messaging-doc-generation");
+    assertAgentEnabled(cfg);
+    const model = resolveModel(cfg);
+    const sectionOverrides =
+      cfg.defaults.section_instructions && typeof cfg.defaults.section_instructions === "object"
+        ? (cfg.defaults.section_instructions as Record<string, string>)
+        : {};
+    const instructions: Record<string, string> = { ...SECTION_INSTRUCTIONS, ...sectionOverrides };
+
     // Part chain (§3.2): A first; A rides along for B; A+B for C, D, E.
     const generated = new Map<string, string>();
     let partA = "";
@@ -305,7 +312,7 @@ export async function runGeneration(
       if (partSections.length === 0) continue;
 
       const sectionLines = partSections
-        .map((s) => `- "## ${s.id} · ${s.title}": ${SECTION_INSTRUCTIONS[s.id] ?? "Synthesize from the approved answers."}`)
+        .map((s) => `- "## ${s.id} · ${s.title}": ${instructions[s.id] ?? "Synthesize from the approved answers."}`)
         .join("\n");
       let extraContext = answersContext;
       if (part === "B") {
@@ -314,10 +321,14 @@ export async function runGeneration(
         extraContext += `\n\n=== APPROVED PART A (POSITIONING) ===\n${partA}\n\n=== APPROVED PART B (MESSAGING) ===\n${partB}`;
       }
 
-      const output = await ask(generationPrompt(part, productName, sectionLines), {
-        extraContext,
-        maxTokens: 16000,
-      });
+      const output = await ask(
+        composeAgentPrompt(
+          cfg,
+          { part, product_name: productName },
+          buildProduceSuffix(sectionLines)
+        ),
+        { extraContext, maxTokens: 16000, model }
+      );
       const chunks = splitSections(output, partSections);
       for (const s of partSections) {
         generated.set(

@@ -39,6 +39,8 @@ export interface AskOptions {
   /** Extra war-room context beyond brand DNA, e.g. competitive dossiers. */
   extraContext?: string;
   maxTokens?: number;
+  /** Per-agent model override (Agents tab); defaults to PMM_MODEL. */
+  model?: string;
 }
 
 export async function ask(userPrompt: string, opts: AskOptions = {}): Promise<string> {
@@ -55,7 +57,7 @@ export async function ask(userPrompt: string, opts: AskOptions = {}): Promise<st
     : userPrompt;
 
   const response = await client.messages.create({
-    model: MODEL,
+    model: opts.model ?? MODEL,
     max_tokens: opts.maxTokens ?? 16000,
     thinking: { type: "adaptive" },
     system,

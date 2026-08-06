@@ -20,6 +20,7 @@ import { UploadsConsole } from "./pages/UploadsConsole";
 import { Studio } from "./pages/Studio";
 import { Templates } from "./pages/Templates";
 import { IntegrationsPage } from "./pages/IntegrationsPage";
+import { Agents } from "./pages/Agents";
 import { Notifications } from "./pages/Notifications";
 import "./styles/brand.css";
 
@@ -46,6 +47,7 @@ function Root() {
         <Route path="/templates" element={<Templates />} />
         <Route path="/uploads" element={<UploadsConsole />} />
         <Route path="/integrations" element={<IntegrationsPage />} />
+        <Route path="/agents" element={<Agents />} />
         <Route path="/questionnaire" element={<FoundationQuestionnaire />} />
         <Route path="/notifications" element={<Notifications />} />
         <Route path="*" element={<Navigate to="/" replace />} />

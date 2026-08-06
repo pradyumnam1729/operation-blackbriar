@@ -395,3 +395,113 @@ export const saveArtifactSlots = (
   fills: Record<string, string>,
   note?: string
 ) => apiPost<{ version: number }>(`/api/artifacts/${artifactId}/slots`, { fills, note });
+
+// ---- Agents registry (admin-only; blueprint app/docs/blueprints/agents-tab.md §2.4) ----
+
+export type AgentKind = "task" | "pmm";
+export type AgentGroup = "A" | "B" | "C";
+export type AgentContract =
+  | "fq-answers-json"
+  | "fills-json"
+  | "section-headings"
+  | "markdown";
+
+export interface AgentSummary {
+  key: string;
+  kind: AgentKind;
+  grp: AgentGroup | null;
+  name: string;
+  description: string;
+  model: string | null;
+  enabled: boolean;
+  /** prompt_override != null */
+  overridden: boolean;
+  has_custom_instructions: boolean;
+  updated_at: string;
+  updated_by_name: string | null;
+}
+
+export interface AgentListResponse {
+  agents: AgentSummary[];
+  default_model: string;
+  model_allowlist: string[];
+}
+
+export interface AgentDetail {
+  id: string;
+  key: string;
+  kind: AgentKind;
+  grp: AgentGroup | null;
+  name: string;
+  description: string;
+  /** Overridable body only — the locked contract suffix is code-owned. */
+  base_prompt: string;
+  custom_instructions: string;
+  /** null = use base_prompt. Never replaces the contract suffix. */
+  prompt_override: string | null;
+  /** null = PMM default model. */
+  model: string | null;
+  enabled: boolean;
+  defaults: Record<string, unknown>;
+  updated_by: string | null;
+  updated_at: string;
+  created_at: string;
+}
+
+export interface AgentMeta {
+  contract: AgentContract;
+  /** Code-owned suffix, built with sample runtime values — shown read-only. */
+  contract_suffix_preview: string;
+  placeholders: string[];
+  defaults_schema: string;
+  registry_defaults: Record<string, unknown>;
+  model_allowlist: string[];
+  default_model: string;
+}
+
+export interface AgentPatch {
+  custom_instructions?: string;
+  prompt_override?: string | null;
+  model?: string | null;
+  enabled?: boolean;
+  defaults?: Record<string, unknown>;
+}
+
+export interface AgentTestRunBody {
+  custom_instructions?: string;
+  prompt_override?: string | null;
+  model?: string | null;
+  defaults?: Record<string, unknown>;
+  input?: { question?: string; role?: string; brief?: string };
+  compose_only?: boolean;
+}
+
+export interface TestRunResult {
+  prompt: string;
+  output_raw?: string;
+  output_html?: string;
+  contract: { checked: boolean; ok: boolean; error?: string };
+  guard: { ok: boolean; violations: string[] };
+  model_used: string;
+  duration_ms: number;
+}
+
+export const listAgents = () => apiGet<AgentListResponse>("/api/agents");
+
+export const getAgent = (key: string) =>
+  apiGet<{ agent: AgentDetail; meta: AgentMeta }>(`/api/agents/${encodeURIComponent(key)}`);
+
+/** 400 for an unlisted model or non-object defaults; warnings carry unknown {{placeholders}}. */
+export const updateAgent = (key: string, patch: AgentPatch) =>
+  apiPut<{ agent: AgentDetail; warnings: string[] }>(
+    `/api/agents/${encodeURIComponent(key)}`,
+    patch
+  );
+
+/** Clears override/instructions/model/defaults; keeps enabled state (§0.1-4). */
+export const revertAgent = (key: string) =>
+  apiPost<{ agent: AgentDetail }>(`/api/agents/${encodeURIComponent(key)}/revert`);
+
+/** Runs a CANDIDATE config (never persisted). 400 missing sample input; 409 disabled; 502 model failure. */
+export const testRunAgent = (key: string, body: AgentTestRunBody) =>
+  apiPost<TestRunResult>(`/api/agents/${encodeURIComponent(key)}/test-run`, body);

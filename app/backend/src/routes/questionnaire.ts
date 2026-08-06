@@ -16,6 +16,7 @@ import {
   startRun,
 } from "../services/questionnaire";
 import { runGeneration } from "../services/messagingDoc";
+import { AgentError } from "../services/agents";
 
 // Foundation Questionnaire pipeline: extraction passes → review queue →
 // sign-off gate → doc generation. Admin (PMM) only — the questionnaire is
@@ -278,7 +279,9 @@ questionnaireRouter.post("/answers/:answerId/decision", async (req, res) => {
     try {
       await regenerateMerge(answer.id, feedback.trim());
     } catch (err) {
-      return res.status(500).json({ error: (err as Error).message });
+      // Disabled fq-merge agent (Agents tab kill switch) -> 409; else 500.
+      const status = err instanceof AgentError ? err.status : 500;
+      return res.status(status).json({ error: (err as Error).message });
     }
     const { data: updated } = await sb.from("fq_answers").select("*").eq("id", answer.id).single();
     void logActivity("fq_answer", answer.id, req.user!.id, "regenerate", {

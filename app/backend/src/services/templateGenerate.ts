@@ -1,6 +1,13 @@
 import { supabase } from "./db";
 import { ask } from "./claude";
 import { parseModelJson } from "./questionnaire";
+import {
+  AgentError,
+  assertAgentEnabled,
+  composeAgentPrompt,
+  getAgentConfig,
+  resolveModel,
+} from "./agents";
 import { cleanHtml, htmlToText } from "./html";
 import { checkForbiddenWords, GuardrailResult } from "./guardrails";
 import { logActivity } from "./activity";
@@ -94,14 +101,36 @@ export function wiredSectionsXml(
   return { xml: parts.join("\n\n"), missingSectionIds: missing };
 }
 
-/** Slot-fill prompt (blueprint §3.2, exact draft). */
-export function buildSlotFillPrompt(
+/** The {{placeholder}} map for the `template-slot-fill` agent body (Agents
+ *  blueprint §2.2-4). Nullable audience/persona/funnel_stage render as
+ *  "not specified", matching the original prompt. */
+export function buildSlotFillVars(
   template: TemplateRow,
   product: ProductRow,
-  doc: MessagingDocRow,
+  doc: MessagingDocRow
+): Record<string, string> {
+  return {
+    product_name: product.name,
+    product_line: product.line ?? product.name,
+    asset_type: template.asset_type,
+    template_name: template.name,
+    audience: template.audience ?? "not specified",
+    persona: template.persona ?? "not specified",
+    funnel_stage: template.funnel_stage ?? "not specified",
+    doc_title: doc.title,
+    doc_version: String(doc.version),
+  };
+}
+
+/** LOCKED contract suffix for `template-slot-fill`: optional requester brief
+ *  (runtime, never config), the slot lines, and the JSON tail that
+ *  parseModelJson + validateFills consume. Appended unconditionally by
+ *  composeAgentPrompt — a prompt override can never remove it. */
+export function buildSlotFillSuffix(
+  slots: TemplateSlot[],
   extraBrief: string | undefined
 ): string {
-  const slotLines = template.slots
+  const slotLines = slots
     .map((s) => {
       const shape =
         s.render === "lines"
@@ -116,33 +145,11 @@ export function buildSlotFillPrompt(
       ].join("\n");
     })
     .join("\n");
-  const firstSlotId = template.slots[0]?.id ?? "slot_id";
+  const firstSlotId = slots[0]?.id ?? "slot_id";
   const briefLine =
-    extraBrief && extraBrief.trim() !== "" ? `Requester's brief: ${extraBrief.trim()}\n` : "";
-  return `You are filling a locked layout template with approved messaging. You control ONLY the
-text inside the named slots below — never layout, structure, colors, or anything else.
-
-Product: ${product.name} (${product.line ?? product.name} line).
-Artifact: ${template.asset_type} — "${template.name}".
-Audience: ${template.audience ?? "not specified"}. Persona: ${template.persona ?? "not specified"}. Funnel stage: ${template.funnel_stage ?? "not specified"}.
-${briefLine}
-The ADDITIONAL WAR ROOM CONTEXT above contains sections of "${doc.title}" (version
-${doc.version}, PMM-approved — the validated messaging for this product), each wrapped
-in <section id="..." title="...">. These sections are the ONLY source of facts, claims,
-numbers, and customer language for this task. If a slot's wired sections do not support
-a strong fill, return "" for that slot — never pad, never invent, never fall back to
-general knowledge.
-
-Slots to fill:
+    extraBrief && extraBrief.trim() !== "" ? `Requester's brief: ${extraBrief.trim()}\n\n` : "";
+  return `${briefLine}Slots to fill:
 ${slotLines}
-
-Rules:
-- Plain text only in every slot: no markdown syntax, no asterisks, no HTML tags.
-- Character limits are hard limits. Compress by cutting words and clauses, never facts.
-- Open from the reader's world, not from Aurigo or the product (cardinal rule).
-- Swap test every sentence: if it would still work with a competitor's name, rewrite it
-  around this product's approved unique attributes.
-- Numbers, customer names, and certification wording exactly as they appear in the doc.
 
 Return ONLY valid JSON — no fences, no commentary:
 {"fills": {"${firstSlotId}": "...", ... one key per slot id listed above}}`;
@@ -171,8 +178,12 @@ interface FillEnvelope {
 }
 
 /** ask() + parseModelJson (reused from questionnaire.ts) with one repair retry. */
-async function askFills(prompt: string, extraContext: string): Promise<Record<string, string>> {
-  const opts = { extraContext, maxTokens: 8000 };
+async function askFills(
+  prompt: string,
+  extraContext: string,
+  model?: string
+): Promise<Record<string, string>> {
+  const opts = { extraContext, maxTokens: 8000, model };
   let parsed: FillEnvelope;
   try {
     parsed = parseModelJson<FillEnvelope>(await ask(prompt, opts));
@@ -234,13 +245,29 @@ export async function generateFromTemplate(
     );
   }
 
+  // Agent config (Agents tab). Disabled -> 409 naming the tab (§0.1-5);
+  // AgentError is re-thrown as TemplateGenError so the route maps the status.
+  let cfg;
+  try {
+    cfg = await getAgentConfig("template-slot-fill");
+    assertAgentEnabled(cfg);
+  } catch (err) {
+    if (err instanceof AgentError) throw new TemplateGenError(err.message, err.status);
+    throw err;
+  }
+  const model = resolveModel(cfg);
+
   const slots = (template.slots ?? []) as TemplateSlot[];
   const { xml, missingSectionIds } = wiredSectionsXml(doc, slots);
-  const prompt = buildSlotFillPrompt(template as TemplateRow, product, doc, extraBrief);
+  const prompt = composeAgentPrompt(
+    cfg,
+    buildSlotFillVars(template as TemplateRow, product, doc),
+    buildSlotFillSuffix(slots, extraBrief)
+  );
 
   let modelFills: Record<string, string>;
   try {
-    modelFills = await askFills(prompt, xml);
+    modelFills = await askFills(prompt, xml, model);
   } catch (err) {
     // No degraded scaffold: a half-filled locked layout is worse than no artifact.
     throw new TemplateGenError(
@@ -258,7 +285,7 @@ export async function generateFromTemplate(
   if (over.length > 0) {
     let retried: Record<string, string> = {};
     try {
-      retried = await askFills(buildTrimPrompt(over, modelFills), xml);
+      retried = await askFills(buildTrimPrompt(over, modelFills), xml, model);
     } catch {
       retried = {};
     }

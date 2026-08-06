@@ -3,6 +3,7 @@ import { requireAdmin, requireAuth } from "../middleware/auth";
 import { supabase } from "../services/db";
 import { logActivity } from "../services/activity";
 import { compare, ensureSources } from "../services/competitive";
+import { AgentError } from "../services/agents";
 import { jinaConfigured } from "../services/jina";
 import { cleanHtml } from "../services/html";
 
@@ -126,7 +127,9 @@ competitiveRouter.post("/compare", requireAuth, async (req, res) => {
     );
     res.json(result);
   } catch (err) {
-    res.status(502).json({ error: (err as Error).message });
+    // Disabled agent (Agents tab kill switch) -> 409; everything else stays 502.
+    const status = err instanceof AgentError ? err.status : 502;
+    res.status(status).json({ error: (err as Error).message });
   }
 });
 
