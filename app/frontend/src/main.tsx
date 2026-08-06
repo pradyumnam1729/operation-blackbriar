@@ -12,6 +12,7 @@ import { ArtifactLibrary } from "./pages/ArtifactLibrary";
 import { ArtifactEditor } from "./pages/ArtifactEditor";
 import { FeatureCatalog } from "./pages/FeatureCatalog";
 import { WinLoss } from "./pages/WinLoss";
+import { CompetitiveIntel } from "./pages/CompetitiveIntel";
 import { UploadsConsole } from "./pages/UploadsConsole";
 import { Studio } from "./pages/Studio";
 import { IntegrationsPage } from "./pages/IntegrationsPage";
@@ -32,6 +33,7 @@ function Root() {
         <Route path="/library/:id" element={<ArtifactEditor />} />
         <Route path="/features" element={<FeatureCatalog />} />
         <Route path="/winloss" element={<WinLoss />} />
+        <Route path="/competitive" element={<CompetitiveIntel />} />
         <Route path="/studio" element={<Studio />} />
         <Route path="/uploads" element={<UploadsConsole />} />
         <Route path="/integrations" element={<IntegrationsPage />} />

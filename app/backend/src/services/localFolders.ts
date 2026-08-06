@@ -1,3 +1,4 @@
+import Anthropic from "@anthropic-ai/sdk";
 import chokidar, { FSWatcher } from "chokidar";
 import fs from "fs";
 import path from "path";
@@ -19,6 +20,8 @@ export interface LocalFoldersConfig {
   processed?: Record<string, number>; // filename -> mtimeMs already ingested
   lastScan?: string;
   lastScanResult?: string;
+  lastIngest?: string; // last scan that actually ingested/skipped files
+  lastIngestResult?: string;
   lastExport?: string;
   lastExportResult?: string;
 }
@@ -173,6 +176,12 @@ export async function scanInput(): Promise<string[]> {
     } catch (err) {
       log.push(`failed ${f.name}: ${(err as Error).message}`);
     }
+  }
+  // Keep the last real ingest visible — an empty follow-up scan must not
+  // erase "prd ingested: ..." from the admin UI.
+  if (log.length > 0) {
+    cfg.lastIngest = new Date().toISOString();
+    cfg.lastIngestResult = log.join("; ");
   }
   if (log.length === 0) log.push("no new or changed files in the Input folder");
 

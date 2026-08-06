@@ -9,10 +9,30 @@ async function authHeaders(): Promise<Record<string, string>> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+/** Error carrying the HTTP status and parsed body — callers that need the
+ *  status (409 no-final-doc gate) or extra fields (validation `issues`,
+ *  per-slot `over` limits) test `instanceof ApiError`. Message stays the
+ *  server's `{error}` string, so existing `(e as Error).message` call sites
+ *  keep working unchanged. */
+export class ApiError extends Error {
+  status: number;
+  body: Record<string, unknown>;
+  constructor(status: number, message: string, body: Record<string, unknown>) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.body = body;
+  }
+}
+
 async function handle<T>(res: Response): Promise<T> {
   if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error((body as { error?: string }).error ?? res.statusText);
+    const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    throw new ApiError(
+      res.status,
+      typeof body.error === "string" ? body.error : res.statusText,
+      body
+    );
   }
   return res.json() as Promise<T>;
 }
@@ -246,3 +266,132 @@ export const getMessagingDoc = (id: string) =>
 
 export const approveMessagingDoc = (id: string) =>
   apiPost<ApproveDocResponse>(`/api/messaging-docs/doc/${id}/approve`);
+
+// ---- Template Library (layout-locked, slot-based templates) ----
+
+export type TemplateFormat = "html" | "svg" | "deck" | "email" | "markdown";
+export type FunnelStage = "awareness" | "consideration" | "decision" | "expansion";
+
+export interface TemplateSlot {
+  id: string;
+  label: string;
+  purpose: string;
+  max_chars: number;
+  required: boolean;
+  render: "text" | "multiline" | "lines";
+  max_lines?: number;
+  source_sections: string[];
+}
+
+export interface TemplateSummary {
+  id: string;
+  name: string;
+  asset_type: string;
+  format: TemplateFormat | null;
+  product_line: string | null;
+  preview_color: string | null;
+  audience: string | null;
+  persona: string | null;
+  funnel_stage: FunnelStage | null;
+  exemplar_path: string | null;
+  template_version: number;
+  approved: boolean;
+  /** True iff the template carries a layout body — legacy mock rows are false. */
+  generation_ready: boolean;
+}
+
+export interface TemplateDetail extends TemplateSummary {
+  body: string | null;
+  slots: TemplateSlot[];
+  created_at?: string;
+  updated_at?: string;
+  created_by?: string | null;
+}
+
+export interface TemplateWriteBody {
+  name: string;
+  asset_type: string;
+  format: TemplateFormat;
+  body: string;
+  slots: TemplateSlot[];
+  product_line?: string | null;
+  audience?: string | null;
+  persona?: string | null;
+  funnel_stage?: FunnelStage | null;
+  exemplar_path?: string | null;
+  preview_color?: string | null;
+  /** PUT only — approval is toggled on update, no separate endpoint. */
+  approved?: boolean;
+}
+
+export interface RenderWarning {
+  slot_id: string;
+  kind: "over_limit" | "missing" | "empty_section";
+  detail: string;
+}
+
+export interface TemplatePreviewPayload {
+  format: TemplateFormat;
+  payload: string;
+}
+
+export interface GenerateFromTemplateResponse {
+  artifactId: string;
+  guard: { ok: boolean; violations: string[] };
+  warnings: RenderWarning[];
+  messagingDocVersion: number;
+}
+
+export interface ArtifactRender {
+  format: TemplateFormat;
+  payload: string;
+  slot_fills: Record<string, string>;
+  warnings: RenderWarning[];
+  template_id: string | null;
+  template_version: number | null;
+  messaging_doc_id: string | null;
+}
+
+export const listTemplates = (filters?: { asset_type?: string; format?: TemplateFormat }) => {
+  const params = new URLSearchParams();
+  if (filters?.asset_type) params.set("asset_type", filters.asset_type);
+  if (filters?.format) params.set("format", filters.format);
+  const qs = params.toString();
+  return apiGet<{ templates: TemplateSummary[] }>(
+    `/api/templates${qs === "" ? "" : `?${qs}`}`
+  ).then((r) => r.templates);
+};
+
+export const getTemplate = (id: string) =>
+  apiGet<{ template: TemplateDetail }>(`/api/templates/${id}`).then((r) => r.template);
+
+export const createTemplate = (body: TemplateWriteBody) =>
+  apiPost<{ template: TemplateDetail }>("/api/templates", body).then((r) => r.template);
+
+export const updateTemplate = (id: string, body: Partial<TemplateWriteBody>) =>
+  apiPut<{ template: TemplateDetail }>(`/api/templates/${id}`, body).then((r) => r.template);
+
+export const deleteTemplate = (id: string) =>
+  apiDelete<{ ok: true }>(`/api/templates/${id}`);
+
+/** 422 for legacy rows without a layout body — surface the message, do not retry. */
+export const previewTemplate = (id: string) =>
+  apiGet<TemplatePreviewPayload>(`/api/templates/${id}/preview`);
+
+/** 409 (no final messaging doc) is the §3.1 gate — link the user to /questionnaire. */
+export const generateFromTemplate = (
+  id: string,
+  body: { product_id: string; title: string; extra_brief?: string }
+) => apiPost<GenerateFromTemplateResponse>(`/api/templates/${id}/generate`, body);
+
+export const getArtifactRender = (artifactId: string, version?: number) =>
+  apiGet<{ render: ArtifactRender }>(
+    `/api/artifacts/${artifactId}/render${version === undefined ? "" : `?version=${version}`}`
+  ).then((r) => r.render);
+
+/** Deterministic re-render, no model call. 400 body carries `over: [{slot_id, chars, max}]`. */
+export const saveArtifactSlots = (
+  artifactId: string,
+  fills: Record<string, string>,
+  note?: string
+) => apiPost<{ version: number }>(`/api/artifacts/${artifactId}/slots`, { fills, note });

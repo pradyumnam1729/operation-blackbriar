@@ -25,6 +25,8 @@ localFoldersRouter.get("/", requireAuth, async (_req, res) => {
     productLine: c.productLine ?? null,
     lastScan: c.lastScan ?? null,
     lastScanResult: c.lastScanResult ?? null,
+    lastIngest: c.lastIngest ?? null,
+    lastIngestResult: c.lastIngestResult ?? null,
     lastExport: c.lastExport ?? null,
     lastExportResult: c.lastExportResult ?? null,
   });

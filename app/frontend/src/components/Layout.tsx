@@ -14,6 +14,7 @@ const MAIN_NAV: NavItem[] = [
   { to: "/", label: "Home", icon: "fa-house" },
   { to: "/features", label: "Feature catalog", icon: "fa-layer-group" },
   { to: "/winloss", label: "Win / loss", icon: "fa-chart-column" },
+  { to: "/competitive", label: "Competitive intel", icon: "fa-chess" },
   { to: "/requests", label: "Requests & intake", icon: "fa-upload" },
   { to: "/studio", label: "Asset studio", icon: "fa-wand-magic-sparkles" },
   { to: "/library", label: "Repository", icon: "fa-box-archive" },

@@ -39,6 +39,8 @@ interface LocalFoldersStatus {
   productLine?: string | null;
   lastScan?: string | null;
   lastScanResult?: string | null;
+  lastIngest?: string | null;
+  lastIngestResult?: string | null;
   lastExport?: string | null;
   lastExportResult?: string | null;
 }
@@ -145,10 +147,11 @@ function LocalFoldersSection({ isAdmin }: { isAdmin: boolean }) {
       </div>
 
       <p style={{ margin: "0 0 12px", fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.6 }}>
-        Files dropped into <strong>Input</strong> are ingested automatically — release notes flow to
-        the Feature Catalog review queue, everything else becomes context docs pending approval.
-        Approved <strong>final</strong> artifacts export to <strong>Output</strong> as ready-to-share
-        HTML files.
+        Files dropped into <strong>Input</strong> are ingested automatically. Each file's type
+        (release note, PRD, JTBD, transcript, battlecard) is detected from its filename — release
+        notes flow to the Feature Catalog review queue, everything else becomes AI-ready context
+        docs. Approved <strong>final</strong> artifacts export to <strong>Output</strong> as
+        ready-to-share HTML files.
       </p>
 
       {lfError && (
@@ -177,7 +180,7 @@ function LocalFoldersSection({ isAdmin }: { isAdmin: boolean }) {
               />
             </div>
             <div>
-              <label>Input files ingest as</label>
+              <label>Default type for unrecognized files</label>
               <select value={form.docType} onChange={(e) => setForm({ ...form, docType: e.target.value })} style={{ width: "100%" }}>
                 <option value="release_note">Release notes → Feature catalog</option>
                 <option value="prd">PRDs → Context docs</option>
@@ -185,6 +188,10 @@ function LocalFoldersSection({ isAdmin }: { isAdmin: boolean }) {
                 <option value="transcript">Transcripts → Context docs</option>
                 <option value="other">Other → Context docs</option>
               </select>
+              <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                Types are auto-detected per file from the filename; this only applies when detection
+                finds no match.
+              </span>
             </div>
             {form.docType === "release_note" && (
               <div>
@@ -232,15 +239,21 @@ function LocalFoldersSection({ isAdmin }: { isAdmin: boolean }) {
                 </td>
                 <td><code style={{ fontSize: 12.5 }}>{status.inputPath}</code></td>
                 <td>
-                  <span className="pill pill-review">{status.docType}</span>
-                  {status.productLine && status.docType === "release_note" && (
-                    <span style={{ fontSize: 12, color: "var(--text-muted)", marginLeft: 6 }}>{status.productLine}</span>
-                  )}
+                  <span className="pill pill-review">auto-detect</span>
+                  <span style={{ fontSize: 12, color: "var(--text-muted)", marginLeft: 6 }}>
+                    default: {status.docType}
+                    {status.productLine && status.docType === "release_note" ? ` (${status.productLine})` : ""}
+                  </span>
                 </td>
                 <td style={{ fontSize: 12.5 }}>
                   {status.lastScan ? new Date(status.lastScan).toLocaleString() : "never scanned"}
                   {status.lastScanResult && (
                     <div style={{ color: "var(--text-muted)", fontSize: 12 }}>{status.lastScanResult}</div>
+                  )}
+                  {status.lastIngestResult && status.lastIngestResult !== status.lastScanResult && (
+                    <div style={{ color: "var(--text-muted)", fontSize: 12 }}>
+                      Last ingest{status.lastIngest ? ` (${new Date(status.lastIngest).toLocaleString()})` : ""}: {status.lastIngestResult}
+                    </div>
                   )}
                 </td>
                 {isAdmin && (

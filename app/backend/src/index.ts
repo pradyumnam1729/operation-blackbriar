@@ -19,6 +19,7 @@ import { integrationsRouter } from "./routes/integrations";
 import { sharepointRouter } from "./routes/sharepoint";
 import { localFoldersRouter } from "./routes/localFolders";
 import { documentsRouter } from "./routes/documents";
+import { competitiveRouter } from "./routes/competitive";
 import { questionnaireRouter } from "./routes/questionnaire";
 import { messagingDocsRouter } from "./routes/messagingDocs";
 import { WAR_ROOM_DIR } from "./services/warRoom";
@@ -52,6 +53,7 @@ app.use("/api/integrations", integrationsRouter);
 app.use("/api/sharepoint", sharepointRouter);
 app.use("/api/local-folders", localFoldersRouter);
 app.use("/api/documents", documentsRouter);
+app.use("/api/competitive", competitiveRouter);
 app.use("/api/questionnaire", questionnaireRouter);
 app.use("/api/messaging-docs", messagingDocsRouter);
 
