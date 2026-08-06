@@ -1,0 +1,16 @@
+Primus Maintain — Release Notes
+Release 2026.07 — July 18, 2026
+Audience: facility owners managing capital portfolios across plants, campuses, and data centers
+
+NEW
+- Technician Mobile Checklists (Maintenance) — Technicians complete guided checklists on mobile, online or offline, with results written straight to the work order record. Released 2026-07-18.
+- Downtime Cost Reporting (Reporting) — Quantify the cost of unplanned downtime per asset and per facility, so portfolio leaders can defend preventive maintenance investment with numbers. Released 2026-07-18.
+
+CHANGED
+- Work Order Dispatch (Maintenance) — Dispatch now considers technician certification and current location when suggesting assignments, cutting travel time between facilities.
+- Warranty Claim Tracking (Maintenance) — Vendor SLA timers now pause automatically while a claim waits on owner-supplied documentation.
+
+DEPRECATED
+- Standalone Inspection Forms (Inspections) — Retired. Inspections now live inside the work order flow, keeping condition data connected to the asset life cycle record.
+
+Questions: product@aurigo.com

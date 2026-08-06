@@ -1,0 +1,35 @@
+JTBD: Primus — Facility Portfolio Owners
+Prepared by: Product Marketing, Primus line
+Date: May 20, 2026
+Method: 14 interviews — VPs of Facilities, Directors of Engineering, portfolio planners at
+manufacturing, life sciences, data center, and higher-ed owners.
+
+Job 1 — Defend the capital plan
+When I present next year's capital plan to the CFO, I want every requested dollar tied to a
+condition score or a downtime cost, so I can defend the portfolio plan with evidence instead of
+seniority.
+Signals we heard: "The plants that shout loudest get the money." "I need the roof replacement
+to compete fairly against the chiller replacement."
+
+Job 2 — Keep facilities running
+When an asset fails outside business hours, I want the right technician dispatched with the
+right work order and parts context, so downtime stays measured in hours, not days.
+Signals we heard: "Unplanned downtime is the line item nobody budgets." "Our night-shift
+escalation is a phone tree."
+
+Job 3 — See the whole portfolio
+When leadership asks how the portfolio is performing, I want condition, spend, and maintenance
+backlog rolled up by region and by facility, so the answer takes minutes instead of a quarter-end
+scramble.
+Signals we heard: "Every site has its own spreadsheet." "I trust the data less every time it is
+re-keyed."
+
+Job 4 — Extend asset life
+When condition data shows early wear, I want preventive maintenance triggered before failure,
+so assets reach the full life cycle we planned and capital replacement stays on our schedule,
+not the asset's.
+
+Implications for messaging
+- Lead with the owner's world: downtime cost, capital defense, portfolio visibility.
+- "Portfolio" is the owner's word — facility owners run portfolios, not programs.
+- Evidence beats adjectives: condition scores, downtime hours, backlog trend.

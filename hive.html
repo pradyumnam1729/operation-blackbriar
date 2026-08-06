@@ -1,0 +1,1146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Hive — UI Redesign Concept</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Roboto:ital,wght@0,300;0,400;0,500;0,700;0,900;1,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+<style>
+  :root{
+    --teal-dark:#015F74;
+    --teal-light:#46B2BE;
+    --teal-darkest:#053445;
+    --red:#EE3135;
+    --bg-page:#F5F7F8;
+    --bg-card:#FFFFFF;
+    --border:#E1E6E9;
+    --border-strong:#D6DDE1;
+    --text-primary:#20282B;
+    --text-secondary:#5B6669;
+    --text-muted:#8D979A;
+    --r-lg:22px;
+    --r-md:16px;
+    --r-sm:11px;
+    --r-pill:999px;
+    --shadow-1:0 1px 2px rgba(5,52,69,.05), 0 6px 20px rgba(5,52,69,.06);
+    --shadow-2:0 12px 32px rgba(5,52,69,.14);
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    font-family:'Roboto',Arial,sans-serif;
+    background:var(--bg-page);
+    color:var(--text-primary);
+    -webkit-font-smoothing:antialiased;
+  }
+  a{color:var(--teal-dark);text-decoration:none;}
+  button{font-family:inherit;cursor:pointer;}
+  .app{display:grid;grid-template-columns:252px 1fr;min-height:100vh;transition:grid-template-columns .18s ease;}
+  .app.collapsed{grid-template-columns:74px 1fr;}
+
+  /* SIDEBAR */
+  .sidebar{
+    background:linear-gradient(180deg,var(--teal-darkest),#04303f);
+    padding:20px 14px;
+    display:flex;flex-direction:column;gap:22px;
+    position:sticky;top:0;height:100vh;
+    overflow:visible;
+  }
+  .sb-toggle{
+    position:absolute;top:26px;right:-13px;width:26px;height:26px;border-radius:50%;
+    background:#fff;border:1px solid var(--border-strong);color:var(--teal-dark);
+    display:flex;align-items:center;justify-content:center;font-size:11px;
+    box-shadow:var(--shadow-1);z-index:30;
+  }
+  .sb-toggle:hover{background:var(--bg-page);}
+  .brand{display:flex;align-items:center;gap:10px;padding:6px 8px 6px 10px;}
+  .brand .mark{width:34px;height:34px;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+  .brand .mark svg{width:100%;height:100%;}
+  .brand .name{color:#fff;font-weight:500;font-size:15px;line-height:1.1;white-space:nowrap;}
+  .brand .sub{color:#8FBFC9;font-size:11px;white-space:nowrap;}
+  .navgroup{display:flex;flex-direction:column;gap:2px;}
+  .navlabel{color:#6FA3AE;font-size:11px;font-weight:500;letter-spacing:.04em;text-transform:uppercase;padding:10px 12px 4px;white-space:nowrap;}
+  .navitem{
+    display:flex;align-items:center;gap:10px;
+    padding:10px 12px;border-radius:var(--r-pill);
+    color:#CDE6EA;font-size:14px;border:none;background:transparent;width:100%;text-align:left;
+    position:relative;white-space:nowrap;
+  }
+  .navitem i{width:18px;text-align:center;font-size:14px;flex-shrink:0;}
+  .navitem:hover{background:rgba(255,255,255,.06);}
+  .navitem.active{background:var(--teal-light);color:var(--teal-darkest);font-weight:500;}
+  .navitem .count{margin-left:auto;background:rgba(255,255,255,.14);color:#fff;font-size:11px;padding:1px 7px;border-radius:var(--r-pill);}
+  .navitem.active .count{background:rgba(5,52,69,.18);color:var(--teal-darkest);}
+  .sidebar-foot{margin-top:auto;padding:10px 12px;color:#6FA3AE;font-size:11px;border-top:1px solid rgba(255,255,255,.08);padding-top:14px;}
+
+  /* COLLAPSED STATE */
+  .app.collapsed .brand{justify-content:center;padding:6px 0;}
+  .app.collapsed .brand .name,
+  .app.collapsed .brand .sub{display:none;}
+  .app.collapsed .navitem{justify-content:center;padding:11px 0;gap:0;}
+  .app.collapsed .navitem .navtext,
+  .app.collapsed .navitem .count,
+  .app.collapsed .navlabel,
+  .app.collapsed .sidebar-foot{display:none;}
+  .app.collapsed .sb-toggle{transform:none;}
+  .app.collapsed .navitem:hover::after{
+    content:attr(data-tooltip);
+    position:absolute;left:100%;top:50%;transform:translateY(-50%);
+    margin-left:14px;background:var(--teal-darkest);color:#fff;
+    font-size:12.5px;font-weight:500;padding:7px 12px;border-radius:8px;
+    white-space:nowrap;box-shadow:var(--shadow-2);z-index:200;
+  }
+
+  /* TOPBAR */
+  .main{display:flex;flex-direction:column;min-height:100vh;}
+  .topbar{
+    background:var(--bg-card);
+    border-bottom:1px solid var(--border);
+    padding:14px 28px;
+    display:flex;align-items:center;gap:16px;
+    position:sticky;top:0;z-index:20;
+  }
+  .search{
+    display:flex;align-items:center;gap:8px;
+    background:var(--bg-page);border:1px solid var(--border);
+    border-radius:var(--r-pill);padding:8px 16px;flex:1;max-width:380px;color:var(--text-muted);
+  }
+  .search input{border:none;background:transparent;outline:none;font-size:13px;width:100%;color:var(--text-primary);}
+  .persona-switch{display:flex;background:var(--bg-page);border-radius:var(--r-pill);padding:4px;gap:2px;border:1px solid var(--border);}
+  .persona-switch button{
+    border:none;background:transparent;padding:7px 14px;border-radius:var(--r-pill);font-size:13px;color:var(--text-secondary);
+  }
+  .persona-switch button.active{background:var(--teal-dark);color:#fff;font-weight:500;}
+  .persona-block{margin-bottom:20px;}
+  .persona-label{font-size:12px;font-weight:500;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.05em;margin-bottom:9px;}
+  .persona-switch-lg{padding:4px;display:inline-flex;}
+  .persona-switch-lg button{padding:8px 17px;font-size:13px;}
+  .persona-switch-lg button.active{font-weight:600;box-shadow:var(--shadow-1);}
+  .top-actions{display:flex;align-items:center;gap:12px;margin-left:auto;}
+  .icon-btn{width:36px;height:36px;border-radius:50%;border:1px solid var(--border);background:var(--bg-card);display:flex;align-items:center;justify-content:center;color:var(--text-secondary);position:relative;}
+  .icon-btn .dot{position:absolute;top:6px;right:6px;width:7px;height:7px;background:var(--red);border-radius:50%;}
+  .avatar{width:36px;height:36px;border-radius:50%;background:var(--teal-light);color:var(--teal-darkest);display:flex;align-items:center;justify-content:center;font-weight:500;font-size:13px;}
+
+  .content{padding:26px 28px 60px;flex:1;}
+  .view{display:none;}
+  .view.active{display:block;animation:fade .18s ease;}
+  @keyframes fade{from{opacity:0;transform:translateY(4px);}to{opacity:1;transform:none;}}
+
+  h1.pagetitle{font-size:21px;font-weight:500;margin:0 0 4px;}
+  p.pagesub{color:var(--text-secondary);font-size:13.5px;margin:0 0 22px;}
+
+  .card{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--r-lg);padding:20px 22px;box-shadow:var(--shadow-1);}
+  .row-between{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;}
+
+  .pill{border-radius:var(--r-pill);font-size:11.5px;font-weight:500;padding:3px 11px;display:inline-flex;align-items:center;gap:5px;}
+  .pill-added{background:#E4F4EE;color:#0E6B4E;}
+  .pill-changed{background:#FCF0DA;color:#8A5A0B;}
+  .pill-deprecated{background:#FCE8E8;color:#A32D2D;}
+  .pill-pending{background:#FDEFD9;color:#8A5A0B;}
+  .pill-live{background:#E1F0F2;color:var(--teal-dark);}
+  .pill-draft{background:#FDEFD9;color:#8A5A0B;}
+  .pill-review{background:#E1F0F2;color:var(--teal-dark);}
+  .pill-final{background:#E4F4EE;color:#0E6B4E;}
+  .pill-archived{background:#EDEEEE;color:#6B6F70;}
+  .pill-lock{background:#FCE8E8;color:#A32D2D;}
+
+  select, .btn-input{
+    border:1px solid var(--border-strong);border-radius:var(--r-pill);
+    padding:8px 14px;font-size:13px;background:#fff;color:var(--text-primary);
+  }
+  select{
+    appearance:none;-webkit-appearance:none;-moz-appearance:none;
+    padding:8px 36px 8px 16px;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' fill='none' stroke='%235B6669' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+    background-repeat:no-repeat;
+    background-position:right 15px center;
+    background-size:10px 6px;
+    line-height:1.2;
+  }
+
+  /* custom rounded dropdown (replaces native select popup, which can't be styled) */
+  .dd{position:relative;display:inline-block;}
+  .dd-btn{
+    border:1px solid var(--border-strong);border-radius:var(--r-pill);
+    padding:8px 36px 8px 16px;font-size:13px;background:#fff;color:var(--text-primary);
+    display:inline-flex;align-items:center;white-space:nowrap;position:relative;
+  }
+  .dd-btn::after{
+    content:"";position:absolute;right:15px;top:50%;width:10px;height:6px;transform:translateY(-50%);
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' fill='none' stroke='%235B6669' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+    background-repeat:no-repeat;background-size:10px 6px;
+  }
+  .dd-btn:hover{background:var(--bg-page);}
+  .dd-btn.open{border-color:var(--teal-light);}
+  .dd-panel{
+    position:absolute;top:calc(100% + 8px);left:0;min-width:100%;
+    background:#fff;border:1px solid var(--border);border-radius:var(--r-md);
+    box-shadow:var(--shadow-2);padding:6px;z-index:100;
+    display:none;max-height:260px;overflow-y:auto;
+  }
+  .dd-panel.open{display:block;}
+  .dd-option{padding:8px 12px;border-radius:var(--r-sm);font-size:13px;color:var(--text-primary);cursor:pointer;white-space:nowrap;}
+  .dd-option:hover{background:var(--bg-page);}
+  .dd-option.selected{background:#E1F0F2;color:var(--teal-dark);font-weight:500;}
+  .btn{
+    border-radius:var(--r-pill);padding:9px 16px;font-size:13px;font-weight:500;border:1px solid var(--border-strong);background:#fff;color:var(--text-primary);
+    display:inline-flex;align-items:center;gap:7px;
+  }
+  .btn:hover{background:var(--bg-page);}
+  .btn-primary{background:var(--teal-dark);border-color:var(--teal-dark);color:#fff;}
+  .btn-primary:hover{background:#014C5D;}
+  .btn-danger{background:#fff;border-color:#F3C9C9;color:var(--red);}
+  .btn-danger:hover{background:#FCEBEB;}
+  .btn-sm{padding:6px 12px;font-size:12px;}
+
+  .grid{display:grid;gap:16px;}
+  .grid-2{grid-template-columns:repeat(2,minmax(0,1fr));}
+  .grid-3{grid-template-columns:repeat(3,minmax(0,1fr));}
+  .grid-4{grid-template-columns:repeat(4,minmax(0,1fr));}
+
+  .metric{background:var(--bg-page);border-radius:var(--r-md);padding:16px 18px;}
+  .metric .label{font-size:12px;color:var(--text-secondary);margin-bottom:6px;}
+  .metric .val{font-size:24px;font-weight:500;}
+
+  .quick-card{
+    background:var(--bg-card);border:1px solid var(--border);border-radius:var(--r-lg);padding:18px;
+    display:flex;flex-direction:column;gap:10px;transition:transform .12s ease, box-shadow .12s ease;
+  }
+  .quick-card:hover{box-shadow:var(--shadow-2);transform:translateY(-2px);}
+  .quick-card .qicon{width:38px;height:38px;border-radius:var(--r-sm);background:#E1F0F2;color:var(--teal-dark);display:flex;align-items:center;justify-content:center;}
+  .quick-card h3{font-size:14.5px;margin:0;font-weight:500;}
+  .quick-card p{font-size:12.5px;color:var(--text-secondary);margin:0;line-height:1.5;}
+  .quick-card .go{font-size:12px;color:var(--teal-dark);font-weight:500;margin-top:auto;}
+
+  .section-label{font-size:13px;font-weight:500;color:var(--text-secondary);margin:26px 0 12px;text-transform:uppercase;letter-spacing:.03em;}
+
+  .chat-hero{
+    background:linear-gradient(180deg,#F2FAFB,var(--bg-card));
+    border:2px solid var(--teal-light);border-radius:var(--r-lg);
+    padding:26px 28px;box-shadow:var(--shadow-2);margin-bottom:8px;
+  }
+  .chat-heading{
+    font-size:19px;font-weight:600;color:var(--teal-darkest);
+    display:flex;align-items:center;gap:9px;margin-bottom:16px;
+  }
+  .chat-heading i{color:var(--teal-light);font-size:18px;}
+  .chat-input-row{
+    display:flex;align-items:center;gap:12px;
+    background:#fff;border:1.5px solid var(--border-strong);border-radius:var(--r-pill);
+    padding:8px 10px 8px 20px;
+  }
+  .chat-input-row:focus-within{border-color:var(--teal-light);}
+  .chat-input-row input{
+    flex:1;border:none;outline:none;font-size:15px;background:transparent;color:var(--text-primary);padding:8px 0;
+  }
+  .chat-send{
+    width:38px;height:38px;border-radius:50%;border:none;background:var(--teal-dark);color:#fff;
+    display:flex;align-items:center;justify-content:center;flex-shrink:0;
+  }
+  .chat-send:hover{background:#014C5D;}
+  .chip-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;}
+  .sugg-chip{
+    border:1px solid var(--border-strong);background:#fff;border-radius:var(--r-pill);
+    padding:7px 14px;font-size:12.5px;color:var(--text-secondary);
+  }
+  .sugg-chip:hover{background:var(--bg-page);color:var(--text-primary);}
+  #chatThread{margin-bottom:4px;}
+  #chatThread:not(:empty){margin-bottom:16px;}
+  .chat-bubble{display:flex;gap:10px;margin-bottom:12px;}
+  .chat-bubble .av{width:28px;height:28px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:500;}
+  .chat-bubble.user .av{background:var(--teal-light);color:var(--teal-darkest);}
+  .chat-bubble.bot .av{background:var(--teal-dark);color:#fff;}
+  .chat-bubble .msg{background:#fff;border:1px solid var(--border);border-radius:var(--r-md);padding:10px 14px;font-size:13.5px;line-height:1.5;max-width:88%;}
+  .chat-bubble.user .msg{background:#EFFAFB;border-color:#D7EEF1;}
+
+  table{width:100%;border-collapse:collapse;font-size:13px;}
+  th{text-align:left;color:var(--text-secondary);font-weight:500;font-size:11.5px;text-transform:uppercase;letter-spacing:.03em;padding:8px 12px;border-bottom:1px solid var(--border);}
+  td{padding:12px;border-bottom:1px solid var(--border);vertical-align:middle;}
+  tr.rowhover:hover{background:var(--bg-page);cursor:pointer;}
+  tbody tr:last-child td{border-bottom:none;}
+
+  .bar-row{display:flex;align-items:center;gap:10px;margin-bottom:10px;}
+  .bar-row .lab{width:110px;font-size:12.5px;color:var(--text-secondary);}
+  .bar-track{flex:1;height:10px;background:var(--bg-page);border-radius:var(--r-pill);overflow:hidden;}
+  .bar-fill{height:100%;background:var(--teal-light);border-radius:var(--r-pill);}
+  .bar-val{width:34px;text-align:right;font-size:12px;color:var(--text-secondary);}
+
+  .feature-card{border:1px solid var(--border);border-radius:var(--r-md);padding:16px;background:var(--bg-card);}
+  .feature-card .top{display:flex;justify-content:space-between;gap:8px;}
+  .feature-card h4{margin:0 0 4px;font-size:14px;font-weight:500;}
+  .feature-card p{margin:6px 0 10px;color:var(--text-secondary);font-size:12.5px;line-height:1.5;}
+  .feature-card .meta{display:flex;justify-content:space-between;align-items:center;font-size:11.5px;color:var(--text-muted);}
+
+  .dropzone{
+    border:2px dashed var(--border-strong);border-radius:var(--r-lg);
+    padding:34px 20px;text-align:center;color:var(--text-secondary);background:#FBFCFC;
+  }
+  .dropzone.drag{border-color:var(--teal-light);background:#EFFAFB;}
+  .dropzone i{font-size:26px;color:var(--teal-light);margin-bottom:8px;display:block;}
+  .filechip{display:flex;align-items:center;gap:8px;background:var(--bg-page);border-radius:var(--r-pill);padding:6px 12px;font-size:12.5px;}
+  .filechip i{color:var(--teal-dark);}
+  .filechip .rm{margin-left:4px;color:var(--text-muted);border:none;background:none;}
+
+  .tab-row{display:flex;gap:6px;background:var(--bg-page);padding:4px;border-radius:var(--r-pill);width:fit-content;margin-bottom:18px;}
+  .tab-row button{border:none;background:transparent;padding:8px 16px;border-radius:var(--r-pill);font-size:13px;color:var(--text-secondary);}
+  .tab-row button.active{background:var(--bg-card);color:var(--text-primary);font-weight:500;box-shadow:var(--shadow-1);}
+
+  .step-pills{display:flex;gap:8px;margin-bottom:18px;flex-wrap:wrap;}
+  .step-pill{border:1px solid var(--border-strong);border-radius:var(--r-pill);padding:9px 16px;font-size:13px;background:#fff;color:var(--text-primary);}
+  .step-pill.active{background:var(--teal-dark);border-color:var(--teal-dark);color:#fff;}
+
+  .template-card{border:1px solid var(--border);border-radius:var(--r-md);overflow:hidden;background:#fff;cursor:pointer;}
+  .template-card .thumb{height:90px;background:linear-gradient(135deg,#E1F0F2,#CFE8EA);display:flex;align-items:center;justify-content:center;color:var(--teal-dark);font-size:22px;}
+  .template-card .tname{padding:10px 12px;font-size:12.5px;font-weight:500;}
+  .template-card.selected{border-color:var(--teal-dark);box-shadow:0 0 0 2px rgba(1,95,116,.15);}
+
+  .prompt-item{border:1px solid var(--border);border-radius:var(--r-md);padding:12px 14px;margin-bottom:8px;font-size:13px;cursor:pointer;}
+  .prompt-item.selected{border-color:var(--teal-dark);background:#F2FAFB;}
+  .prompt-item .t{font-weight:500;margin-bottom:2px;}
+  .prompt-item .d{color:var(--text-secondary);font-size:12px;}
+
+  .check-row{display:flex;align-items:center;gap:8px;font-size:13px;padding:6px 0;}
+  .check-row i.pass{color:#0E6B4E;}
+  .check-row i.fail{color:var(--red);}
+
+  .asset-card{border:1px solid var(--border);border-radius:var(--r-lg);padding:16px;background:#fff;display:flex;flex-direction:column;gap:8px;}
+  .asset-card .thumb2{height:70px;border-radius:var(--r-sm);background:var(--bg-page);display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:20px;}
+
+  .overlay{
+    position:absolute;inset:0;background:rgba(5,52,69,.32);display:flex;justify-content:flex-end;z-index:50;
+  }
+  .overlay.hidden{display:none;}
+  .drawer{width:420px;max-width:92%;background:#fff;height:100%;padding:22px;overflow-y:auto;border-radius:var(--r-lg) 0 0 var(--r-lg);box-shadow:var(--shadow-2);}
+  .drawer .close{border:none;background:var(--bg-page);width:30px;height:30px;border-radius:50%;color:var(--text-secondary);}
+
+  .modalwrap{position:absolute;inset:0;background:rgba(5,52,69,.32);display:flex;align-items:center;justify-content:center;z-index:60;}
+  .modalwrap.hidden{display:none;}
+  .modal{background:#fff;border-radius:var(--r-lg);padding:22px;width:400px;box-shadow:var(--shadow-2);}
+  .modal h3{margin:0 0 8px;font-size:16px;}
+  .modal p{color:var(--text-secondary);font-size:13px;line-height:1.5;}
+
+  .thread{border:1px solid var(--border);border-radius:var(--r-md);padding:12px 14px;margin-bottom:10px;}
+  .thread.resolved{opacity:.55;}
+  .thread .who{display:flex;align-items:center;gap:8px;margin-bottom:6px;}
+  .thread .who .av{width:26px;height:26px;border-radius:50%;background:var(--teal-light);color:var(--teal-darkest);font-size:11px;display:flex;align-items:center;justify-content:center;font-weight:500;}
+  .mention{background:#E1F0F2;color:var(--teal-dark);border-radius:var(--r-pill);padding:1px 7px;font-size:12px;font-weight:500;}
+  .mention.team{background:#FCE8E8;color:var(--red);}
+
+  .empty-note{color:var(--text-muted);font-size:12.5px;padding:14px 0;}
+  .relwrap{position:relative;}
+
+  ::placeholder{color:var(--text-muted);}
+</style>
+</head>
+<body>
+
+<div class="app relwrap" id="appRoot">
+  <aside class="sidebar">
+    <button class="sb-toggle" id="sbToggle" aria-label="Collapse sidebar"><i class="fa-solid fa-chevron-left" id="sbToggleIcon"></i></button>
+
+    <div class="brand">
+      <div class="mark">
+        <svg viewBox="0 0 90 84" width="30" height="28">
+          <polygon points="45,4 78,23 78,61 45,80 12,61 12,23" fill="none" stroke="#8FBFC9" stroke-width="3"/>
+          <polygon points="30,15 41.3,21.5 41.3,34.5 30,41 18.7,34.5 18.7,21.5" fill="#46B2BE"/>
+          <polygon points="60,15 71.3,21.5 71.3,34.5 60,41 48.7,34.5 48.7,21.5" fill="#0B4D5C"/>
+          <polygon points="45,41 56.3,47.5 56.3,60.5 45,67 33.7,60.5 33.7,47.5" fill="#F8D146"/>
+        </svg>
+      </div>
+      <div>
+        <div class="name">Hive</div>
+        <div class="sub">by Aurigo</div>
+      </div>
+    </div>
+
+    <div class="navgroup">
+      <button class="navitem active" data-view="home" data-tooltip="Home"><i class="fa-solid fa-house"></i><span class="navtext">Home</span></button>
+      <button class="navitem" data-view="catalog" data-tooltip="Feature catalog"><i class="fa-solid fa-layer-group"></i><span class="navtext">Feature catalog</span><span class="count" id="navCatalogCount">3</span></button>
+      <button class="navitem" data-view="winloss" data-tooltip="Win / loss"><i class="fa-solid fa-chart-column"></i><span class="navtext">Win / loss</span></button>
+      <button class="navitem" data-view="intake" data-tooltip="Intake & uploads"><i class="fa-solid fa-upload"></i><span class="navtext">Intake &amp; uploads</span></button>
+      <button class="navitem" data-view="studio" data-tooltip="Asset studio"><i class="fa-solid fa-wand-magic-sparkles"></i><span class="navtext">Asset studio</span></button>
+      <button class="navitem" data-view="repository" data-tooltip="Repository"><i class="fa-solid fa-box-archive"></i><span class="navtext">Repository</span></button>
+    </div>
+
+    <div class="navgroup">
+      <div class="navlabel">Admin</div>
+      <button class="navitem" data-view="uploadsconsole" data-tooltip="Uploads console"><i class="fa-solid fa-shield-halved"></i><span class="navtext">Uploads console</span></button>
+      <button class="navitem" data-view="reviewqueue" data-tooltip="Review queue"><i class="fa-solid fa-list-check"></i><span class="navtext">Review queue</span><span class="count">2</span></button>
+    </div>
+
+    <div class="sidebar-foot">Signed in as Anupam Rawat<br>anupam.rawat@aurigo.com</div>
+  </aside>
+
+  <div class="main">
+    <div class="topbar">
+      <div class="top-actions" style="margin-left:0;">
+        <span style="font-size:13px;color:var(--text-secondary);font-weight:500;">Hive</span>
+      </div>
+      <div class="top-actions">
+        <button class="icon-btn"><i class="fa-regular fa-bell"></i><span class="dot"></span></button>
+        <div class="avatar">AR</div>
+      </div>
+    </div>
+
+    <div class="content">
+
+      <!-- HOME -->
+      <section class="view active" id="view-home">
+        <h1 class="pagetitle">Good afternoon, Anupam</h1>
+        <p class="pagesub" id="homeSub">Here's what's relevant to Sales today.</p>
+
+        <div class="persona-block">
+          <div class="persona-label">Who's asking?</div>
+          <div class="persona-switch persona-switch-lg" id="personaSwitch">
+            <button class="active" data-persona="sales">Sales</button>
+            <button data-persona="marketing">Marketing</button>
+            <button data-persona="elt">ELT</button>
+          </div>
+        </div>
+
+        <div class="chat-hero">
+          <div class="chat-heading"><i class="fa-solid fa-sparkles"></i> Ask Hive</div>
+          <div id="chatThread"></div>
+          <form id="chatForm" class="chat-input-row">
+            <i class="fa-solid fa-message" style="color:var(--teal-light);font-size:15px;"></i>
+            <input type="text" id="chatInput" placeholder="Ask Hive anything...">
+            <button type="submit" class="chat-send"><i class="fa-solid fa-arrow-up"></i></button>
+          </form>
+          <div class="chip-row" id="chatSuggestions"></div>
+        </div>
+
+        <h3 class="section-label">Quick actions</h3>
+        <div class="grid grid-3" id="quickGrid"></div>
+      </section>
+
+      <!-- CATALOG -->
+      <section class="view" id="view-catalog">
+        <h1 class="pagetitle">Product feature catalog</h1>
+        <p class="pagesub">Live feature lists synced from release notes, per product.</p>
+
+        <div class="card" style="margin-bottom:18px;">
+          <div class="row-between" style="margin-bottom:14px;">
+            <select id="productSelect">
+              <option value="Masterworks">Masterworks</option>
+              <option value="Essentials">Essentials</option>
+              <option value="Primus">Primus</option>
+              <option value="Lumina">Lumina</option>
+            </select>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <span class="pill pill-live"><i class="fa-solid fa-circle-nodes" style="font-size:10px"></i> SharePoint sync: stubbed (flag off)</span>
+              <button class="btn btn-sm"><i class="fa-solid fa-rotate"></i> Re-scan folder</button>
+            </div>
+          </div>
+          <div id="diffBanner" class="row-between" style="background:var(--bg-page);border-radius:var(--r-md);padding:12px 16px;"></div>
+        </div>
+
+        <div class="grid grid-3" id="featureGrid"></div>
+      </section>
+
+      <!-- WIN/LOSS -->
+      <section class="view" id="view-winloss">
+        <div class="row-between" style="margin-bottom:4px;">
+          <div>
+            <h1 class="pagetitle">Win / loss analysis</h1>
+            <p class="pagesub">Synced nightly from Salesforce (sandbox). <span id="lastSynced" style="color:var(--text-primary);font-weight:500;"></span></p>
+          </div>
+          <button class="btn btn-primary" id="refreshBtn"><i class="fa-solid fa-rotate"></i> Refresh now</button>
+        </div>
+
+        <div class="grid grid-4" style="margin-bottom:18px;">
+          <div class="metric"><div class="label">Closed-won</div><div class="val" id="mWon">-</div></div>
+          <div class="metric"><div class="label">Closed-lost</div><div class="val" id="mLost">-</div></div>
+          <div class="metric"><div class="label">Win rate</div><div class="val" id="mRate">-</div></div>
+          <div class="metric"><div class="label">Avg deal size</div><div class="val" id="mAvg">-</div></div>
+        </div>
+
+        <div class="card" style="margin-bottom:18px;">
+          <div class="row-between" style="margin-bottom:14px;flex-wrap:wrap;gap:10px;">
+            <select id="fCompetitor"><option value="">All competitors</option></select>
+            <select id="fProduct"><option value="">All product lines</option></select>
+            <select id="fReason"><option value="">All loss reasons</option></select>
+            <select id="fBand"><option value="">All deal sizes</option></select>
+          </div>
+          <div id="lossBars"></div>
+        </div>
+
+        <div class="card">
+          <h3 style="margin:0 0 12px;font-size:15px;font-weight:500;">Opportunities</h3>
+          <table>
+            <thead><tr><th>Account</th><th>Product</th><th>Stage</th><th>Competitor</th><th>Loss reason</th><th>Amount</th></tr></thead>
+            <tbody id="oppRows"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- INTAKE -->
+      <section class="view" id="view-intake">
+        <h1 class="pagetitle">Context-rich intake</h1>
+        <p class="pagesub">Attach source material to any request — transcripts, decks, briefs.</p>
+
+        <div class="card">
+          <div class="dropzone" id="dropzone">
+            <i class="fa-solid fa-cloud-arrow-up"></i>
+            Drag files here, or <a href="#" id="browseLink">browse</a><br>
+            <span style="font-size:12px;color:var(--text-muted);">PDF, DOCX, PPTX, TXT, VTT, SRT</span>
+          </div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;" id="fileList"></div>
+          <div style="margin-top:16px;text-align:right;">
+            <button class="btn btn-primary"><i class="fa-solid fa-paper-plane"></i> Submit request</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ASSET STUDIO -->
+      <section class="view" id="view-studio">
+        <h1 class="pagetitle">Asset creation studio</h1>
+        <p class="pagesub">Pick a type, a brand template, and a prompt — output lands in Canva as a draft.</p>
+
+        <div class="step-pills" id="assetTypePills">
+          <button class="step-pill active" data-type="Datasheet">Datasheet</button>
+          <button class="step-pill" data-type="Deck">Deck</button>
+          <button class="step-pill" data-type="FAQ">FAQ</button>
+          <button class="step-pill" data-type="One-pager">One-pager</button>
+        </div>
+
+        <div class="grid grid-2" style="align-items:start;">
+          <div>
+            <div class="card" style="margin-bottom:16px;">
+              <h3 style="margin:0 0 12px;font-size:14px;font-weight:500;">Brand templates</h3>
+              <div class="grid grid-2" id="templateGrid"></div>
+            </div>
+            <div class="card">
+              <h3 style="margin:0 0 12px;font-size:14px;font-weight:500;">Prompt library</h3>
+              <div id="promptList"></div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="row-between" style="margin-bottom:10px;">
+              <h3 style="margin:0;font-size:14px;font-weight:500;">Output preview</h3>
+              <span class="pill pill-draft" id="outputStatusPill">Draft</span>
+            </div>
+            <div id="outputBody" style="background:var(--bg-page);border-radius:var(--r-md);padding:16px;font-size:13px;color:var(--text-secondary);min-height:90px;">
+              Select a template and a prompt, then generate.
+            </div>
+            <button class="btn" style="margin-top:12px;width:100%;justify-content:center;" id="generateBtn"><i class="fa-solid fa-sparkles"></i> Generate draft</button>
+
+            <div style="margin-top:16px;border-top:1px solid var(--border);padding-top:14px;" id="checksBlock" style="display:none;">
+              <div style="font-size:12.5px;font-weight:500;margin-bottom:4px;">Automated content check</div>
+              <div class="check-row"><i class="fa-solid fa-circle-check pass"></i> Forbidden-words list — clear</div>
+              <div class="check-row"><i class="fa-solid fa-circle-check pass"></i> Brand / voice rules — clear</div>
+              <button class="btn btn-primary" style="margin-top:8px;width:100%;justify-content:center;" id="markFinalBtn" disabled>Mark as final</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- REPOSITORY -->
+      <section class="view" id="view-repository">
+        <h1 class="pagetitle">Content repository</h1>
+        <p class="pagesub">Every finished asset, versioned. Non-admins see final only.</p>
+
+        <div class="row-between" style="margin-bottom:16px;flex-wrap:wrap;gap:10px;">
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <select id="repoProduct"><option value="">All products</option></select>
+            <select id="repoType"><option value="">All types</option></select>
+            <select id="repoPersona"><option value="">All personas</option></select>
+          </div>
+        </div>
+        <div class="grid grid-3" id="repoGrid"></div>
+      </section>
+
+      <!-- UPLOADS CONSOLE -->
+      <section class="view" id="view-uploadsconsole">
+        <h1 class="pagetitle">Uploads console</h1>
+        <p class="pagesub">Admin-only. Every file across every request.</p>
+        <div class="card">
+          <table>
+            <thead><tr><th>File</th><th>Uploader</th><th>Linked request</th><th>Type</th><th>Visibility</th><th></th></tr></thead>
+            <tbody id="uploadsRows"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- REVIEW QUEUE -->
+      <section class="view" id="view-reviewqueue">
+        <h1 class="pagetitle">Feature-extraction review queue</h1>
+        <p class="pagesub">Low-confidence entries pulled from release notes. Approve before they go live in the catalog.</p>
+        <div class="grid grid-2" id="reviewGrid"></div>
+      </section>
+
+    </div>
+  </div>
+
+  <div class="overlay hidden" id="oppDrawerOverlay">
+    <div class="drawer" id="oppDrawer"></div>
+  </div>
+
+  <div class="overlay hidden" id="assetDrawerOverlay">
+    <div class="drawer" id="assetDrawer"></div>
+  </div>
+
+  <div class="modalwrap hidden" id="promoteModal">
+    <div class="modal">
+      <h3>Promote to context doc</h3>
+      <p>This file's extracted content will become available to every agent in the system. Requires admin approval.</p>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
+        <button class="btn" id="promoteCancel">Cancel</button>
+        <button class="btn btn-primary" id="promoteConfirm">Approve &amp; promote</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ---------- MOCK DATA ---------- */
+const products = {
+  Masterworks: {
+    diff: {added:2, changed:1, deprecated:1},
+    features: [
+      {name:"Predictive schedule risk agent", desc:"Flags capital projects at risk of schedule slippage before it happens.", date:"2026-07-14", category:"AI agents", status:"live", src:"#"},
+      {name:"Right of way tracker 2.0", desc:"Centralizes right of way acquisition status across parcels.", date:"2026-06-30", category:"Capital planning", status:"live", src:"#"},
+      {name:"Contingency draw forecasting", desc:"Projects contingency drawdown against program budget in real time.", date:"2026-06-02", category:"Financials", status:"pending", src:"#"},
+      {name:"Federal compliance pack (BPA)", desc:"Pre-built reporting templates for USDOT BPA compliance.", date:"2026-05-18", category:"Compliance", status:"live", src:"#"},
+    ]
+  },
+  Essentials: {
+    diff: {added:1, changed:1, deprecated:0},
+    features: [
+      {name:"Local agency budget snapshot", desc:"One-screen budget vs. actuals for local and regional agencies.", date:"2026-07-01", category:"Financials", status:"live", src:"#"},
+      {name:"Change order quick-approve", desc:"Mobile approval flow for field change orders.", date:"2026-06-10", category:"Mobile", status:"live", src:"#"},
+      {name:"Paper-based audit trail export", desc:"One-click export of the full audit trail for grant reporting.", date:"2026-05-22", category:"Compliance", status:"live", src:"#"},
+    ]
+  },
+  Primus: {
+    diff: {added:1, changed:0, deprecated:0},
+    features: [
+      {name:"Facility portfolio rollup", desc:"Consolidated view of capital portfolio performance across facilities.", date:"2026-07-20", category:"Capital planning", status:"live", src:"#"},
+      {name:"Business case scenario modeler", desc:"Models scenarios for competing capital investments.", date:"2026-06-25", category:"Financials", status:"pending", src:"#"},
+      {name:"Data center expansion template", desc:"Pre-configured project template for data center build-outs.", date:"2026-05-30", category:"Templates", status:"live", src:"#"},
+    ]
+  },
+  Lumina: {
+    diff: {added:2, changed:0, deprecated:0},
+    features: [
+      {name:"Lumina data model v3", desc:"Unified data layer powering Masterworks AI and Primus AI agents.", date:"2026-07-10", category:"Platform", status:"live", src:"#"},
+      {name:"Execution agent (beta)", desc:"Automates routine capital program execution tasks.", date:"2026-06-18", category:"AI agents", status:"live", src:"#"},
+      {name:"Risk manager copilot", desc:"Surfaces emerging program risk from linked data sources.", date:"2026-05-05", category:"AI agents", status:"pending", src:"#"},
+    ]
+  }
+};
+
+const competitors = ["Oracle","Kahua","Procore","e-Builder","In-house / Excel"];
+const productLines = ["Masterworks","Essentials","Primus"];
+const lossReasons = ["Price","Missing feature","Timeline","Incumbent relationship","No decision"];
+const bands = ["<$100K","$100K-$500K","$500K-$1M","$1M+"];
+const accounts = ["Nevada DOT","Harris County","City of Aurora","Metro Water Auth","Vantage Data Centers","Bay Area Transit","State of Ohio DOT","Riverside County","Pacific Utilities","GreenPoint Manufacturing"];
+
+function seedOpps(){
+  const rows=[];
+  for(let i=0;i<20;i++){
+    const won = Math.random() > 0.45;
+    rows.push({
+      id:i+1,
+      account: accounts[i % accounts.length] + (i>=accounts.length? " II": ""),
+      product: productLines[i % productLines.length],
+      stage: won ? "Closed-won" : "Closed-lost",
+      competitor: competitors[i % competitors.length],
+      reason: won ? "-" : lossReasons[i % lossReasons.length],
+      amount: [80000,150000,320000,620000,910000,1250000][i % 6],
+      band: bands[i % bands.length]
+    });
+  }
+  return rows;
+}
+const opps = seedOpps();
+
+const assets = [
+  {id:1, name:"Masterworks vs. Oracle battlecard", type:"One-pager", product:"Masterworks", persona:"Sales", status:"final", versions:[
+    {v:1, date:"Jun 2", editor:"J. Alvarez", note:"First draft"},
+    {v:2, date:"Jun 18", editor:"R. Chen", note:"Updated pricing objection"},
+    {v:3, date:"Jul 22", editor:"J. Alvarez", note:"Added Q2 win quote"}]},
+  {id:2, name:"Essentials local agency FAQ", type:"FAQ", product:"Essentials", persona:"Marketing", status:"in review", versions:[
+    {v:1, date:"Jul 1", editor:"M. Park", note:"Draft from intake request #211"},
+    {v:2, date:"Jul 15", editor:"M. Park", note:"Voice/brand pass"}]},
+  {id:3, name:"Primus data center launch deck", type:"Deck", product:"Primus", persona:"Marketing", status:"draft", versions:[
+    {v:1, date:"Jul 28", editor:"S. Iyer", note:"Generated from Asset Studio"}]},
+  {id:4, name:"Lumina AI datasheet", type:"Datasheet", product:"Lumina", persona:"Sales", status:"final", versions:[
+    {v:1, date:"May 5", editor:"J. Alvarez", note:"Initial"},
+    {v:2, date:"Jun 30", editor:"R. Chen", note:"Aligned to AI-native messaging rule"}]},
+  {id:5, name:"Masterworks DOT elevator pitch", type:"One-pager", product:"Masterworks", persona:"Sales", status:"final", versions:[{v:1, date:"Apr 10", editor:"J. Alvarez", note:"Initial"}]},
+  {id:6, name:"Kahua competitive teardown", type:"Deck", product:"Masterworks", persona:"Sales", status:"archived", versions:[{v:1, date:"Jan 12", editor:"R. Chen", note:"Superseded by battlecard #1"}]},
+];
+
+const reviewQueue = [
+  {product:"Masterworks", name:"Legacy RFI tracker — deprecated", confidence:"Low", note:"Extracted as 'deprecated' from release note footer — verify."},
+  {product:"Primus", name:"Business case scenario modeler", confidence:"Medium", note:"Category guessed as 'Financials' — confirm."}
+];
+
+const uploads = [
+  {file:"discovery-call-transcript.vtt", uploader:"J. Alvarez", request:"Battlecard #58", type:"VTT", restricted:true, promoted:false},
+  {file:"q2-competitive-brief.pdf", uploader:"R. Chen", request:"Battlecard #58", type:"PDF", restricted:false, promoted:true},
+  {file:"customer-interview-notes.docx", uploader:"M. Park", request:"Case study #14", type:"DOCX", restricted:false, promoted:false},
+  {file:"launch-deck-v1.pptx", uploader:"S. Iyer", request:"Primus launch", type:"PPTX", restricted:false, promoted:false},
+];
+
+/* ---------- NAV ---------- */
+document.querySelectorAll('.navitem').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    document.querySelectorAll('.navitem').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+    document.getElementById('view-'+btn.dataset.view).classList.add('active');
+  });
+});
+
+/* ---------- SIDEBAR COLLAPSE ---------- */
+document.getElementById('sbToggle').addEventListener('click', ()=>{
+  const collapsed = document.getElementById('appRoot').classList.toggle('collapsed');
+  const icon = document.getElementById('sbToggleIcon');
+  icon.className = collapsed ? 'fa-solid fa-chevron-right' : 'fa-solid fa-chevron-left';
+  document.getElementById('sbToggle').setAttribute('aria-label', collapsed ? 'Expand sidebar' : 'Collapse sidebar');
+});
+
+/* ---------- PERSONA SWITCH ---------- */
+const quickActions = {
+  sales: [
+    {icon:"fa-comments", title:"Talk track chat", desc:"Tell it who you're calling — get an opener and discovery questions.", view:"home"},
+    {icon:"fa-shield-halved", title:"Competitor battlecard", desc:"Strengths, weaknesses, landmines, talk track by competitor.", view:"repository"},
+    {icon:"fa-magnifying-glass", title:"Find an asset", desc:"Search proof points and case studies by industry tag.", view:"repository"},
+    {icon:"fa-chart-column", title:"Win / loss by competitor", desc:"See how we're doing against Oracle, Kahua, Procore.", view:"winloss"},
+    {icon:"fa-calculator", title:"Business case builder", desc:"Plug in prospect numbers, get a one-pager.", view:"studio"},
+    {icon:"fa-linkedin", title:"LinkedIn content kit", desc:"Ready-made posts and a posting guide.", view:"studio"},
+  ],
+  marketing: [
+    {icon:"fa-video", title:"Video script generator", desc:"Pick product, audience, channel — get hook, structure, CTA.", view:"studio"},
+    {icon:"fa-wand-magic-sparkles", title:"Asset creation studio", desc:"Datasheets, decks, FAQs on approved brand templates.", view:"studio"},
+    {icon:"fa-layer-group", title:"Feature catalog", desc:"See every recent feature by product, straight from release notes.", view:"catalog"},
+    {icon:"fa-spell-check", title:"Brand / voice checker", desc:"Catch banned words and off-voice claims before publishing.", view:"studio"},
+    {icon:"fa-box-archive", title:"Content repository", desc:"Browse finished assets by product, type, and persona.", view:"repository"},
+    {icon:"fa-users", title:"Case study builder", desc:"Turn a raw customer interview into a proof asset.", view:"intake"},
+  ],
+  elt: [
+    {icon:"fa-chart-line", title:"Win rate snapshot", desc:"Closed-won / lost trend by product line and competitor.", view:"winloss"},
+    {icon:"fa-layer-group", title:"Roadmap pulse", desc:"What shipped this quarter, by product.", view:"catalog"},
+    {icon:"fa-list-check", title:"Review queue", desc:"Low-confidence extractions waiting on approval.", view:"reviewqueue"},
+    {icon:"fa-box-archive", title:"Asset governance", desc:"Draft / in review / final mix across the repository.", view:"repository"},
+  ]
+};
+const homeSubs = {
+  sales:"Here's what's relevant to Sales today.",
+  marketing:"Here's what's relevant to Marketing today.",
+  elt:"A strategic pulse across GTM programs."
+};
+
+function renderQuickGrid(persona){
+  const grid = document.getElementById('quickGrid');
+  grid.innerHTML = quickActions[persona].map(q=>`
+    <div class="quick-card" data-goto="${q.view}">
+      <div class="qicon"><i class="fa-solid ${q.icon}"></i></div>
+      <h3>${q.title}</h3>
+      <p>${q.desc}</p>
+      <span class="go">Open <i class="fa-solid fa-arrow-right" style="font-size:10px"></i></span>
+    </div>`).join('');
+  document.getElementById('homeSub').textContent = homeSubs[persona];
+  grid.querySelectorAll('.quick-card').forEach(c=>{
+    c.addEventListener('click', ()=>{
+      document.querySelector(`.navitem[data-view="${c.dataset.goto}"]`)?.click();
+    });
+  });
+}
+document.querySelectorAll('#personaSwitch button').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    document.querySelectorAll('#personaSwitch button').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    activePersona = btn.dataset.persona;
+    renderQuickGrid(activePersona);
+    renderChatSuggestions(activePersona);
+  });
+});
+renderQuickGrid('sales');
+
+/* ---------- HOME CHAT BAR ---------- */
+const chatPlaceholders = {
+  sales:"Ask for a talk track, a battlecard, or a business case...",
+  marketing:"Ask for a video script, a datasheet, or messaging guidance...",
+  elt:"Ask for a KPI snapshot, a roadmap pulse, or a governance check..."
+};
+const chatSuggestions = {
+  sales: [
+    "Give me a talk track for a state DOT worried about staff turnover",
+    "Build a battlecard against Oracle for a Masterworks deal",
+    "Find proof points for an airport client"
+  ],
+  marketing: [
+    "Write a 60-second video script for the Primus launch",
+    "Draft a FAQ for Essentials local agency buyers",
+    "Check this paragraph against our brand voice rules"
+  ],
+  elt: [
+    "Summarize win rate trend for Q2 vs. Q1",
+    "What shipped across all products this quarter",
+    "Show me the asset governance mix right now"
+  ]
+};
+const chatReplies = {
+  sales:"Here's a starting point based on your GTM War Room context — I'd pair this with the matching battlecard in the Repository.",
+  marketing:"Drafted on your approved brand template. Run it through the content check in Asset Studio before marking it final.",
+  elt:"Pulled from the latest synced data. Full breakdown is in Win / loss and the Feature catalog if you want to go deeper."
+};
+let activePersona = 'sales';
+
+function renderChatSuggestions(persona){
+  document.getElementById('chatInput').placeholder = chatPlaceholders[persona];
+  document.getElementById('chatSuggestions').innerHTML = chatSuggestions[persona].map(s=>
+    `<button type="button" class="sugg-chip">${s}</button>`).join('');
+  document.querySelectorAll('.sugg-chip').forEach(chip=>{
+    chip.addEventListener('click', ()=>{
+      document.getElementById('chatInput').value = chip.textContent;
+      document.getElementById('chatForm').requestSubmit();
+    });
+  });
+}
+function addChatBubble(role, text){
+  const thread = document.getElementById('chatThread');
+  const av = role==='user' ? 'AR' : '<i class="fa-solid fa-sparkles" style="font-size:11px"></i>';
+  thread.insertAdjacentHTML('beforeend', `
+    <div class="chat-bubble ${role}">
+      <div class="av">${av}</div>
+      <div class="msg">${text}</div>
+    </div>`);
+}
+document.getElementById('chatForm').addEventListener('submit', e=>{
+  e.preventDefault();
+  const input = document.getElementById('chatInput');
+  const text = input.value.trim();
+  if(!text) return;
+  addChatBubble('user', text);
+  input.value = '';
+  setTimeout(()=> addChatBubble('bot', chatReplies[activePersona]), 350);
+});
+renderChatSuggestions('sales');
+
+/* ---------- CATALOG ---------- */
+function renderCatalog(){
+  const p = products[document.getElementById('productSelect').value];
+  document.getElementById('diffBanner').innerHTML = `
+    <div style="display:flex;gap:10px;">
+      <span class="pill pill-added"><i class="fa-solid fa-plus" style="font-size:9px"></i> ${p.diff.added} added</span>
+      <span class="pill pill-changed"><i class="fa-solid fa-pen" style="font-size:9px"></i> ${p.diff.changed} changed</span>
+      <span class="pill pill-deprecated"><i class="fa-solid fa-minus" style="font-size:9px"></i> ${p.diff.deprecated} deprecated</span>
+    </div>
+    <span style="font-size:12px;color:var(--text-secondary);">since last release note processed</span>`;
+  document.getElementById('featureGrid').innerHTML = p.features.map(f=>`
+    <div class="feature-card">
+      <div class="top">
+        <h4>${f.name}</h4>
+        <span class="pill ${f.status==='live'?'pill-live':'pill-pending'}">${f.status==='live'?'Live':'Pending review'}</span>
+      </div>
+      <p>${f.desc}</p>
+      <div class="meta">
+        <span>${f.category} · ${f.date}</span>
+        <a href="${f.src}"><i class="fa-solid fa-arrow-up-right-from-square"></i> Source</a>
+      </div>
+    </div>`).join('');
+}
+document.getElementById('productSelect').addEventListener('change', renderCatalog);
+renderCatalog();
+
+/* ---------- REVIEW QUEUE ---------- */
+document.getElementById('reviewGrid').innerHTML = reviewQueue.map((r,i)=>`
+  <div class="card">
+    <div class="row-between"><h4 style="margin:0;font-size:14px;">${r.name}</h4><span class="pill pill-pending">Confidence: ${r.confidence}</span></div>
+    <p style="font-size:12.5px;color:var(--text-secondary);margin:8px 0 14px;">${r.note} — ${r.product}</p>
+    <div style="display:flex;gap:8px;">
+      <button class="btn btn-primary btn-sm">Approve</button>
+      <button class="btn btn-sm">Edit</button>
+      <button class="btn btn-danger btn-sm">Reject</button>
+    </div>
+  </div>`).join('');
+
+/* ---------- WIN/LOSS ---------- */
+function fillSelect(id, list){
+  const sel = document.getElementById(id);
+  list.forEach(v=>{ const o=document.createElement('option'); o.value=v; o.textContent=v; sel.appendChild(o); });
+}
+fillSelect('fCompetitor', competitors);
+fillSelect('fProduct', productLines);
+fillSelect('fReason', lossReasons);
+fillSelect('fBand', bands);
+
+function currentFilters(){
+  return {
+    competitor: document.getElementById('fCompetitor').value,
+    product: document.getElementById('fProduct').value,
+    reason: document.getElementById('fReason').value,
+    band: document.getElementById('fBand').value
+  };
+}
+function filteredOpps(){
+  const f = currentFilters();
+  return opps.filter(o=>
+    (!f.competitor || o.competitor===f.competitor) &&
+    (!f.product || o.product===f.product) &&
+    (!f.reason || o.reason===f.reason) &&
+    (!f.band || o.band===f.band)
+  );
+}
+function fmt$(n){ return "$"+Math.round(n).toLocaleString(); }
+
+function renderWinLoss(){
+  const rows = filteredOpps();
+  const won = rows.filter(r=>r.stage==="Closed-won").length;
+  const lost = rows.filter(r=>r.stage==="Closed-lost").length;
+  document.getElementById('mWon').textContent = won;
+  document.getElementById('mLost').textContent = lost;
+  document.getElementById('mRate').textContent = (won+lost) ? Math.round((won/(won+lost))*100)+"%" : "-";
+  const avg = rows.length ? rows.reduce((s,r)=>s+r.amount,0)/rows.length : 0;
+  document.getElementById('mAvg').textContent = rows.length ? fmt$(avg) : "-";
+
+  const lossByCompetitor = {};
+  rows.filter(r=>r.stage==="Closed-lost").forEach(r=>{ lossByCompetitor[r.competitor]=(lossByCompetitor[r.competitor]||0)+1; });
+  const max = Math.max(1, ...Object.values(lossByCompetitor));
+  document.getElementById('lossBars').innerHTML = Object.keys(lossByCompetitor).length ?
+    Object.entries(lossByCompetitor).map(([c,n])=>`
+      <div class="bar-row"><div class="lab">${c}</div><div class="bar-track"><div class="bar-fill" style="width:${(n/max)*100}%"></div></div><div class="bar-val">${n}</div></div>
+    `).join('') : '<div class="empty-note">No losses in this filter set.</div>';
+
+  document.getElementById('oppRows').innerHTML = rows.map(o=>`
+    <tr class="rowhover" data-id="${o.id}">
+      <td>${o.account}</td><td>${o.product}</td>
+      <td><span class="pill ${o.stage==='Closed-won'?'pill-final':'pill-deprecated'}">${o.stage}</span></td>
+      <td>${o.competitor}</td><td>${o.reason}</td><td>${fmt$(o.amount)}</td>
+    </tr>`).join('');
+  document.querySelectorAll('#oppRows tr').forEach(tr=>{
+    tr.addEventListener('click', ()=> openOppDrawer(rows.find(r=>r.id==tr.dataset.id)));
+  });
+}
+['fCompetitor','fProduct','fReason','fBand'].forEach(id=>document.getElementById(id).addEventListener('change', renderWinLoss));
+
+function setSynced(){
+  document.getElementById('lastSynced').textContent = "Last synced " + new Date().toLocaleString([], {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'});
+}
+setSynced();
+renderWinLoss();
+document.getElementById('refreshBtn').addEventListener('click', ()=>{
+  const b = document.getElementById('refreshBtn');
+  b.innerHTML = '<i class="fa-solid fa-rotate fa-spin"></i> Syncing...';
+  setTimeout(()=>{ setSynced(); b.innerHTML='<i class="fa-solid fa-rotate"></i> Refresh now'; }, 900);
+});
+
+function openOppDrawer(o){
+  document.getElementById('oppDrawer').innerHTML = `
+    <div class="row-between" style="margin-bottom:16px;"><h3 style="margin:0;font-size:16px;">${o.account}</h3><button class="close" onclick="closeOverlay('oppDrawerOverlay')"><i class="fa-solid fa-xmark"></i></button></div>
+    <span class="pill ${o.stage==='Closed-won'?'pill-final':'pill-deprecated'}">${o.stage}</span>
+    <table style="margin-top:16px;">
+      <tr><td style="color:var(--text-secondary);border:none;padding:6px 0;">Product line</td><td style="text-align:right;border:none;">${o.product}</td></tr>
+      <tr><td style="color:var(--text-secondary);border:none;padding:6px 0;">Amount</td><td style="text-align:right;border:none;">${fmt$(o.amount)}</td></tr>
+      <tr><td style="color:var(--text-secondary);border:none;padding:6px 0;">Deal size band</td><td style="text-align:right;border:none;">${o.band}</td></tr>
+      <tr><td style="color:var(--text-secondary);border:none;padding:6px 0;">Competitor</td><td style="text-align:right;border:none;">${o.competitor}</td></tr>
+      <tr><td style="color:var(--text-secondary);border:none;padding:6px 0;">Loss reason</td><td style="text-align:right;border:none;">${o.reason}</td></tr>
+    </table>
+    <p style="font-size:12px;color:var(--text-muted);margin-top:14px;">Synced from Salesforce · Opportunity ${o.id}</p>`;
+  document.getElementById('oppDrawerOverlay').classList.remove('hidden');
+}
+function closeOverlay(id){ document.getElementById(id).classList.add('hidden'); }
+
+/* ---------- INTAKE ---------- */
+const dz = document.getElementById('dropzone');
+const fileListEl = document.getElementById('fileList');
+let files = [];
+function renderFiles(){
+  fileListEl.innerHTML = files.map((f,i)=>`<div class="filechip"><i class="fa-solid fa-file"></i>${f}<button class="rm" data-i="${i}">✕</button></div>`).join('');
+  fileListEl.querySelectorAll('.rm').forEach(b=>b.addEventListener('click', ()=>{ files.splice(+b.dataset.i,1); renderFiles(); }));
+}
+['dragenter','dragover'].forEach(ev=>dz.addEventListener(ev, e=>{ e.preventDefault(); dz.classList.add('drag'); }));
+['dragleave','drop'].forEach(ev=>dz.addEventListener(ev, e=>{ e.preventDefault(); dz.classList.remove('drag'); }));
+dz.addEventListener('drop', e=>{
+  const dropped = [...e.dataTransfer.files].map(f=>f.name);
+  files = files.concat(dropped.length ? dropped : ["discovery-call-transcript.vtt"]);
+  renderFiles();
+});
+document.getElementById('browseLink').addEventListener('click', e=>{
+  e.preventDefault();
+  files.push("competitive-brief.pdf");
+  renderFiles();
+});
+
+/* ---------- ASSET STUDIO ---------- */
+let currentType = "Datasheet";
+const templatesByType = {
+  Datasheet:["Masterworks datasheet", "Essentials datasheet", "Primus datasheet"],
+  Deck:["Enterprise pitch deck", "Launch deck", "Board update deck"],
+  FAQ:["Public-sector FAQ", "Commercial FAQ"],
+  "One-pager":["Sales one-pager", "Elevator pitch card"]
+};
+const promptsByType = {
+  Datasheet:[{t:"Feature-led datasheet", d:"Lead with outcome, list top 5 capabilities."}],
+  Deck:[{t:"Launch narrative deck", d:"7-step arc: old way, tension, cost of inaction, proof."},{t:"Board update", d:"KPI-first, terse, three slides max."}],
+  FAQ:[{t:"Buyer objection FAQ", d:"Natural-language questions, direct answers."}],
+  "One-pager":[{t:"Elevator pitch card", d:"30-second why-us, one proof point."}]
+};
+let selectedTemplate=null, selectedPrompt=null;
+
+function renderStudio(){
+  document.getElementById('templateGrid').innerHTML = templatesByType[currentType].map((t,i)=>`
+    <div class="template-card" data-i="${i}"><div class="thumb"><i class="fa-solid fa-image"></i></div><div class="tname">${t}</div></div>`).join('');
+  document.querySelectorAll('.template-card').forEach(c=>c.addEventListener('click', ()=>{
+    document.querySelectorAll('.template-card').forEach(x=>x.classList.remove('selected'));
+    c.classList.add('selected'); selectedTemplate = c.querySelector('.tname').textContent;
+  }));
+  document.getElementById('promptList').innerHTML = promptsByType[currentType].map((p,i)=>`
+    <div class="prompt-item" data-i="${i}"><div class="t">${p.t}</div><div class="d">${p.d}</div></div>`).join('');
+  document.querySelectorAll('.prompt-item').forEach(c=>c.addEventListener('click', ()=>{
+    document.querySelectorAll('.prompt-item').forEach(x=>x.classList.remove('selected'));
+    c.classList.add('selected'); selectedPrompt = c.querySelector('.t').textContent;
+  }));
+  document.getElementById('outputBody').textContent = "Select a template and a prompt, then generate.";
+  document.getElementById('checksBlock').style.display='none';
+  document.getElementById('outputStatusPill').className='pill pill-draft'; document.getElementById('outputStatusPill').textContent='Draft';
+}
+document.querySelectorAll('#assetTypePills .step-pill').forEach(p=>p.addEventListener('click', ()=>{
+  document.querySelectorAll('#assetTypePills .step-pill').forEach(x=>x.classList.remove('active'));
+  p.classList.add('active'); currentType = p.dataset.type; selectedTemplate=null; selectedPrompt=null; renderStudio();
+}));
+renderStudio();
+
+document.getElementById('generateBtn').addEventListener('click', ()=>{
+  if(!selectedTemplate || !selectedPrompt){ alert("Pick a template and a prompt first."); return; }
+  document.getElementById('outputBody').textContent = `Draft "${selectedPrompt}" generated on "${selectedTemplate}" — populated directly into Canva. Review the design in Canva, then return here to run the content check.`;
+  document.getElementById('checksBlock').style.display='block';
+  document.getElementById('markFinalBtn').disabled = false;
+});
+document.getElementById('markFinalBtn').addEventListener('click', ()=>{
+  document.getElementById('outputStatusPill').className='pill pill-final';
+  document.getElementById('outputStatusPill').textContent='Final';
+});
+
+/* ---------- REPOSITORY ---------- */
+fillSelect('repoProduct', ["Masterworks","Essentials","Primus","Lumina"]);
+fillSelect('repoType', ["Datasheet","Deck","FAQ","One-pager"]);
+fillSelect('repoPersona', ["Sales","Marketing"]);
+
+function statusPillClass(s){ return {draft:"pill-draft","in review":"pill-review", final:"pill-final", archived:"pill-archived"}[s]; }
+
+function renderRepo(){
+  const f = {
+    product: document.getElementById('repoProduct').value,
+    type: document.getElementById('repoType').value,
+    persona: document.getElementById('repoPersona').value
+  };
+  const rows = assets.filter(a =>
+    (!f.product || a.product===f.product) &&
+    (!f.type || a.type===f.type) &&
+    (!f.persona || a.persona===f.persona)
+  );
+  document.getElementById('repoGrid').innerHTML = rows.length ? rows.map(a=>`
+    <div class="asset-card" data-id="${a.id}">
+      <div class="thumb2"><i class="fa-solid fa-file-lines"></i></div>
+      <div class="row-between"><h4 style="margin:0;font-size:13.5px;">${a.name}</h4><span class="pill ${statusPillClass(a.status)}">${a.status}</span></div>
+      <div style="font-size:11.5px;color:var(--text-muted);">${a.type} · ${a.product} · ${a.persona}</div>
+      <a href="#" class="viewhist" data-id="${a.id}" style="font-size:12px;">View history (v${a.versions.length}) &rarr;</a>
+    </div>`).join('') : '<div class="empty-note">No assets match these filters.</div>';
+  document.querySelectorAll('.viewhist').forEach(l=>l.addEventListener('click', e=>{ e.preventDefault(); openAssetDrawer(assets.find(a=>a.id==l.dataset.id)); }));
+}
+['repoProduct','repoType','repoPersona'].forEach(id=>document.getElementById(id).addEventListener('change', renderRepo));
+renderRepo();
+
+function openAssetDrawer(a){
+  document.getElementById('assetDrawer').innerHTML = `
+    <div class="row-between" style="margin-bottom:16px;"><h3 style="margin:0;font-size:16px;">${a.name}</h3><button class="close" onclick="closeOverlay('assetDrawerOverlay')"><i class="fa-solid fa-xmark"></i></button></div>
+    <div style="font-size:12.5px;color:var(--text-secondary);margin-bottom:14px;">${a.type} · ${a.product} · ${a.persona} · <span class="pill ${statusPillClass(a.status)}">${a.status}</span></div>
+    <h4 style="font-size:13px;margin:0 0 8px;">Version history</h4>
+    ${a.versions.slice().reverse().map(v=>`
+      <div style="border:1px solid var(--border);border-radius:var(--r-md);padding:10px 12px;margin-bottom:8px;">
+        <div class="row-between"><b style="font-size:13px;">v${v.v}</b><span style="font-size:11.5px;color:var(--text-muted);">${v.date}</span></div>
+        <div style="font-size:12.5px;color:var(--text-secondary);margin:4px 0 8px;">${v.note} — ${v.editor}</div>
+        ${v.v!==a.versions.length ? `<button class="btn btn-sm" onclick="alert('Rolled back to v${v.v}')">Roll back to this version</button>` : `<span class="pill pill-live">Current</span>`}
+      </div>`).join('')}
+    <h4 style="font-size:13px;margin:16px 0 8px;">Discussion</h4>
+    <div class="thread"><div class="who"><div class="av">RC</div><b style="font-size:12.5px;">R. Chen</b></div><div style="font-size:13px;">Should we add the <span class="mention">@Sales</span> objection language here too?</div></div>
+    <div class="thread resolved"><div class="who"><div class="av">MP</div><b style="font-size:12.5px;">M. Park</b></div><div style="font-size:13px;">Confirmed with <span class="mention">@Product</span> — resolved.</div></div>
+    <textarea placeholder="Add a comment, @mention a person or team..." style="width:100%;border:1px solid var(--border-strong);border-radius:var(--r-md);padding:10px;font-size:13px;margin-top:8px;min-height:60px;"></textarea>
+    `;
+  document.getElementById('assetDrawerOverlay').classList.remove('hidden');
+}
+
+/* ---------- UPLOADS CONSOLE ---------- */
+function renderUploads(){
+  document.getElementById('uploadsRows').innerHTML = uploads.map((u,i)=>`
+    <tr>
+      <td><i class="fa-solid fa-file" style="margin-right:6px;color:var(--teal-dark);"></i>${u.file}</td>
+      <td>${u.uploader}</td><td>${u.request}</td><td>${u.type}</td>
+      <td>${u.restricted ? '<span class="pill pill-lock"><i class="fa-solid fa-lock" style="font-size:9px"></i> Admin + requester</span>' : '<span class="pill pill-live">All</span>'}</td>
+      <td style="text-align:right;white-space:nowrap;">
+        <button class="btn btn-sm" title="Preview"><i class="fa-solid fa-eye"></i></button>
+        <button class="btn btn-sm" title="Download"><i class="fa-solid fa-download"></i></button>
+        ${u.promoted ? '<span class="pill pill-final">Promoted</span>' : `<button class="btn btn-sm promote-btn" data-i="${i}">Promote</button>`}
+      </td>
+    </tr>`).join('');
+  document.querySelectorAll('.promote-btn').forEach(b=>b.addEventListener('click', ()=>{
+    pendingPromoteIndex = +b.dataset.i;
+    document.getElementById('promoteModal').classList.remove('hidden');
+  }));
+}
+let pendingPromoteIndex=null;
+renderUploads();
+document.getElementById('promoteCancel').addEventListener('click', ()=>document.getElementById('promoteModal').classList.add('hidden'));
+document.getElementById('promoteConfirm').addEventListener('click', ()=>{
+  if(pendingPromoteIndex!==null){ uploads[pendingPromoteIndex].promoted = true; renderUploads(); }
+  document.getElementById('promoteModal').classList.add('hidden');
+});
+
+/* ---------- ROUNDED DROPDOWNS (replace native select popups) ---------- */
+function closeAllDD(){
+  document.querySelectorAll('.dd-panel.open').forEach(p=>p.classList.remove('open'));
+  document.querySelectorAll('.dd-btn.open').forEach(b=>b.classList.remove('open'));
+}
+function enhanceSelect(select){
+  if(select.dataset.enhanced) return;
+  select.dataset.enhanced = "1";
+
+  const wrap = document.createElement('span');
+  wrap.className = 'dd';
+
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'dd-btn';
+  btn.textContent = select.options[select.selectedIndex] ? select.options[select.selectedIndex].textContent : '';
+
+  const panel = document.createElement('div');
+  panel.className = 'dd-panel';
+
+  Array.prototype.forEach.call(select.options, opt=>{
+    const item = document.createElement('div');
+    item.className = 'dd-option' + (opt.value === select.value ? ' selected' : '');
+    item.textContent = opt.textContent;
+    item.addEventListener('click', ()=>{
+      select.value = opt.value;
+      select.dispatchEvent(new Event('change'));
+      btn.textContent = opt.textContent;
+      panel.querySelectorAll('.dd-option').forEach(o=>o.classList.remove('selected'));
+      item.classList.add('selected');
+      closeAllDD();
+    });
+    panel.appendChild(item);
+  });
+
+  btn.addEventListener('click', e=>{
+    e.stopPropagation();
+    const wasOpen = panel.classList.contains('open');
+    closeAllDD();
+    if(!wasOpen){ panel.classList.add('open'); btn.classList.add('open'); }
+  });
+
+  wrap.appendChild(btn);
+  wrap.appendChild(panel);
+  select.style.display = 'none';
+  select.parentNode.insertBefore(wrap, select);
+}
+document.addEventListener('click', closeAllDD);
+document.querySelectorAll('select').forEach(enhanceSelect);
+</script>
+</body>
+</html>

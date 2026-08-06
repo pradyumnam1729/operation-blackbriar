@@ -1,0 +1,15 @@
+Primus Plan — Release Notes
+Release 2026.06 — June 5, 2026
+Audience: facility owners planning capital portfolios
+
+NEW
+- Facility Condition Index Rollup (Portfolio Planning) — Roll asset-level condition scores into a facility condition index per building and per region, refreshed as inspections land. Released 2026-06-05.
+- Capital Request Intake (Portfolio Planning) — Site teams submit capital requests through a structured intake form; portfolio planners score and rank them against the investment criteria the owner defines. Released 2026-06-05.
+
+CHANGED
+- Portfolio Investment Modeling (Portfolio Planning) — Sensitivity analysis now supports energy-cost and labor-rate variables, so owners can model investment timing against operating cost assumptions.
+
+DEPRECATED
+- Quarterly Spreadsheet Export (Reporting) — Retired. Portfolio reviews now run from the live portfolio dashboard, which keeps planning data consistent across the facility life cycle.
+
+Questions: product@aurigo.com

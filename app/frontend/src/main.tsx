@@ -4,7 +4,7 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AuthProvider, useAuth } from "./auth/AuthContext";
 import { Layout } from "./components/Layout";
 import { Login } from "./pages/Login";
-import { AskWarRoom } from "./pages/AskWarRoom";
+import { Home } from "./pages/Home";
 import { FoundationDoc } from "./pages/FoundationDoc";
 import { Requests } from "./pages/Requests";
 import { ArtifactLibrary } from "./pages/ArtifactLibrary";
@@ -24,8 +24,8 @@ function Root() {
   return (
     <Routes>
       <Route element={<Layout />}>
-        <Route path="/" element={<Navigate to="/ask" replace />} />
-        <Route path="/ask" element={<AskWarRoom />} />
+        <Route path="/" element={<Home />} />
+        <Route path="/ask" element={<Navigate to="/" replace />} />
         <Route path="/requests" element={<Requests />} />
         <Route path="/library" element={<ArtifactLibrary />} />
         <Route path="/library/:id" element={<ArtifactEditor />} />
@@ -36,7 +36,7 @@ function Root() {
         <Route path="/integrations" element={<IntegrationsPage />} />
         <Route path="/foundation" element={<FoundationDoc />} />
         <Route path="/notifications" element={<Notifications />} />
-        <Route path="*" element={<Navigate to="/ask" replace />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>
   );

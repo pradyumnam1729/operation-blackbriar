@@ -1,0 +1,16 @@
+Masterworks Build — Release Notes
+Release 2026.06 — June 12, 2026
+Audience: construction management teams at government agencies delivering capital programs
+
+NEW
+- Pay Estimate Line-Item Audit (Contract Administration) — Every pay estimate line item now carries a complete audit trail: who entered it, what changed, and which inspection records support it. Released 2026-06-12.
+- Field Photo Markup (Field Operations) — Inspectors can mark up photos captured in the field and attach them to daily reports and RFIs, with markups preserved in the project record. Released 2026-06-12.
+
+CHANGED
+- Change Order Workflows (Construction Management) — Approval routing can now branch on contract value thresholds, so high-dollar change orders route to the agency's executive approvers automatically.
+- RFI Management (Construction Management) — Response-time reporting now breaks down by responsible party, giving program managers visibility into where responses stall.
+
+DEPRECATED
+- Paper-Based Submittal Import (Migration) — Removed. Onboarding teams should capture legacy submittal logs through the standard document intake, which keeps records consistent across the asset life cycle.
+
+Questions: product@aurigo.com

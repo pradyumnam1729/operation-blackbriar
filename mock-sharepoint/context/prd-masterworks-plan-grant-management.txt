@@ -1,0 +1,35 @@
+PRD: Grant Management for Masterworks Plan
+Owner: Product Management, Masterworks Plan
+Status: Draft v0.3 — June 2, 2026
+
+1. Problem
+State and local government agencies fund capital programs from a mix of federal grants, state
+appropriations, and local bonds. Today, grant obligations live in spreadsheets outside the
+program plan. Planners miss drawdown deadlines, and finance teams reconcile fund balances by
+hand at fiscal year end. Agencies tell us the risk is not losing track of money — it is losing
+eligibility: a missed federal obligation date can forfeit funds for the entire program year.
+
+2. Goals
+- Bring grant milestones, obligation dates, and drawdown schedules into the program plan.
+- Alert planners 90/60/30 days before an obligation or drawdown deadline.
+- Reconcile fund balances against project actuals without manual export.
+
+3. Non-goals
+- Grant application authoring (stays in agency-specific systems).
+- Federal reporting submission (phase 2, pending FHWA format review).
+
+4. Requirements
+R1. A grant record carries funding source, award amount, obligation date, drawdown schedule,
+    and eligible project list.
+R2. Grant milestones appear on the program dashboard alongside project milestones.
+R3. Planners can allocate a grant across projects and see remaining balance in real time.
+R4. Deadline alerts route through the agency's existing notification preferences.
+R5. Every allocation change is audit-logged for the full program life cycle.
+
+5. Success measures
+- Agencies report zero missed federal obligation dates in the first funded program year.
+- Fiscal year-end fund reconciliation drops from weeks of manual work to same-day review.
+
+6. Open questions
+- How do multi-agency grants (e.g., regional transit) split allocation authority?
+- Does apportionment category tracking belong in R1 or in the FHWA phase-2 work?
