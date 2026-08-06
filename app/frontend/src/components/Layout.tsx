@@ -23,7 +23,8 @@ const MAIN_NAV: NavItem[] = [
 
 const ADMIN_NAV: NavItem[] = [
   { to: "/uploads", label: "Uploads console", icon: "fa-shield-halved", adminOnly: true },
-  { to: "/integrations", label: "Integrations", icon: "fa-circle-nodes", adminOnly: true },
+  { to: "/integrations", label: "Connectors", icon: "fa-plug", adminOnly: true },
+  { to: "/guardrails", label: "Guardrails", icon: "fa-road-barrier", adminOnly: true },
   { to: "/pmm", label: "PMM Workspace", icon: "fa-file-signature", adminOnly: true },
   { to: "/questionnaire", label: "Foundation questionnaire", icon: "fa-clipboard-question", adminOnly: true },
   { to: "/foundation", label: "Foundation", icon: "fa-book", adminOnly: true },

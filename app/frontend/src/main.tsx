@@ -16,6 +16,7 @@ import { CompetitiveIntel } from "./pages/CompetitiveIntel";
 import { PMMWorkspace } from "./pages/PMMWorkspace";
 import { PMMWizard } from "./pages/PMMWizard";
 import { PMMDocDetail } from "./pages/PMMDocDetail";
+import { Guardrails } from "./pages/Guardrails";
 import { UploadsConsole } from "./pages/UploadsConsole";
 import { Studio } from "./pages/Studio";
 import { Templates } from "./pages/Templates";
@@ -41,6 +42,7 @@ function Root() {
         <Route path="/pmm" element={<PMMWorkspace />} />
         <Route path="/pmm/:id" element={<PMMDocDetail />} />
         <Route path="/pmm/:id/edit" element={<PMMWizard />} />
+        <Route path="/guardrails" element={<Guardrails />} />
         <Route path="/studio" element={<Studio />} />
         <Route path="/templates" element={<Templates />} />
         <Route path="/uploads" element={<UploadsConsole />} />

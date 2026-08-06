@@ -1,6 +1,6 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { askWarRoom } from "../lib/api";
+import { apiGet, askWarRoom } from "../lib/api";
 import { useAuth } from "../auth/AuthContext";
 
 type Persona = "sales" | "marketing" | "elt";
@@ -89,6 +89,21 @@ export function Home() {
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const threadRef = useRef<HTMLDivElement | null>(null);
+  // Suggestion chips come from the admin-managed Prompt-library guardrail,
+  // with the built-in list as fallback.
+  const [liveSuggestions, setLiveSuggestions] = useState<Record<string, string[]>>({});
+
+  useEffect(() => {
+    apiGet<{ suggestions: Record<string, string[]> }>("/api/guardrails/prompts")
+      .then((r) => setLiveSuggestions(r.suggestions))
+      .catch(() => {});
+  }, []);
+
+  const suggestionsFor = (p: Persona): string[] => {
+    const key = p === "elt" ? "elt" : p;
+    const live = liveSuggestions[key] ?? (p === "elt" ? liveSuggestions["pmm"] : undefined);
+    return live && live.length > 0 ? live.slice(0, 3) : SUGGESTIONS[p];
+  };
 
   const greeting = useMemo(() => {
     const h = new Date().getHours();
@@ -197,7 +212,7 @@ export function Home() {
           </button>
         </form>
         <div className="chip-row">
-          {SUGGESTIONS[persona].map((s) => (
+          {suggestionsFor(persona).map((s) => (
             <button key={s} type="button" className="sugg-chip" onClick={() => void send(s)}>
               {s}
             </button>

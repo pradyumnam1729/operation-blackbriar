@@ -10,6 +10,144 @@ function StatePill({ on, labels }: { on: boolean; labels: [string, string] }) {
   return <span className={`pill ${on ? "pill-live" : "pill-archived"}`}>{on ? labels[0] : labels[1]}</span>;
 }
 
+// ---------- Connector summary (hive 1 toggle rows) ----------
+
+interface ConnectorRow {
+  id: string;
+  name: string;
+  desc: string;
+  icon: string;
+  on: boolean;
+  available: boolean;
+  hint?: string;
+  toggle: () => Promise<void>;
+}
+
+function ConnectorSummary({ isAdmin }: { isAdmin: boolean }) {
+  const [flags, setFlags] = useState<{ key: string; enabled: boolean }[]>([]);
+  const [lf, setLf] = useState<{ configured: boolean; enabled?: boolean } | null>(null);
+  const [csError, setCsError] = useState("");
+  const [csBusy, setCsBusy] = useState("");
+
+  const load = useCallback(async () => {
+    try {
+      const r = await apiGet<{ flags: { key: string; enabled: boolean }[] }>("/api/integrations");
+      setFlags(r.flags);
+      const l = await apiGet<{ configured: boolean; enabled?: boolean }>("/api/local-folders");
+      setLf(l);
+    } catch (e) {
+      setCsError((e as Error).message);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const flagOn = (key: string) => flags.find((f) => f.key === key)?.enabled ?? false;
+  const toggleFlag = (key: string) => async () => {
+    await apiPost(`/api/integrations/flags/${key}/toggle`);
+  };
+
+  const rows: ConnectorRow[] = [
+    {
+      id: "canva",
+      name: "Canva",
+      desc: "Populate approved brand templates directly in Asset Studio.",
+      icon: "fa-palette",
+      on: flagOn("canva_live"),
+      available: true,
+      hint: "Mock template gallery until the Canva Connect OAuth app exists.",
+      toggle: toggleFlag("canva_live"),
+    },
+    {
+      id: "salesforce",
+      name: "Salesforce",
+      desc: "Nightly sync of Win / loss opportunity data.",
+      icon: "fa-cloud",
+      on: flagOn("salesforce_live"),
+      available: true,
+      hint: "Mock opportunities until the read-only Connected App is provisioned.",
+      toggle: toggleFlag("salesforce_live"),
+    },
+    {
+      id: "sharepoint",
+      name: "SharePoint",
+      desc: "Live sync of release notes and context docs via Microsoft Graph.",
+      icon: "fa-folder-tree",
+      on: flagOn("sharepoint_graph"),
+      available: true,
+      hint: "Configure credentials and connections below.",
+      toggle: toggleFlag("sharepoint_graph"),
+    },
+    {
+      id: "localfolders",
+      name: "Local folders",
+      desc: "Watched Input folder + Output export — the SharePoint stand-in.",
+      icon: "fa-hard-drive",
+      on: lf?.enabled ?? false,
+      available: lf?.configured ?? false,
+      hint: lf?.configured ? undefined : "Configure the folder pair below first.",
+      toggle: async () => {
+        await apiPost("/api/local-folders/toggle");
+      },
+    },
+  ];
+
+  const flip = (row: ConnectorRow) => {
+    if (!isAdmin || !row.available || csBusy !== "") return;
+    setCsBusy(row.id);
+    setCsError("");
+    row
+      .toggle()
+      .then(load)
+      .catch((e) => setCsError((e as Error).message))
+      .finally(() => setCsBusy(""));
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 18 }}>
+      {csError && (
+        <div style={{ background: "#FCE8E8", color: "#A32D2D", borderRadius: "var(--r-md)", padding: "10px 14px", fontSize: 13 }}>
+          {csError}
+        </div>
+      )}
+      {rows.map((c) => (
+        <div
+          key={c.id}
+          className="card"
+          style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 0, padding: "14px 18px" }}
+        >
+          <div style={{ width: 38, height: 38, borderRadius: "var(--r-sm)", background: "#E1F0F2", color: "var(--teal-dark)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <i className={`fa-solid ${c.icon}`} />
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 500 }}>{c.name}</div>
+            <div style={{ fontSize: 12.5, color: "var(--text-secondary)" }}>
+              {c.desc}
+              {c.hint && <span style={{ color: "var(--text-muted)" }}> · {c.hint}</span>}
+            </div>
+          </div>
+          <span className={`pill ${c.on ? "pill-final" : "pill-archived"}`}>
+            {c.on ? "Connected" : c.available ? "Not connected" : "Not configured"}
+          </span>
+          {isAdmin && (
+            <div
+              className={`toggle-switch ${c.on ? "on" : ""} ${!c.available || csBusy !== "" ? "disabled" : ""}`}
+              role="switch"
+              aria-checked={c.on}
+              title={c.available ? (c.on ? "Turn off" : "Turn on") : c.hint}
+              onClick={() => flip(c)}
+            >
+              <div className="thumb" />
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 interface SpStatus {
   configured: boolean;
   credentials: { source: "database" | "env"; tenantId: string; clientId: string } | null;
@@ -444,11 +582,15 @@ export function IntegrationsPage() {
 
   return (
     <div>
-      <h1 className="pagetitle">Integrations</h1>
-      <p className="pagesub">
-        SharePoint connector over Microsoft Graph. Configure app credentials, connect document
-        libraries, and the platform ingests release notes and context docs into the war room.
-      </p>
+      <h1 className="pagetitle">
+        Connectors{" "}
+        <span className="pill pill-lock" style={{ marginLeft: 6 }}>
+          <i className="fa-solid fa-lock" style={{ fontSize: 9 }} /> Admin only
+        </span>
+      </h1>
+      <p className="pagesub">Turn on the systems Hive pulls from and pushes to.</p>
+
+      <ConnectorSummary isAdmin={isAdmin} />
 
       {error && <p style={{ color: "var(--red)" }}>{error}</p>}
 

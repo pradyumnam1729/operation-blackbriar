@@ -1,14 +1,16 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { loadBrandDna } from "./warRoom";
+import { guardrailContext } from "./guardrailFiles";
 
 const client = new Anthropic();
 
 const MODEL = process.env.PMM_MODEL ?? "claude-opus-4-8";
 
 // Stable system core — everything here must stay byte-identical across requests
-// so it caches as a prompt prefix. Volatile, per-request content goes in the
-// user message, never here.
-function systemCore(): string {
+// so it caches as a prompt prefix (guardrails are cached 60s for the same
+// reason). Volatile, per-request content goes in the user message, never here.
+async function systemCore(): Promise<string> {
+  const guardrails = await guardrailContext();
   return [
     "You are the PMM Agent for Aurigo — a product marketing knowledge engine.",
     "You answer ONLY from the GTM War Room content provided below. If the war room cannot support an answer, say exactly what is missing and which intelligence input would fill the gap. Never guess and never invent customer quotes, numbers, or competitor claims.",
@@ -25,6 +27,9 @@ function systemCore(): string {
     "",
     "Every claim you make must trace to a war-room file. End every answer with a 'Sources:' line listing the war-room file paths you used.",
     "",
+    guardrails !== ""
+      ? `=== GUARDRAILS (admin-managed grounding files) ===\n${guardrails}\n`
+      : "",
     "=== GTM WAR ROOM: BRAND DNA ===",
     loadBrandDna(),
   ].join("\n");
@@ -40,7 +45,7 @@ export async function ask(userPrompt: string, opts: AskOptions = {}): Promise<st
   const system: Anthropic.TextBlockParam[] = [
     {
       type: "text",
-      text: systemCore(),
+      text: await systemCore(),
       cache_control: { type: "ephemeral" },
     },
   ];

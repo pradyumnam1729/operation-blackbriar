@@ -1024,6 +1024,39 @@ tbody tr:last-child td {
   margin-bottom: 9px;
 }
 
+/* ---------- connector toggle switches (hive 1) ---------- */
+.toggle-switch {
+  width: 42px;
+  height: 24px;
+  border-radius: 999px;
+  background: var(--border-strong);
+  position: relative;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  flex-shrink: 0;
+}
+.toggle-switch .thumb {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: var(--shadow-1);
+  transition: left 0.15s ease;
+}
+.toggle-switch.on {
+  background: var(--teal-dark);
+}
+.toggle-switch.on .thumb {
+  left: 21px;
+}
+.toggle-switch.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 /* ---------- collaboration ---------- */
 .thread {
   border: 1px solid var(--border);
