@@ -1,0 +1,3 @@
+# battlecards/
+
+Two-page cards per competitor: strengths, weaknesses, talk track, landmines, and the question that exposes the gap. Continuous update loop: win/loss findings in, competitive shifts in, dead cards out, repeat. **Status: no battlecards exist yet** — first three to draft (per `../../strategy.md`): Kahua, Oracle Unifier, and the bolt-on-AI scenario, built from `../../competitors.md`, the head-to-head cards in the Masterworks AI messaging doc (Part D), and `MARKET-INTELLIGENCE/competitive/` dossiers. Rule of thumb: name the lens, then the gap, then the Aurigo answer — never the feature first. Competitive claims stay internal unless cleared. Empty at seeding, 2026-08-06.

@@ -1,0 +1,3 @@
+# win-loss/
+
+Monthly output of the Win/Loss Intelligence agent (A4): why deals are won, lost, or stalled, with buyer language, decision drivers, trust signals, and objections captured in the customer's own words. Aurigo already runs a formal win/loss debrief for every competitive deal at $100K+ ACV (framework in `engineering-playbook/vol-1-company/06-competitive-landscape.md`); this folder is where those debriefs and the monthly synthesis land once the CRM feed is connected. Known aggregate baseline to verify and import: n=41 lost deals trailing 12 months with six loss patterns. Empty at seeding, 2026-08-06.

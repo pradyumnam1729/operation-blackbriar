@@ -1,0 +1,146 @@
+/* Aurigo Brand Standards — see /Aurigo Brand Standards.md
+   Sharp edges (no rounded corners), Roboto, Dark Teal for text/headings
+   (ADA: never Light Teal for text). */
+:root {
+  --dark-teal: #015f74;
+  --light-teal: #46b2be;
+  --red: #ee3135;
+  --darkest-teal: #053445;
+  --grey-1: #f0f2f3;
+  --grey-2: #eaedf0;
+  --grey-3: #d6dde1;
+  --grey-mid: #b4b5b6;
+  --text: #383838;
+  --heading-dark: #2a2d2e;
+}
+
+* {
+  box-sizing: border-box;
+  border-radius: 0 !important; /* Aurigo uses sharp edges, not rounded corners */
+}
+
+body {
+  margin: 0;
+  font-family: "Roboto", Calibri, sans-serif;
+  font-size: 16px;
+  color: var(--text);
+  background: var(--grey-1);
+}
+
+h1 {
+  font-weight: 900;
+  font-size: 32px;
+  color: var(--dark-teal);
+}
+h2 {
+  font-weight: 700;
+  font-size: 24px;
+  color: var(--dark-teal);
+}
+
+header.app-header {
+  background: var(--darkest-teal);
+  color: #fff;
+  padding: 16px 32px;
+  display: flex;
+  align-items: baseline;
+  gap: 32px;
+}
+header.app-header .brand {
+  font-weight: 900;
+  font-size: 20px;
+  letter-spacing: 0.5px;
+}
+header.app-header nav a {
+  color: var(--grey-3);
+  text-decoration: none;
+  margin-right: 24px;
+  font-weight: 500;
+  cursor: pointer;
+}
+header.app-header nav a.active {
+  color: #fff;
+  border-bottom: 3px solid var(--light-teal);
+  padding-bottom: 4px;
+}
+
+main {
+  max-width: 960px;
+  margin: 32px auto;
+  padding: 0 24px;
+}
+
+.card {
+  background: #fff;
+  border: 1px solid var(--grey-3);
+  padding: 24px;
+  margin-bottom: 24px;
+}
+
+button {
+  background: var(--dark-teal);
+  color: #fff;
+  border: none;
+  padding: 10px 24px;
+  font-family: inherit;
+  font-size: 16px;
+  font-weight: 500;
+  cursor: pointer;
+}
+button:hover {
+  background: var(--darkest-teal);
+}
+button.cta {
+  background: var(--red);
+}
+button:disabled {
+  background: var(--grey-mid);
+  cursor: wait;
+}
+
+input,
+select,
+textarea {
+  font-family: inherit;
+  font-size: 16px;
+  padding: 10px;
+  border: 1px solid var(--grey-3);
+  width: 100%;
+}
+
+textarea {
+  min-height: 96px;
+  resize: vertical;
+}
+
+label {
+  display: block;
+  font-weight: 500;
+  margin: 12px 0 4px;
+  color: var(--heading-dark);
+}
+
+pre.answer {
+  white-space: pre-wrap;
+  font-family: inherit;
+  background: var(--grey-2);
+  padding: 16px;
+  border-left: 4px solid var(--light-teal);
+}
+
+.badge-draft {
+  background: var(--red);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 2px 8px;
+  margin-left: 8px;
+}
+.badge-final {
+  background: var(--dark-teal);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 2px 8px;
+  margin-left: 8px;
+}

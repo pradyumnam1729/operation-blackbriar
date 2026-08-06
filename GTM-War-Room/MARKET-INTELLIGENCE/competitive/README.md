@@ -1,0 +1,3 @@
+# competitive/
+
+Per-competitor dossiers maintained by the Competitive Intelligence agent (A3): pricing pages, release notes, G2 reviews, job postings, analyst reports, translated into positioning and sales implications. One file per competitor from the tracked set in `../../competitors.md`; each dossier feeds the continuous battlecard loop in `../../PLAYBOOKS-AND-ASSETS/battlecards/`. Import starting point: the vendor profiles and threat radar in `engineering-playbook/vol-1-company/06-competitive-landscape.md` (current as of July 2026 — verify before external use). Empty at seeding, 2026-08-06.

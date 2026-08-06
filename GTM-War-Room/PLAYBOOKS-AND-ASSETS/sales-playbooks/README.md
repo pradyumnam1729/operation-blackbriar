@@ -1,0 +1,3 @@
+# sales-playbooks/
+
+Discovery scripts, qualification frameworks, talk tracks, objection handling, and deal narratives (7-step arc), produced by the Sales & Deal Enablement agent (B8) and framed in sales metrics: SQLs, win rates, deal velocity, pipeline. Raw material ready to import: the Sales Kit (Part E2) and objection handling (D4) from the Masterworks AI messaging doc, plus per-competitor playbooks in `engineering-playbook/vol-1-company/06-competitive-landscape.md`. Persona-match every play against `../../personas.md`; use buyer vocabulary from `../../BRAND-DNA/our-customer.md`. Empty at seeding, 2026-08-06.
