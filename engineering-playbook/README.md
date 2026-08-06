@@ -4,6 +4,18 @@ This playbook is the operating system of Aurigo's engineering organization. It d
 
 ---
 
+## Role in Operation Blackbriar (2026-08-06)
+
+As of 2026-08-06, this playbook also serves the PMM Agent project ("Operation Blackbriar") — the workspace this repository now hosts. It plays three distinct roles there, and knowing which one you need tells you which volumes to read:
+
+1. **Engineering standards base for building the PMM Agent web app.** The app in `app/` is built to this playbook's standards: Vol 5 (Operating Model) for how the team works, Vol 9 (Templates) for stories, ADRs, and reviews, Vol 10 (Claude Prompts) for AI-assisted development, and the architecture standards (Vol 3, with `CLAUDE.md` and `vault/decisions/` until it is written) apply directly.
+2. **Product-truth corpus for the GTM War Room.** Vols 1 (Company Context), 2 (Product Knowledge), and 6 (Integration Strategy) are the source material the PMM agents draw Aurigo facts from. Every product claim in a generated marketing asset traces back here — `vol-2-product-knowledge/` is the designated feature-truth source per `pmm-playbook/vol-6-integrations/06-product-truth.md`, and changes to it trigger the product-to-market agent.
+3. **Structural model for the PMM playbook.** The `pmm-playbook/` was adapted from this playbook's structure — the same volume organization, template discipline, and prompt-library conventions, applied to product marketing instead of engineering.
+
+For PMM-Agent-specific volumes (integrations, AI engineering, roadmap, PMM templates, and PMM operating briefs), see `pmm-playbook/`. For the workspace constitution that governs both playbooks, see `CLAUDE.md` at the repository root.
+
+---
+
 ## Why This Exists
 
 Software teams accumulate three kinds of knowledge: the kind in code, the kind in people's heads, and the kind that is documented. The first kind is queryable but not always legible. The second kind walks out the door. The third kind scales.
@@ -134,4 +146,5 @@ This playbook is the operating system of Aurigo's engineering organization. If a
 
 ## Last Updated
 
+2026-08-06 — "Role in Operation Blackbriar" section added: this playbook now also serves the PMM Agent project as engineering standards base, product-truth corpus, and structural model for `pmm-playbook/`.
 2026-07-18 — Vol 10 (Claude Prompt Library) added with 13 ready-to-use prompts covering the full SDLC.

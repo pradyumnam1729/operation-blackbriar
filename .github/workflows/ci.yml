@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  backend:
+    name: Backend type-check
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app/backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/backend/package-lock.json
+      - run: npm ci
+      - run: npx tsc --noEmit
+
+  frontend:
+    name: Frontend build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app/frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/frontend/package-lock.json
+      - run: npm ci
+      - run: npm run build
+
+  voice-guard:
+    name: Voice guard (banned words in war room)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scan GTM War Room for banned words
+        shell: pwsh
+        run: |
+          # Same rules as .claude/hooks/messaging-guard.ps1: scan war-room markdown,
+          # skip the files that legitimately quote banned terms as rules.
+          $words = Get-Content .claude/hooks/forbidden-words.txt | Where-Object { $_.Trim() -ne "" }
+          $files = Get-ChildItem GTM-War-Room -Recurse -Filter *.md |
+            Where-Object { $_.FullName -notmatch 'gtm-rules|brand-voice|HANDOVER' }
+          $fail = $false
+          foreach ($f in $files) {
+            $content = Get-Content $f.FullName -Raw
+            foreach ($w in $words) {
+              if ($content -imatch [regex]::Escape($w)) {
+                $rel = [System.IO.Path]::GetRelativePath((Get-Location), $f.FullName)
+                Write-Host "::error file=$rel::Banned phrase '$w' found (Voice of Aurigo standards)"
+                $fail = $true
+              }
+            }
+          }
+          if ($fail) { exit 1 }
+          Write-Host "Voice guard passed: no banned phrases in war-room content."
