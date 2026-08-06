@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { ask } from "../services/claude";
 import { loadCorpus } from "../services/warRoom";
+import { logQuery } from "../services/db";
 
 // Persona output framing — Master Instructions §9.2. Every answer is shaped
 // for the asker's role and their metric language (§3.3).
@@ -42,6 +43,7 @@ queryRouter.post("/", async (req, res) => {
       `${framing}\n\nQuestion from the ${role ?? "internal"} team:\n${question}`,
       { extraContext: corpus }
     );
+    void logQuery(role ?? "general", question, answer); // fire-and-forget; feeds C11/C13 metrics
     res.json({ answer, role: role ?? "general" });
   } catch (err) {
     res.status(502).json({ error: (err as Error).message });

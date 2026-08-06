@@ -4,6 +4,7 @@ import path from "path";
 import { ask } from "../services/claude";
 import { checkForbiddenWords } from "../services/guardrails";
 import { loadCorpus, WAR_ROOM_DIR } from "../services/warRoom";
+import { markAssetApproved, recordAsset } from "../services/db";
 
 export const assetsRouter = Router();
 
@@ -69,6 +70,15 @@ assetsRouter.post("/generate", async (req, res) => {
     fs.mkdirSync(path.dirname(abs), { recursive: true });
     fs.writeFileSync(abs, frontmatter + body, "utf-8");
 
+    void recordAsset({
+      type: type!,
+      product: product ?? "Masterworks",
+      audience: audience ?? "public owners",
+      warRoomPath: relPath,
+      guardOk: guard.ok,
+      guardViolations: guard.violations,
+    });
+
     res.json({ path: relPath, stage: "draft", guard, content: body });
   } catch (err) {
     res.status(502).json({ error: (err as Error).message });
@@ -99,5 +109,6 @@ assetsRouter.post("/approve", (req, res) => {
     });
   }
   fs.writeFileSync(abs, content.replace(/stage:\s*draft/, "stage: final"), "utf-8");
+  void markAssetApproved(rel);
   res.json({ path: rel, stage: "final" });
 });

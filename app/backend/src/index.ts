@@ -5,13 +5,14 @@ import { queryRouter } from "./routes/query";
 import { foundationRouter } from "./routes/foundation";
 import { assetsRouter } from "./routes/assets";
 import { WAR_ROOM_DIR } from "./services/warRoom";
+import { dbStatus } from "./services/db";
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-app.get("/api/health", (_req, res) =>
-  res.json({ ok: true, warRoom: WAR_ROOM_DIR })
+app.get("/api/health", async (_req, res) =>
+  res.json({ ok: true, warRoom: WAR_ROOM_DIR, database: await dbStatus() })
 );
 app.use("/api/query", queryRouter);
 app.use("/api/foundation", foundationRouter);
