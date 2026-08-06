@@ -1,10 +1,9 @@
 import { Router } from "express";
-import { requireAdmin, requireAuth } from "../middleware/auth";
+import { isAdmin, requireAdmin, requireAuth } from "../middleware/auth";
 import { supabase } from "../services/db";
 import { logActivity } from "../services/activity";
 import {
   getGraphCreds,
-  graphConfigured,
   invalidateGraphCreds,
   listChildren,
   resolveSite,
@@ -15,7 +14,7 @@ import {
 export const sharepointRouter = Router();
 
 // GET /api/sharepoint/status — credential + flag state for the UI.
-sharepointRouter.get("/status", requireAuth, async (_req, res) => {
+sharepointRouter.get("/status", requireAuth, async (req, res) => {
   const sb = supabase()!;
   const { data: flag } = await sb
     .from("feature_flags")
@@ -30,9 +29,11 @@ sharepointRouter.get("/status", requireAuth, async (_req, res) => {
   const creds = await getGraphCreds();
   res.json({
     configured: creds !== null,
-    credentials: creds
-      ? { source: creds.source, tenantId: creds.tenantId, clientId: creds.clientId }
-      : null,
+    // Connector config is admin-only; everyone else just sees the boolean.
+    credentials:
+      creds && isAdmin(req)
+        ? { source: creds.source, tenantId: creds.tenantId, clientId: creds.clientId }
+        : null,
     flagEnabled: flag?.enabled ?? false,
     requiredPermission: "Sites.Read.All (application, admin-consented)",
     connections: (connections ?? []).map((c) => {
@@ -70,27 +71,44 @@ sharepointRouter.put("/credentials", requireAuth, requireAdmin, async (req, res)
     return res.status(400).json({ error: "tenantId, clientId, and clientSecret are required" });
   }
   const sb = supabase()!;
-  const { data: existing } = await sb
+  // Oldest row wins; retried/concurrent saves update it and stray duplicates
+  // are removed (the 0006 unique index prevents new ones).
+  const { data: existingRows } = await sb
     .from("integrations")
     .select("id")
     .eq("kind", "sharepoint_credentials")
-    .maybeSingle();
+    .order("created_at", { ascending: true });
+  const existing = existingRows?.[0] ?? null;
   const config = {
     tenantId: tenantId.trim(),
     clientId: clientId.trim(),
     clientSecret: clientSecret.trim(),
   };
-  const { error } = existing
-    ? await sb.from("integrations").update({ config }).eq("id", existing.id)
-    : await sb.from("integrations").insert({
+  let credId: string;
+  if (existing) {
+    const { error } = await sb.from("integrations").update({ config }).eq("id", existing.id);
+    if (error) return res.status(500).json({ error: error.message });
+    credId = existing.id;
+    const duplicates = (existingRows ?? []).slice(1).map((r) => r.id);
+    if (duplicates.length > 0) {
+      await sb.from("integrations").delete().in("id", duplicates);
+    }
+  } else {
+    const { data, error } = await sb
+      .from("integrations")
+      .insert({
         kind: "sharepoint_credentials",
         name: "SharePoint Graph credentials",
         enabled: true,
         config,
-      });
-  if (error) return res.status(500).json({ error: error.message });
+      })
+      .select("id")
+      .single();
+    if (error || !data) return res.status(500).json({ error: error?.message ?? "insert failed" });
+    credId = data.id;
+  }
   invalidateGraphCreds();
-  void logActivity("integration", existing?.id ?? "sharepoint_credentials", req.user!.id, "sharepoint_credentials_saved", {
+  void logActivity("integration", credId, req.user!.id, "sharepoint_credentials_saved", {
     tenantId: config.tenantId,
     clientId: config.clientId,
   });
@@ -98,11 +116,18 @@ sharepointRouter.put("/credentials", requireAuth, requireAdmin, async (req, res)
 });
 
 // DELETE /api/sharepoint/credentials — remove stored credentials (admin).
-sharepointRouter.delete("/credentials", requireAuth, requireAdmin, async (_req, res) => {
+sharepointRouter.delete("/credentials", requireAuth, requireAdmin, async (req, res) => {
   const sb = supabase()!;
+  const { data: rows } = await sb
+    .from("integrations")
+    .select("id")
+    .eq("kind", "sharepoint_credentials");
   const { error } = await sb.from("integrations").delete().eq("kind", "sharepoint_credentials");
   if (error) return res.status(500).json({ error: error.message });
   invalidateGraphCreds();
+  for (const row of rows ?? []) {
+    void logActivity("integration", row.id, req.user!.id, "sharepoint_credentials_cleared", {});
+  }
   res.json({ ok: true });
 });
 
@@ -112,7 +137,12 @@ sharepointRouter.post("/test", requireAuth, requireAdmin, async (req, res) => {
   if (!siteUrl) return res.status(400).json({ error: "siteUrl is required" });
   try {
     const site = await resolveSite(siteUrl);
-    res.json({ ok: true, webUrl: site.webUrl, driveId: site.driveId });
+    res.json({
+      ok: true,
+      webUrl: site.webUrl,
+      driveId: site.driveId,
+      suggestedFolderPath: site.suggestedFolderPath ?? null,
+    });
   } catch (err) {
     res.status(502).json({ error: (err as Error).message });
   }

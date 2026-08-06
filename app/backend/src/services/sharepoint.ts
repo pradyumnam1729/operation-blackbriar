@@ -27,12 +27,15 @@ export async function getGraphCreds(): Promise<GraphCreds | null> {
   if (cachedCreds) return cachedCreds;
   const sb = supabase();
   if (sb) {
+    // limit(1) instead of maybeSingle(): duplicate rows must degrade to
+    // "use the oldest", never to an error that reads as "not configured".
     const { data } = await sb
       .from("integrations")
       .select("config")
       .eq("kind", "sharepoint_credentials")
-      .maybeSingle();
-    const cfg = data?.config as
+      .order("created_at", { ascending: true })
+      .limit(1);
+    const cfg = data?.[0]?.config as
       | { tenantId?: string; clientId?: string; clientSecret?: string }
       | undefined;
     if (cfg?.tenantId && cfg?.clientId && cfg?.clientSecret) {
@@ -120,14 +123,74 @@ export interface SiteRef {
   siteId: string;
   driveId: string;
   webUrl: string;
+  /** For sharing links pointing at a folder, the folder path inside the library. */
+  suggestedFolderPath?: string;
 }
 
-/** Resolve a SharePoint site URL like https://tenant.sharepoint.com/sites/PMM to its default document library. */
+/** Graph Shares API encoding: "u!" + base64url of the sharing URL. */
+function encodeShareUrl(url: string): string {
+  return (
+    "u!" +
+    Buffer.from(url)
+      .toString("base64")
+      .replace(/=+$/, "")
+      .replace(/\//g, "_")
+      .replace(/\+/g, "-")
+  );
+}
+
+/** Sharing links look like https://tenant.sharepoint.com/:f:/s/Site/Exxxx or /:f:/r/sites/... */
+function isSharingLink(u: URL): boolean {
+  return /^\/:[a-z]:\//i.test(u.pathname);
+}
+
+/**
+ * Resolve any pasted SharePoint URL to a document library:
+ * - sharing links ("Copy link" URLs with /:f:/ etc.) via the Shares API,
+ *   which also yields the exact folder the link points at;
+ * - plain site URLs, including ones with extra segments pasted from the
+ *   browser (/sites/PMM/Shared Documents/Forms/AllItems.aspx), normalized
+ *   down to the /sites/<name> part;
+ * - tenant root URLs with no /sites/ path.
+ */
 export async function resolveSite(siteUrl: string): Promise<SiteRef> {
   const u = new URL(siteUrl);
-  const sitePath = u.pathname.replace(/\/+$/, "");
+
+  if (isSharingLink(u)) {
+    const item = await graphGet<{
+      webUrl?: string;
+      name?: string;
+      folder?: unknown;
+      parentReference?: { driveId?: string; siteId?: string; path?: string };
+    }>(`${GRAPH}/shares/${encodeShareUrl(siteUrl)}/driveItem`);
+    const driveId = item.parentReference?.driveId;
+    if (!driveId) {
+      throw new Error(
+        "Could not resolve this sharing link to a document library. Paste the site URL instead (https://tenant.sharepoint.com/sites/YourSite)."
+      );
+    }
+    // parentReference.path looks like "/drives/{id}/root:/Sub/Folder"
+    const rel = (item.parentReference?.path ?? "").split("root:")[1] ?? "";
+    const folder = item.folder
+      ? `${rel}/${item.name ?? ""}`.replace(/^\/+/, "")
+      : rel.replace(/^\/+/, "");
+    return {
+      siteId: item.parentReference?.siteId ?? "",
+      driveId,
+      webUrl: item.webUrl ?? siteUrl,
+      suggestedFolderPath: decodeURIComponent(folder),
+    };
+  }
+
+  const segments = u.pathname.split("/").filter(Boolean);
+  const idx = segments.findIndex((s) =>
+    ["sites", "teams", "personal"].includes(s.toLowerCase())
+  );
+  const sitePath =
+    idx >= 0 && segments[idx + 1] ? `/${segments[idx]}/${segments[idx + 1]}` : "";
+
   const site = await graphGet<{ id: string; webUrl: string }>(
-    `${GRAPH}/sites/${u.hostname}:${sitePath}`
+    sitePath ? `${GRAPH}/sites/${u.hostname}:${sitePath}` : `${GRAPH}/sites/${u.hostname}`
   );
   const drive = await graphGet<{ id: string }>(`${GRAPH}/sites/${site.id}/drive`);
   return { siteId: site.id, driveId: drive.id, webUrl: site.webUrl };
@@ -271,6 +334,11 @@ export async function syncIntegration(integrationId: string): Promise<string[]> 
     const site = await resolveSite(cfg.siteUrl);
     cfg.siteId = site.siteId;
     cfg.driveId = site.driveId;
+    // A sharing link that points at a folder implies the folder scope.
+    if (!cfg.folderPath && site.suggestedFolderPath) {
+      cfg.folderPath = site.suggestedFolderPath;
+      log.push(`folder scope from sharing link: ${cfg.folderPath}`);
+    }
     log.push(`resolved site ${site.webUrl}`);
   }
 

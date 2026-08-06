@@ -115,7 +115,7 @@ export function IntegrationsPage() {
 
   const clearCredentials = () =>
     run(async () => {
-      if (!window.confirm("Clear the stored SharePoint credentials? Live sync will stop working until new credentials are saved.")) return;
+      if (!window.confirm("Clear the stored SharePoint credentials? If app/backend/.env still has MS_* values, those take over; otherwise live sync stops until new credentials are saved.")) return;
       setCredsNote("");
       await apiDelete("/api/sharepoint/credentials");
       setTenantId("");
@@ -126,10 +126,20 @@ export function IntegrationsPage() {
   const test = () =>
     run(async () => {
       setTestResult("");
-      const r = await apiPost<{ ok: boolean; webUrl: string }>("/api/sharepoint/test", {
+      const r = await apiPost<{ ok: boolean; webUrl: string; suggestedFolderPath: string | null }>(
+        "/api/sharepoint/test",
+        { siteUrl: testUrl }
+      );
+      setTestResult(
+        `Connected: ${r.webUrl}${r.suggestedFolderPath ? ` — folder detected: ${r.suggestedFolderPath}` : ""}`
+      );
+      // Pre-fill the add-connection form with what the test learned.
+      setForm((f) => ({
+        ...f,
         siteUrl: testUrl,
-      });
-      setTestResult(`Connected: ${r.webUrl}`);
+        folderPath: r.suggestedFolderPath ?? f.folderPath,
+      }));
+      setShowAdd(true);
     });
 
   const addConnection = () =>
