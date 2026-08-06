@@ -21,7 +21,11 @@ integrationsRouter.get("/", async (_req, res) => {
   if (!sb) return res.status(503).json({ error: "Database not configured" });
 
   const [intRes, flagRes] = await Promise.all([
-    sb.from("integrations").select("id, kind, name, config, enabled, created_at").order("name"),
+    // sharepoint_credentials holds the Graph client secret — never list it here.
+    sb.from("integrations")
+      .select("id, kind, name, config, enabled, created_at")
+      .neq("kind", "sharepoint_credentials")
+      .order("name"),
     sb.from("feature_flags").select("key, enabled, note").order("key"),
   ]);
   if (intRes.error) return res.status(500).json({ error: intRes.error.message });

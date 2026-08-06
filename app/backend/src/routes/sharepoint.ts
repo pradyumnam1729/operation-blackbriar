@@ -3,7 +3,9 @@ import { requireAdmin, requireAuth } from "../middleware/auth";
 import { supabase } from "../services/db";
 import { logActivity } from "../services/activity";
 import {
+  getGraphCreds,
   graphConfigured,
+  invalidateGraphCreds,
   listChildren,
   resolveSite,
   syncIntegration,
@@ -25,10 +27,13 @@ sharepointRouter.get("/status", requireAuth, async (_req, res) => {
     .select("id, name, config, enabled")
     .eq("kind", "sharepoint_graph")
     .order("created_at");
+  const creds = await getGraphCreds();
   res.json({
-    configured: graphConfigured(),
+    configured: creds !== null,
+    credentials: creds
+      ? { source: creds.source, tenantId: creds.tenantId, clientId: creds.clientId }
+      : null,
     flagEnabled: flag?.enabled ?? false,
-    requiredEnv: ["MS_TENANT_ID", "MS_CLIENT_ID", "MS_CLIENT_SECRET"],
     requiredPermission: "Sites.Read.All (application, admin-consented)",
     connections: (connections ?? []).map((c) => {
       const cfg = c.config as {
@@ -52,6 +57,53 @@ sharepointRouter.get("/status", requireAuth, async (_req, res) => {
       };
     }),
   });
+});
+
+// PUT /api/sharepoint/credentials — save Graph credentials from the UI (admin).
+sharepointRouter.put("/credentials", requireAuth, requireAdmin, async (req, res) => {
+  const { tenantId, clientId, clientSecret } = req.body as {
+    tenantId?: string;
+    clientId?: string;
+    clientSecret?: string;
+  };
+  if (!tenantId?.trim() || !clientId?.trim() || !clientSecret?.trim()) {
+    return res.status(400).json({ error: "tenantId, clientId, and clientSecret are required" });
+  }
+  const sb = supabase()!;
+  const { data: existing } = await sb
+    .from("integrations")
+    .select("id")
+    .eq("kind", "sharepoint_credentials")
+    .maybeSingle();
+  const config = {
+    tenantId: tenantId.trim(),
+    clientId: clientId.trim(),
+    clientSecret: clientSecret.trim(),
+  };
+  const { error } = existing
+    ? await sb.from("integrations").update({ config }).eq("id", existing.id)
+    : await sb.from("integrations").insert({
+        kind: "sharepoint_credentials",
+        name: "SharePoint Graph credentials",
+        enabled: true,
+        config,
+      });
+  if (error) return res.status(500).json({ error: error.message });
+  invalidateGraphCreds();
+  void logActivity("integration", existing?.id ?? "sharepoint_credentials", req.user!.id, "sharepoint_credentials_saved", {
+    tenantId: config.tenantId,
+    clientId: config.clientId,
+  });
+  res.json({ ok: true });
+});
+
+// DELETE /api/sharepoint/credentials — remove stored credentials (admin).
+sharepointRouter.delete("/credentials", requireAuth, requireAdmin, async (_req, res) => {
+  const sb = supabase()!;
+  const { error } = await sb.from("integrations").delete().eq("kind", "sharepoint_credentials");
+  if (error) return res.status(500).json({ error: error.message });
+  invalidateGraphCreds();
+  res.json({ ok: true });
 });
 
 // POST /api/sharepoint/test — verify credentials + site access.

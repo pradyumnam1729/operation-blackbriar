@@ -6,37 +6,86 @@ import { extractText } from "./extract";
 import { flagEnabled } from "./activity";
 
 // Microsoft Graph SharePoint connector (app-only, client-credentials flow).
-// Requires env: MS_TENANT_ID, MS_CLIENT_ID, MS_CLIENT_SECRET with the
-// Sites.Read.All *application* permission (admin-consented) on the app
-// registration. Until those exist, every call reports "not configured" and the
-// local-folder watcher remains the stand-in.
+// Credentials come from the admin UI (stored as the sharepoint_credentials row
+// in the integrations table), with MS_TENANT_ID / MS_CLIENT_ID / MS_CLIENT_SECRET
+// env vars as a fallback. The app registration needs the Sites.Read.All
+// *application* permission, admin-consented. Until credentials exist, every
+// call reports "not configured".
 
 const GRAPH = "https://graph.microsoft.com/v1.0";
 
-export function graphConfigured(): boolean {
-  return Boolean(
-    process.env.MS_TENANT_ID && process.env.MS_CLIENT_ID && process.env.MS_CLIENT_SECRET
-  );
+export interface GraphCreds {
+  tenantId: string;
+  clientId: string;
+  clientSecret: string;
+  source: "database" | "env";
+}
+
+let cachedCreds: GraphCreds | null = null;
+
+export async function getGraphCreds(): Promise<GraphCreds | null> {
+  if (cachedCreds) return cachedCreds;
+  const sb = supabase();
+  if (sb) {
+    const { data } = await sb
+      .from("integrations")
+      .select("config")
+      .eq("kind", "sharepoint_credentials")
+      .maybeSingle();
+    const cfg = data?.config as
+      | { tenantId?: string; clientId?: string; clientSecret?: string }
+      | undefined;
+    if (cfg?.tenantId && cfg?.clientId && cfg?.clientSecret) {
+      cachedCreds = {
+        tenantId: cfg.tenantId,
+        clientId: cfg.clientId,
+        clientSecret: cfg.clientSecret,
+        source: "database",
+      };
+      return cachedCreds;
+    }
+  }
+  if (process.env.MS_TENANT_ID && process.env.MS_CLIENT_ID && process.env.MS_CLIENT_SECRET) {
+    cachedCreds = {
+      tenantId: process.env.MS_TENANT_ID,
+      clientId: process.env.MS_CLIENT_ID,
+      clientSecret: process.env.MS_CLIENT_SECRET,
+      source: "env",
+    };
+    return cachedCreds;
+  }
+  return null;
+}
+
+export async function graphConfigured(): Promise<boolean> {
+  return (await getGraphCreds()) !== null;
+}
+
+/** Call after credentials are saved or removed so the next request re-reads them. */
+export function invalidateGraphCreds(): void {
+  cachedCreds = null;
+  cachedToken = null;
 }
 
 let cachedToken: { token: string; expiresAt: number } | null = null;
 
 async function getToken(): Promise<string> {
-  if (!graphConfigured()) {
+  const creds = await getGraphCreds();
+  if (!creds) {
     throw new Error(
-      "SharePoint is not configured. Set MS_TENANT_ID, MS_CLIENT_ID, MS_CLIENT_SECRET in app/backend/.env (app registration with admin-consented Sites.Read.All application permission)."
+      "SharePoint is not configured. Save the tenant ID, client ID, and client secret in the Integrations page (app registration with admin-consented Sites.Read.All application permission)."
     );
   }
   if (cachedToken && cachedToken.expiresAt > Date.now() + 60_000) return cachedToken.token;
 
   const res = await fetch(
-    `https://login.microsoftonline.com/${process.env.MS_TENANT_ID}/oauth2/v2.0/token`,
+    `https://login.microsoftonline.com/${creds.tenantId}/oauth2/v2.0/token`,
     {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
-        client_id: process.env.MS_CLIENT_ID!,
-        client_secret: process.env.MS_CLIENT_SECRET!,
+        client_id: creds.clientId,
+        client_secret: creds.clientSecret,
         scope: "https://graph.microsoft.com/.default",
         grant_type: "client_credentials",
       }),
@@ -260,7 +309,7 @@ export function startSharePointPolling(): void {
   if (pollTimer) return;
   const tick = async () => {
     try {
-      if (!graphConfigured() || !(await flagEnabled("sharepoint_graph"))) return;
+      if (!(await graphConfigured()) || !(await flagEnabled("sharepoint_graph"))) return;
       const sb = supabase();
       if (!sb) return;
       const { data } = await sb
