@@ -87,10 +87,15 @@ export async function findCompetitorInText(text: string): Promise<CompetitorRow 
   return best;
 }
 
+/** Normalize so https://x.com and https://x.com/ don't become two sources. */
+function normalizeUrl(url: string): string {
+  return url.trim().replace(/\/+$/, "");
+}
+
 /** Discover 2-3 source URLs for a competitor: official site/product page + a review page. */
 export async function discoverSources(competitor: CompetitorRow): Promise<string[]> {
   const urls: string[] = [];
-  if (competitor.website) urls.push(competitor.website);
+  if (competitor.website) urls.push(normalizeUrl(competitor.website));
 
   try {
     if (!competitor.website) {
@@ -111,7 +116,7 @@ export async function discoverSources(competitor: CompetitorRow): Promise<string
   } catch (err) {
     console.error(`source discovery failed for ${competitor.name}:`, (err as Error).message);
   }
-  return [...new Set(urls)].slice(0, 3);
+  return [...new Set(urls.map(normalizeUrl))].slice(0, 3);
 }
 
 interface SourceRow {

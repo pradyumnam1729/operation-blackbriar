@@ -15,6 +15,7 @@ import { WinLoss } from "./pages/WinLoss";
 import { CompetitiveIntel } from "./pages/CompetitiveIntel";
 import { UploadsConsole } from "./pages/UploadsConsole";
 import { Studio } from "./pages/Studio";
+import { Templates } from "./pages/Templates";
 import { IntegrationsPage } from "./pages/IntegrationsPage";
 import { Notifications } from "./pages/Notifications";
 import "./styles/brand.css";
@@ -35,6 +36,7 @@ function Root() {
         <Route path="/winloss" element={<WinLoss />} />
         <Route path="/competitive" element={<CompetitiveIntel />} />
         <Route path="/studio" element={<Studio />} />
+        <Route path="/templates" element={<Templates />} />
         <Route path="/uploads" element={<UploadsConsole />} />
         <Route path="/integrations" element={<IntegrationsPage />} />
         <Route path="/questionnaire" element={<FoundationQuestionnaire />} />

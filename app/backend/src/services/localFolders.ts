@@ -29,10 +29,12 @@ export interface LocalFoldersConfig {
 const SUPPORTED = [".pdf", ".docx", ".txt", ".md", ".vtt", ".srt", ".csv"];
 
 /**
- * Per-file document-type detection. The folder's docType is only the default —
- * a PRD dropped into a release-notes folder must still classify as a PRD.
+ * Per-file document-type detection from the filename. The folder's docType is
+ * only the default — a PRD dropped into a release-notes folder must still
+ * classify as a PRD. Returns null when the filename carries no type signal so
+ * the caller can fall through to content classification.
  */
-export function detectDocType(filename: string, fallback: string): string {
+export function detectDocType(filename: string): string | null {
   const name = filename.toLowerCase();
   const ext = path.extname(name);
   if (ext === ".vtt" || ext === ".srt") return "transcript";
@@ -41,7 +43,45 @@ export function detectDocType(filename: string, fallback: string): string {
   if (/transcript|meeting[-_ ]recording/.test(name)) return "transcript";
   if (/battlecard/.test(name)) return "battlecard";
   if (/release[-_ ]?notes?|changelog|what[-_ ]?s[-_ ]?new/.test(name)) return "release_note";
-  return fallback;
+  return null;
+}
+
+const DOC_TYPES = ["release_note", "prd", "jtbd", "transcript", "battlecard", "other"];
+
+/**
+ * Content-based classification for files whose name carries no type signal
+ * (e.g. "Asset condition management_ product walkthrough and feedback.docx"
+ * is a call transcript, not a release note). Cheap Haiku call over the first
+ * few thousand characters; null on any failure so the folder default applies.
+ */
+export async function classifyDocTypeByContent(text: string): Promise<string | null> {
+  if (!process.env.ANTHROPIC_API_KEY) return null;
+  try {
+    const client = new Anthropic();
+    const res = await client.messages.create({
+      model: "claude-haiku-4-5-20251001",
+      max_tokens: 10,
+      system: [
+        "Classify the document excerpt as exactly one of: release_note, prd, jtbd, transcript, battlecard, other.",
+        "transcript = a transcription of a call, meeting, demo, or walkthrough (speaker turns, dialogue, timestamps, conversational filler).",
+        "release_note = product release/version notes listing shipped changes.",
+        "prd = product requirements document. jtbd = jobs-to-be-done research.",
+        "battlecard = competitive sales battlecard. Anything else = other.",
+        "Reply with the label only.",
+      ].join("\n"),
+      messages: [{ role: "user", content: text.slice(0, 6000) }],
+    });
+    const label = res.content
+      .filter((b): b is Anthropic.TextBlock => b.type === "text")
+      .map((b) => b.text)
+      .join("")
+      .trim()
+      .toLowerCase();
+    return DOC_TYPES.includes(label) ? label : null;
+  } catch (err) {
+    console.error("[local-folders] content classification failed:", (err as Error).message);
+    return null;
+  }
 }
 
 export async function getLocalFolders(): Promise<{
@@ -97,8 +137,9 @@ async function ingestOne(filePath: string, cfg: LocalFoldersConfig): Promise<str
       (p) => cfg.productLine && p.line.toLowerCase() === cfg.productLine!.toLowerCase()
     ) ?? null;
 
-  // Classify per file: the folder docType is only the default.
-  const docType = detectDocType(filename, cfg.docType);
+  // Classify per file: filename first, then content, then the folder default.
+  const docType =
+    detectDocType(filename) ?? (await classifyDocTypeByContent(text)) ?? cfg.docType;
 
   // Chunk into the knowledge base first (dedupe happens here). Admin-configured
   // source, so documents are AI-enabled immediately.

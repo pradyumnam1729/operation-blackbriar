@@ -17,6 +17,7 @@ const MAIN_NAV: NavItem[] = [
   { to: "/competitive", label: "Competitive intel", icon: "fa-chess" },
   { to: "/requests", label: "Requests & intake", icon: "fa-upload" },
   { to: "/studio", label: "Asset studio", icon: "fa-wand-magic-sparkles" },
+  { to: "/templates", label: "Template library", icon: "fa-object-group" },
   { to: "/library", label: "Repository", icon: "fa-box-archive" },
 ];
 
