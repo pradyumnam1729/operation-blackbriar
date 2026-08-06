@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { apiGet, apiPost, getProducts, Product } from "../lib/api";
 import { useAuth } from "../auth/AuthContext";
+import { PmmDocsSection } from "./PMMWorkspace";
 
 export type ArtifactStatus = "draft" | "in_review" | "final" | "archived";
 
@@ -49,6 +50,13 @@ export function ArtifactLibrary() {
   const [searchParams] = useSearchParams();
   const admin = me?.role === "admin";
 
+  // Page-level view: the versioned asset repository (all roles) or the
+  // Positioning & Messaging doc workflow (admin only). ?tab=pmm deep-links
+  // straight to the P&M view (used by /pmm redirects and back-buttons).
+  const [view, setView] = useState<"assets" | "pmm">(
+    searchParams.get("tab") === "pmm" ? "pmm" : "assets"
+  );
+
   const [products, setProducts] = useState<Product[]>([]);
   const [artifacts, setArtifacts] = useState<ArtifactListItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -62,10 +70,15 @@ export function ArtifactLibrary() {
   const [q, setQ] = useState(searchParams.get("q") ?? "");
   const [mine, setMine] = useState(false);
 
-  // Follow-up topbar searches while already on /library update the filter too.
+  // Follow-up topbar searches while already on /library update the filter too
+  // (and land on the assets view, where the search applies).
   useEffect(() => {
     const incoming = searchParams.get("q");
-    if (incoming !== null) setQ(incoming);
+    if (incoming !== null) {
+      setQ(incoming);
+      setView("assets");
+    }
+    if (searchParams.get("tab") === "pmm") setView("pmm");
   }, [searchParams]);
 
   // create form
@@ -121,22 +134,44 @@ export function ArtifactLibrary() {
     }
   };
 
+  const showPmm = admin && view === "pmm";
+
   return (
     <div>
       <div className="row-between" style={{ marginBottom: 4 }}>
         <div>
-          <h1 className="pagetitle">Content repository</h1>
-          <p className="pagesub">Every finished asset, versioned. Non-admins see final only.</p>
+          <h1 className="pagetitle">PMM Workspace</h1>
+          {!showPmm && (
+            <p className="pagesub">Every finished asset, versioned. Non-admins see final only.</p>
+          )}
         </div>
-        <button
-          className={showCreate ? "btn" : "btn btn-primary"}
-          onClick={() => setShowCreate((s) => !s)}
-        >
-          <i className={`fa-solid ${showCreate ? "fa-xmark" : "fa-plus"}`} />
-          {showCreate ? "Cancel" : "New artifact"}
-        </button>
+        {!showPmm && (
+          <button
+            className={showCreate ? "btn" : "btn btn-primary"}
+            onClick={() => setShowCreate((s) => !s)}
+          >
+            <i className={`fa-solid ${showCreate ? "fa-xmark" : "fa-plus"}`} />
+            {showCreate ? "Cancel" : "New artifact"}
+          </button>
+        )}
       </div>
 
+      {admin && (
+        <div className="tab-row" style={{ margin: "10px 0 16px" }}>
+          <button className={view === "assets" ? "active" : ""} onClick={() => setView("assets")}>
+            <i className="fa-solid fa-box-archive" style={{ marginRight: 6 }} /> Asset repository
+          </button>
+          <button className={view === "pmm" ? "active" : ""} onClick={() => setView("pmm")}>
+            <i className="fa-solid fa-file-signature" style={{ marginRight: 6 }} /> Positioning &amp;
+            messaging
+          </button>
+        </div>
+      )}
+
+      {showPmm ? (
+        <PmmDocsSection />
+      ) : (
+        <>
       {showCreate && (
         <div className="card">
           <h3 style={{ margin: "0 0 12px", fontSize: 14, fontWeight: 500 }}>New artifact</h3>
@@ -339,6 +374,8 @@ export function ArtifactLibrary() {
             </div>
           ))}
         </div>
+      )}
+        </>
       )}
     </div>
   );

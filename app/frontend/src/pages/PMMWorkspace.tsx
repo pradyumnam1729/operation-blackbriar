@@ -2,8 +2,10 @@ import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { apiGet, apiPost } from "../lib/api";
 
-// PMM Workspace — Positioning & Messaging document list with status tabs and
-// the new-document setup (product + title), per hive 1.html.
+// Positioning & Messaging document list with status tabs and the new-document
+// setup (product + title), per hive 1.html. Rendered as the admin-only
+// "Positioning & messaging" tab of the merged PMM Workspace page (/library);
+// the doc detail and wizard remain their own routes under /pmm/:id.
 
 interface PmmDocRow {
   id: string;
@@ -30,7 +32,7 @@ const TABS = [
   ["approved", "Approved"],
 ] as const;
 
-export function PMMWorkspace() {
+export function PmmDocsSection() {
   const navigate = useNavigate();
   const [docs, setDocs] = useState<PmmDocRow[]>([]);
   const [filter, setFilter] = useState("");
@@ -74,18 +76,10 @@ export function PMMWorkspace() {
   return (
     <div>
       <div className="row-between" style={{ marginBottom: 4 }}>
-        <div>
-          <h1 className="pagetitle">
-            PMM Workspace{" "}
-            <span className="pill pill-lock" style={{ marginLeft: 6 }}>
-              <i className="fa-solid fa-lock" style={{ fontSize: 9 }} /> Admin only
-            </span>
-          </h1>
-          <p className="pagesub">
-            Build Positioning &amp; Messaging documents — answer the standard question set, attach
-            source material, send for Director review.
-          </p>
-        </div>
+        <p className="pagesub" style={{ margin: 0 }}>
+          Build Positioning &amp; Messaging documents — answer the standard question set, attach
+          source material, send for Director review.
+        </p>
         <button className="btn btn-primary" onClick={() => setShowNew((s) => !s)}>
           <i className="fa-solid fa-plus" /> New document
         </button>
@@ -98,7 +92,7 @@ export function PMMWorkspace() {
       )}
 
       {showNew && (
-        <div className="card" style={{ maxWidth: 560 }}>
+        <div className="card" style={{ maxWidth: 560, marginTop: 14 }}>
           <h3 style={{ margin: "0 0 4px", fontSize: 16 }}>New Positioning &amp; Messaging document</h3>
           <p style={{ color: "var(--text-secondary)", fontSize: 13, margin: "0 0 16px" }}>
             Answer the standard question set below, section by section. You can save as a draft and

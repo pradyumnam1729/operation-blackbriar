@@ -18,7 +18,7 @@ const MAIN_NAV: NavItem[] = [
   { to: "/requests", label: "Requests & intake", icon: "fa-upload" },
   { to: "/studio", label: "Asset studio", icon: "fa-wand-magic-sparkles" },
   { to: "/templates", label: "Template library", icon: "fa-object-group" },
-  { to: "/library", label: "Repository", icon: "fa-box-archive" },
+  { to: "/library", label: "PMM workspace", icon: "fa-box-archive" },
 ];
 
 const ADMIN_NAV: NavItem[] = [
@@ -26,7 +26,6 @@ const ADMIN_NAV: NavItem[] = [
   { to: "/integrations", label: "Connectors", icon: "fa-plug", adminOnly: true },
   { to: "/agents", label: "Agents", icon: "fa-robot", adminOnly: true },
   { to: "/guardrails", label: "Guardrails", icon: "fa-road-barrier", adminOnly: true },
-  { to: "/pmm", label: "PMM Workspace", icon: "fa-file-signature", adminOnly: true },
   { to: "/questionnaire", label: "Foundation questionnaire", icon: "fa-clipboard-question", adminOnly: true },
 ];
 
