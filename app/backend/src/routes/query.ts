@@ -2,6 +2,8 @@ import { Router } from "express";
 import { ask } from "../services/claude";
 import { loadCorpus } from "../services/warRoom";
 import { logQuery } from "../services/db";
+import { markdownToHtml } from "../services/html";
+import { requireAuth } from "../middleware/auth";
 
 // Persona output framing — Master Instructions §9.2. Every answer is shaped
 // for the asker's role and their metric language (§3.3).
@@ -22,7 +24,7 @@ const ROLE_FRAMING: Record<string, string> = {
 
 export const queryRouter = Router();
 
-queryRouter.post("/", async (req, res) => {
+queryRouter.post("/", requireAuth, async (req, res) => {
   const { question, role } = req.body as { question?: string; role?: string };
   if (!question) {
     return res.status(400).json({ error: "question is required" });
@@ -44,7 +46,8 @@ queryRouter.post("/", async (req, res) => {
       { extraContext: corpus }
     );
     void logQuery(role ?? "general", question, answer); // fire-and-forget; feeds C11/C13 metrics
-    res.json({ answer, role: role ?? "general" });
+    // The frontend renders formatted HTML only — never raw markdown.
+    res.json({ answerHtml: markdownToHtml(answer), role: role ?? "general" });
   } catch (err) {
     res.status(502).json({ error: (err as Error).message });
   }

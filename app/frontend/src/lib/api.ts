@@ -1,4 +1,15 @@
-async function json<T>(res: Response): Promise<T> {
+import { supabase } from "./supabase";
+
+// Generic authed API helpers. Module pages build on these — the Supabase
+// access token rides every request and the backend enforces roles.
+
+async function authHeaders(): Promise<Record<string, string>> {
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+async function handle<T>(res: Response): Promise<T> {
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error((body as { error?: string }).error ?? res.statusText);
@@ -6,59 +17,74 @@ async function json<T>(res: Response): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-export interface QueryResponse {
-  answer: string;
-  role: string;
+export async function apiGet<T>(path: string): Promise<T> {
+  return handle<T>(await fetch(path, { headers: await authHeaders() }));
 }
 
-export function askWarRoom(question: string, role: string) {
-  return fetch("/api/query", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ question, role }),
-  }).then((r) => json<QueryResponse>(r));
+export async function apiPost<T>(path: string, body?: unknown): Promise<T> {
+  return handle<T>(
+    await fetch(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...(await authHeaders()) },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    })
+  );
 }
+
+export async function apiPut<T>(path: string, body?: unknown): Promise<T> {
+  return handle<T>(
+    await fetch(path, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...(await authHeaders()) },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    })
+  );
+}
+
+export async function apiDelete<T>(path: string): Promise<T> {
+  return handle<T>(
+    await fetch(path, { method: "DELETE", headers: await authHeaders() })
+  );
+}
+
+/** Multipart upload (files + fields). Content-Type left to the browser. */
+export async function apiUpload<T>(path: string, form: FormData): Promise<T> {
+  return handle<T>(
+    await fetch(path, { method: "POST", headers: await authHeaders(), body: form })
+  );
+}
+
+// ---- shared types ----
+export type Role = "admin" | "sales" | "marketing" | "elt";
+
+export interface Me {
+  id: string;
+  email: string;
+  fullName: string | null;
+  role: Role;
+}
+
+export interface Product {
+  id: string;
+  name: string;
+  line: string;
+  module: string;
+}
+
+export const getMe = () => apiGet<{ user: Me }>("/api/me").then((r) => r.user);
+export const getProducts = () =>
+  apiGet<{ products: Product[] }>("/api/products").then((r) => r.products);
+
+export const askWarRoom = (question: string, role: string) =>
+  apiPost<{ answerHtml: string; role: string }>("/api/query", { question, role });
 
 export interface FoundationResponse {
   sections: { path: string; title: string; preview: string }[];
   context: { path: string; exists: boolean }[];
 }
 
-export function getFoundation() {
-  return fetch("/api/foundation").then((r) => json<FoundationResponse>(r));
-}
-
-export function getFoundationFile(path: string) {
-  return fetch(`/api/foundation/file?path=${encodeURIComponent(path)}`).then((r) =>
-    json<{ path: string; content: string }>(r)
+export const getFoundation = () => apiGet<FoundationResponse>("/api/foundation");
+export const getFoundationFile = (path: string) =>
+  apiGet<{ path: string; content: string }>(
+    `/api/foundation/file?path=${encodeURIComponent(path)}`
   );
-}
-
-export interface GenerateResponse {
-  path: string;
-  stage: string;
-  content: string;
-  guard: { ok: boolean; violations: string[] };
-}
-
-export function generateAsset(type: string, product: string, audience: string) {
-  return fetch("/api/assets/generate", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ type, product, audience }),
-  }).then((r) => json<GenerateResponse>(r));
-}
-
-export function listDrafts() {
-  return fetch("/api/assets").then((r) =>
-    json<{ drafts: { path: string; preview: string }[] }>(r)
-  );
-}
-
-export function approveAsset(path: string) {
-  return fetch("/api/assets/approve", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ path }),
-  }).then((r) => json<{ path: string; stage: string }>(r));
-}

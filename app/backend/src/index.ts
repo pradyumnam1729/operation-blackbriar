@@ -1,25 +1,54 @@
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
+import path from "path";
 import { queryRouter } from "./routes/query";
 import { foundationRouter } from "./routes/foundation";
 import { assetsRouter } from "./routes/assets";
+import { meRouter } from "./routes/me";
+import { productsRouter } from "./routes/products";
+import { aiRouter } from "./routes/ai";
+import { requestsRouter } from "./routes/requests";
+import { uploadsRouter } from "./routes/uploads";
+import { artifactsRouter } from "./routes/artifacts";
+import { featuresRouter } from "./routes/features";
+import { opportunitiesRouter } from "./routes/opportunities";
+import { commentsRouter } from "./routes/comments";
+import { studioRouter } from "./routes/studio";
+import { integrationsRouter } from "./routes/integrations";
 import { WAR_ROOM_DIR } from "./services/warRoom";
 import { dbStatus } from "./services/db";
+import { startWatchers } from "./services/watcher";
 
 const app = express();
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: "10mb" }));
 
 app.get("/api/health", async (_req, res) =>
   res.json({ ok: true, warRoom: WAR_ROOM_DIR, database: await dbStatus() })
 );
+
+app.use("/api/me", meRouter);
+app.use("/api/products", productsRouter);
+app.use("/api/ai", aiRouter);
 app.use("/api/query", queryRouter);
 app.use("/api/foundation", foundationRouter);
-app.use("/api/assets", assetsRouter);
+app.use("/api/assets", assetsRouter); // legacy war-room asset generator
+app.use("/api/requests", requestsRouter);
+app.use("/api/uploads", uploadsRouter);
+app.use("/api/artifacts", artifactsRouter);
+app.use("/api/features", featuresRouter);
+app.use("/api/opportunities", opportunitiesRouter);
+app.use("/api/comments", commentsRouter);
+app.use("/api/studio", studioRouter);
+app.use("/api/integrations", integrationsRouter);
+
+// Uploaded files (previews/downloads go through routes; this serves raw files to admins via signed paths later)
+app.use("/files", express.static(path.resolve(__dirname, "..", "uploads")));
 
 const port = Number(process.env.PORT ?? 3001);
 app.listen(port, () => {
   console.log(`PMM Agent backend on http://localhost:${port}`);
   console.log(`War room: ${WAR_ROOM_DIR}`);
+  void startWatchers();
 });
