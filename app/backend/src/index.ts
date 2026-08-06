@@ -19,6 +19,8 @@ import { integrationsRouter } from "./routes/integrations";
 import { sharepointRouter } from "./routes/sharepoint";
 import { localFoldersRouter } from "./routes/localFolders";
 import { documentsRouter } from "./routes/documents";
+import { questionnaireRouter } from "./routes/questionnaire";
+import { messagingDocsRouter } from "./routes/messagingDocs";
 import { WAR_ROOM_DIR } from "./services/warRoom";
 import { dbStatus } from "./services/db";
 import { startWatchers } from "./services/watcher";
@@ -50,6 +52,8 @@ app.use("/api/integrations", integrationsRouter);
 app.use("/api/sharepoint", sharepointRouter);
 app.use("/api/local-folders", localFoldersRouter);
 app.use("/api/documents", documentsRouter);
+app.use("/api/questionnaire", questionnaireRouter);
+app.use("/api/messaging-docs", messagingDocsRouter);
 
 // Uploaded files (previews/downloads go through routes; this serves raw files to admins via signed paths later)
 app.use("/files", express.static(path.resolve(__dirname, "..", "uploads")));

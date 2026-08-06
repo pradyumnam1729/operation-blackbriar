@@ -177,11 +177,14 @@ export interface FqDecisionBody {
 export const getQuestionnaire = (productId: string) =>
   apiGet<QuestionnairePayload>(`/api/questionnaire/${productId}`);
 
+// 202 responses carry only a slim run stub — the full row comes from getRuns polling.
+export type FqRunStub = Pick<FqRun, "id" | "pass" | "status">;
+
 export const startExtraction = (productId: string, pass: "transcripts" | "documents") =>
-  apiPost<{ run: FqRun }>(`/api/questionnaire/${productId}/extract`, { pass });
+  apiPost<{ run: FqRunStub }>(`/api/questionnaire/${productId}/extract`, { pass });
 
 export const startMerge = (productId: string) =>
-  apiPost<{ run: FqRun }>(`/api/questionnaire/${productId}/merge`);
+  apiPost<{ run: FqRunStub }>(`/api/questionnaire/${productId}/merge`);
 
 export const getRuns = (productId: string) =>
   apiGet<{ runs: FqRun[] }>(`/api/questionnaire/${productId}/runs`).then((r) => r.runs);
@@ -192,7 +195,7 @@ export const decideAnswer = (answerId: string, body: FqDecisionBody) =>
   );
 
 export const startGeneration = (productId: string) =>
-  apiPost<{ run: FqRun }>(`/api/questionnaire/${productId}/generate`);
+  apiPost<{ run: FqRunStub }>(`/api/questionnaire/${productId}/generate`);
 
 // ---- Messaging & positioning documents ----
 

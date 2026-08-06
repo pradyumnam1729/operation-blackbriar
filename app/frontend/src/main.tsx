@@ -6,6 +6,7 @@ import { Layout } from "./components/Layout";
 import { Login } from "./pages/Login";
 import { Home } from "./pages/Home";
 import { FoundationDoc } from "./pages/FoundationDoc";
+import { FoundationQuestionnaire } from "./pages/FoundationQuestionnaire";
 import { Requests } from "./pages/Requests";
 import { ArtifactLibrary } from "./pages/ArtifactLibrary";
 import { ArtifactEditor } from "./pages/ArtifactEditor";
@@ -34,6 +35,7 @@ function Root() {
         <Route path="/studio" element={<Studio />} />
         <Route path="/uploads" element={<UploadsConsole />} />
         <Route path="/integrations" element={<IntegrationsPage />} />
+        <Route path="/questionnaire" element={<FoundationQuestionnaire />} />
         <Route path="/foundation" element={<FoundationDoc />} />
         <Route path="/notifications" element={<Notifications />} />
         <Route path="*" element={<Navigate to="/" replace />} />

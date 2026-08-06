@@ -15,7 +15,10 @@ create table if not exists profiles (
 alter table products add column if not exists line text;
 alter table products add column if not exists module text;
 
-delete from products where name in ('Masterworks', 'Essentials', 'Primus', 'Masterworks AI');
+-- 'Masterworks AI' intentionally NOT deleted: 0009 re-seeds it and the
+-- questionnaire tables FK it — deleting on re-run would violate those FKs
+-- (the runner re-applies every migration; 0009's on-conflict keeps it current).
+delete from products where name in ('Masterworks', 'Essentials', 'Primus');
 
 insert into products (id, name, line, module) values
   ('11111111-1111-1111-1111-111111111101', 'Masterworks Plan', 'Masterworks', 'Plan'),

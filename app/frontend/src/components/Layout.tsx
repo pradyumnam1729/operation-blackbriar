@@ -22,6 +22,7 @@ const MAIN_NAV: NavItem[] = [
 const ADMIN_NAV: NavItem[] = [
   { to: "/uploads", label: "Uploads console", icon: "fa-shield-halved", adminOnly: true },
   { to: "/integrations", label: "Integrations", icon: "fa-circle-nodes", adminOnly: true },
+  { to: "/questionnaire", label: "Foundation questionnaire", icon: "fa-clipboard-question", adminOnly: true },
   { to: "/foundation", label: "Foundation", icon: "fa-book", adminOnly: true },
 ];
 

@@ -163,7 +163,9 @@ export function QuestionCard({ question, onUpdated }: Props) {
 
       {!answer || status === "unanswered" ? (
         <div className="empty-note">
-          No evidence extracted yet — run the extraction passes, then build the review queue.
+          {answer && (answer.transcript_candidate || answer.document_candidate)
+            ? "Evidence extracted — build the review queue to reconcile it into a proposal."
+            : "No evidence extracted yet — run the extraction passes, then build the review queue."}
         </div>
       ) : (
         <>

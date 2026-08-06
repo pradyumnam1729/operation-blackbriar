@@ -25,6 +25,22 @@ export interface LocalFoldersConfig {
 
 const SUPPORTED = [".pdf", ".docx", ".txt", ".md", ".vtt", ".srt", ".csv"];
 
+/**
+ * Per-file document-type detection. The folder's docType is only the default —
+ * a PRD dropped into a release-notes folder must still classify as a PRD.
+ */
+export function detectDocType(filename: string, fallback: string): string {
+  const name = filename.toLowerCase();
+  const ext = path.extname(name);
+  if (ext === ".vtt" || ext === ".srt") return "transcript";
+  if (/\bprd\b|product[-_ ]requirements/.test(name)) return "prd";
+  if (/\bjtbd\b|jobs[-_ ]to[-_ ]be[-_ ]done/.test(name)) return "jtbd";
+  if (/transcript|meeting[-_ ]recording/.test(name)) return "transcript";
+  if (/battlecard/.test(name)) return "battlecard";
+  if (/release[-_ ]?notes?|changelog|what[-_ ]?s[-_ ]?new/.test(name)) return "release_note";
+  return fallback;
+}
+
 export async function getLocalFolders(): Promise<{
   id: string;
   enabled: boolean;
@@ -78,6 +94,9 @@ async function ingestOne(filePath: string, cfg: LocalFoldersConfig): Promise<str
       (p) => cfg.productLine && p.line.toLowerCase() === cfg.productLine!.toLowerCase()
     ) ?? null;
 
+  // Classify per file: the folder docType is only the default.
+  const docType = detectDocType(filename, cfg.docType);
+
   // Chunk into the knowledge base first (dedupe happens here). Admin-configured
   // source, so documents are AI-enabled immediately.
   const ingest = await ingestDocument({
@@ -85,7 +104,7 @@ async function ingestOne(filePath: string, cfg: LocalFoldersConfig): Promise<str
     filename,
     text,
     source: "local_folder",
-    docType: cfg.docType,
+    docType,
     productId: product?.id ?? null,
     productName: product?.name ?? cfg.productLine ?? null,
     aiEnabled: true,
@@ -94,7 +113,7 @@ async function ingestOne(filePath: string, cfg: LocalFoldersConfig): Promise<str
     return `duplicate skipped: ${filename} matches existing document "${ingest.duplicateOf}"`;
   }
 
-  if (cfg.docType === "release_note") {
+  if (docType === "release_note") {
     const releaseProduct = product ?? products?.[0];
     if (!releaseProduct) return `no product match for ${filename}`;
     const { data: rn } = await sb
@@ -123,7 +142,7 @@ async function ingestOne(filePath: string, cfg: LocalFoldersConfig): Promise<str
     return `release note ingested: ${filename} (${ingest.chunkCount} chunks)`;
   }
 
-  return `document ingested: ${filename} (${ingest.chunkCount} chunks, AI-enabled)`;
+  return `${docType} ingested: ${filename} (${ingest.chunkCount} chunks, AI-enabled)`;
 }
 
 /** Scan the Input folder now; only files that are new or changed since the last scan are ingested. */
@@ -146,8 +165,11 @@ export async function scanInput(): Promise<string[]> {
     const mtime = fs.statSync(abs).mtimeMs;
     if (processed[f.name] === mtime) continue; // unchanged since last ingest
     try {
-      log.push(await ingestOne(abs, cfg));
-      processed[f.name] = mtime;
+      const result = await ingestOne(abs, cfg);
+      log.push(result);
+      // Failed extractions stay unmarked so the next scan retries them
+      // (e.g. a file caught mid-copy); unsupported formats are recorded.
+      if (!result.includes("(failed)")) processed[f.name] = mtime;
     } catch (err) {
       log.push(`failed ${f.name}: ${(err as Error).message}`);
     }
@@ -159,6 +181,21 @@ export async function scanInput(): Promise<string[]> {
   cfg.lastScanResult = log[log.length - 1];
   await sb.from("integrations").update({ config: cfg }).eq("id", row.id);
   return log;
+}
+
+/** Standalone styled-HTML shell shared by every Output-folder export
+ *  (final artifacts here; messaging docs in messagingDoc.ts). */
+export function wrapExportHtml(title: string, bodyHtml: string, footer: string): string {
+  return [
+    "<!doctype html>",
+    `<html lang="en"><head><meta charset="utf-8"><title>${title}</title>`,
+    '<meta name="viewport" content="width=device-width, initial-scale=1">',
+    "<style>body{font-family:Roboto,Arial,sans-serif;color:#20282B;max-width:760px;margin:40px auto;padding:0 24px;line-height:1.65}h1{color:#053445}h2{color:#015F74}a{color:#015F74}table{border-collapse:collapse;width:100%}th,td{border:1px solid #E1E6E9;padding:8px 10px;text-align:left}th{background:#F5F7F8}blockquote{border-left:3px solid #46B2BE;margin:12px 0;padding:6px 16px;background:#F2FAFB}footer{margin-top:40px;font-size:12px;color:#8D979A;border-top:1px solid #E1E6E9;padding-top:12px}</style>",
+    "</head><body>",
+    bodyHtml,
+    `<footer>${footer}</footer>`,
+    "</body></html>",
+  ].join("\n");
 }
 
 /** Export every final artifact to the Output folder as a standalone styled HTML file. */
@@ -190,16 +227,11 @@ export async function exportFinals(): Promise<string[]> {
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-+|-+$/g, "")
       .slice(0, 80);
-    const html = [
-      "<!doctype html>",
-      `<html lang="en"><head><meta charset="utf-8"><title>${a.title}</title>`,
-      '<meta name="viewport" content="width=device-width, initial-scale=1">',
-      "<style>body{font-family:Roboto,Arial,sans-serif;color:#20282B;max-width:760px;margin:40px auto;padding:0 24px;line-height:1.65}h1{color:#053445}h2{color:#015F74}a{color:#015F74}table{border-collapse:collapse;width:100%}th,td{border:1px solid #E1E6E9;padding:8px 10px;text-align:left}th{background:#F5F7F8}blockquote{border-left:3px solid #46B2BE;margin:12px 0;padding:6px 16px;background:#F2FAFB}footer{margin-top:40px;font-size:12px;color:#8D979A;border-top:1px solid #E1E6E9;padding-top:12px}</style>",
-      "</head><body>",
+    const html = wrapExportHtml(
+      a.title,
       v.content_html,
-      `<footer>${productName} · ${a.asset_type} · v${a.current_version} · exported ${new Date().toISOString().slice(0, 10)} · Hive by Aurigo</footer>`,
-      "</body></html>",
-    ].join("\n");
+      `${productName} · ${a.asset_type} · v${a.current_version} · exported ${new Date().toISOString().slice(0, 10)} · Hive by Aurigo`
+    );
     const file = path.join(cfg.outputPath, `${slug || a.id}.html`);
     fs.writeFileSync(file, html, "utf-8");
     log.push(`exported ${path.basename(file)} (${htmlToText(v.content_html).length} chars)`);

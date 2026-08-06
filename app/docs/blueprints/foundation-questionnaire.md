@@ -383,8 +383,10 @@ export async function exportDocHtml(doc: MessagingDocRow, productName: string): 
 **Generation prompt (exact draft, one call per Part).** `ask(userPrompt, { extraContext: answersJson, maxTokens: 16000 })`:
 
 ```
-Generate Part {P} of "{Product} — Positioning & Messaging", the single source of truth
+Generate Part {P} of "{Product} — Positioning & Messaging", the unified system
 for how Marketing, Sales, and Proposals talk about {Product}.
+(Wording note: never feed the model the banned phrase "single source of truth" —
+the forbidden-words gate is a substring match over the generated doc.)
 
 The ADDITIONAL WAR ROOM CONTEXT above contains the PMM-approved questionnaire answers
 (JSON: question id, section, prompt, final answer, sources). These answers are validated
