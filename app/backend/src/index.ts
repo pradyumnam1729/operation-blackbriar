@@ -16,9 +16,11 @@ import { opportunitiesRouter } from "./routes/opportunities";
 import { commentsRouter } from "./routes/comments";
 import { studioRouter } from "./routes/studio";
 import { integrationsRouter } from "./routes/integrations";
+import { sharepointRouter } from "./routes/sharepoint";
 import { WAR_ROOM_DIR } from "./services/warRoom";
 import { dbStatus } from "./services/db";
 import { startWatchers } from "./services/watcher";
+import { startSharePointPolling } from "./services/sharepoint";
 
 const app = express();
 app.use(cors());
@@ -42,6 +44,7 @@ app.use("/api/opportunities", opportunitiesRouter);
 app.use("/api/comments", commentsRouter);
 app.use("/api/studio", studioRouter);
 app.use("/api/integrations", integrationsRouter);
+app.use("/api/sharepoint", sharepointRouter);
 
 // Uploaded files (previews/downloads go through routes; this serves raw files to admins via signed paths later)
 app.use("/files", express.static(path.resolve(__dirname, "..", "uploads")));
@@ -51,4 +54,5 @@ app.listen(port, () => {
   console.log(`PMM Agent backend on http://localhost:${port}`);
   console.log(`War room: ${WAR_ROOM_DIR}`);
   void startWatchers();
+  startSharePointPolling();
 });

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { apiDelete, apiGet, apiPost, getProducts, Product } from "../lib/api";
 import { useAuth } from "../auth/AuthContext";
 
@@ -63,6 +63,11 @@ function fmtDate(d: string | null): string {
   return new Date(d).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 }
 
+/** Seeded rows carry placeholder example.com URLs — those are dead destinations, not sources. */
+function hasRealSource(url: string | null): url is string {
+  return !!url && !url.toLowerCase().includes("example.com");
+}
+
 const PROPOSED_FIELDS: [string, string][] = [
   ["name", "Name"],
   ["description", "Description"],
@@ -90,6 +95,26 @@ export function FeatureCatalog() {
   const [procFilename, setProcFilename] = useState("");
   const [procText, setProcText] = useState("");
   const [procResult, setProcResult] = useState<ProcessResult | null>(null);
+
+  // Release-note deep link: scroll to + flash the matching note entry (or the card).
+  const notesCardRef = useRef<HTMLDivElement | null>(null);
+  const noteRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const [flashNoteId, setFlashNoteId] = useState<string | null>(null);
+  const flashTimer = useRef<number | null>(null);
+
+  const goToNote = (releaseNoteId: string | null) => {
+    const el = (releaseNoteId && noteRefs.current[releaseNoteId]) || notesCardRef.current;
+    el?.scrollIntoView({ behavior: "smooth", block: "center" });
+    setFlashNoteId(releaseNoteId ?? "__card__");
+    if (flashTimer.current !== null) window.clearTimeout(flashTimer.current);
+    flashTimer.current = window.setTimeout(() => setFlashNoteId(null), 1800);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (flashTimer.current !== null) window.clearTimeout(flashTimer.current);
+    };
+  }, []);
 
   // Manual add form (admin)
   const [showAdd, setShowAdd] = useState(false);
@@ -291,11 +316,24 @@ export function FeatureCatalog() {
                   {f.category ?? "Uncategorized"} · {fmtDate(f.release_date)}
                 </span>
                 <span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
-                  {f.source_url && (
+                  {hasRealSource(f.source_url) ? (
                     <a href={f.source_url} target="_blank" rel="noopener noreferrer">
                       <i className="fa-solid fa-arrow-up-right-from-square" /> Source
                     </a>
-                  )}
+                  ) : f.release_note_id ? (
+                    <a
+                      role="button"
+                      tabIndex={0}
+                      title="Jump to the release note below"
+                      style={{ cursor: "pointer" }}
+                      onClick={() => goToNote(f.release_note_id)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") goToNote(f.release_note_id);
+                      }}
+                    >
+                      <i className="fa-solid fa-file-lines" /> Release note
+                    </a>
+                  ) : null}
                   {isAdmin && (
                     <button
                       className="btn btn-danger btn-sm"
@@ -313,7 +351,15 @@ export function FeatureCatalog() {
       )}
 
       {/* ---------- release notes ---------- */}
-      <div className="card">
+      <div
+        className="card"
+        ref={notesCardRef}
+        style={
+          flashNoteId === "__card__"
+            ? { outline: "2px solid var(--teal-light)", transition: "outline 0.2s ease" }
+            : undefined
+        }
+      >
         <h3 style={{ margin: "0 0 12px", fontSize: 15, fontWeight: 500 }}>Release notes</h3>
         {notes.length === 0 && (
           <p className="empty-note">
@@ -324,9 +370,20 @@ export function FeatureCatalog() {
         {notes.map((n, idx) => (
           <div
             key={n.id}
+            ref={(el) => {
+              noteRefs.current[n.id] = el;
+            }}
             style={{
               borderBottom: idx === notes.length - 1 ? "none" : "1px solid var(--border)",
               padding: "12px 0",
+              ...(flashNoteId === n.id
+                ? {
+                    background: "#F2FAFB",
+                    outline: "2px solid var(--teal-light)",
+                    borderRadius: "var(--r-md)",
+                    transition: "background 0.2s ease",
+                  }
+                : {}),
             }}
           >
             <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
@@ -464,6 +521,15 @@ export function FeatureCatalog() {
               className="btn btn-primary"
               onClick={processNote}
               disabled={busy || procText.trim() === "" || !procProduct}
+              title={
+                busy
+                  ? "Working…"
+                  : !procProduct
+                    ? "Pick a product first"
+                    : procText.trim() === ""
+                      ? "Paste the release note text first"
+                      : "Process this release note"
+              }
             >
               <i className="fa-solid fa-wand-magic-sparkles" /> {busy ? "Processing…" : "Process"}
             </button>
@@ -538,6 +604,15 @@ export function FeatureCatalog() {
                   className="btn btn-primary"
                   onClick={addFeature}
                   disabled={busy || addForm.name.trim() === "" || !addForm.product_id}
+                  title={
+                    busy
+                      ? "Working…"
+                      : !addForm.product_id
+                        ? "Pick a product first"
+                        : addForm.name.trim() === ""
+                          ? "Give the feature a name first"
+                          : "Save this feature"
+                  }
                 >
                   <i className="fa-solid fa-check" /> {busy ? "Saving…" : "Save feature"}
                 </button>

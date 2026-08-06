@@ -261,6 +261,28 @@ p.pagesub {
   gap: 12px;
   margin-left: auto;
 }
+.search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-page);
+  border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+  padding: 8px 16px;
+  flex: 1;
+  max-width: 380px;
+  color: var(--text-muted);
+}
+.search input {
+  border: none;
+  background: transparent;
+  outline: none;
+  font-size: 13px;
+  width: 100%;
+  color: var(--text-primary);
+  padding: 0;
+  box-shadow: none;
+}
 .icon-btn {
   width: 36px;
   height: 36px;

@@ -1,0 +1,286 @@
+import fs from "fs";
+import os from "os";
+import path from "path";
+import { supabase } from "./db";
+import { extractText } from "./extract";
+import { flagEnabled } from "./activity";
+
+// Microsoft Graph SharePoint connector (app-only, client-credentials flow).
+// Requires env: MS_TENANT_ID, MS_CLIENT_ID, MS_CLIENT_SECRET with the
+// Sites.Read.All *application* permission (admin-consented) on the app
+// registration. Until those exist, every call reports "not configured" and the
+// local-folder watcher remains the stand-in.
+
+const GRAPH = "https://graph.microsoft.com/v1.0";
+
+export function graphConfigured(): boolean {
+  return Boolean(
+    process.env.MS_TENANT_ID && process.env.MS_CLIENT_ID && process.env.MS_CLIENT_SECRET
+  );
+}
+
+let cachedToken: { token: string; expiresAt: number } | null = null;
+
+async function getToken(): Promise<string> {
+  if (!graphConfigured()) {
+    throw new Error(
+      "SharePoint is not configured. Set MS_TENANT_ID, MS_CLIENT_ID, MS_CLIENT_SECRET in app/backend/.env (app registration with admin-consented Sites.Read.All application permission)."
+    );
+  }
+  if (cachedToken && cachedToken.expiresAt > Date.now() + 60_000) return cachedToken.token;
+
+  const res = await fetch(
+    `https://login.microsoftonline.com/${process.env.MS_TENANT_ID}/oauth2/v2.0/token`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: process.env.MS_CLIENT_ID!,
+        client_secret: process.env.MS_CLIENT_SECRET!,
+        scope: "https://graph.microsoft.com/.default",
+        grant_type: "client_credentials",
+      }),
+    }
+  );
+  const body = (await res.json()) as {
+    access_token?: string;
+    expires_in?: number;
+    error_description?: string;
+  };
+  if (!res.ok || !body.access_token) {
+    throw new Error(`Graph token request failed: ${body.error_description ?? res.statusText}`);
+  }
+  cachedToken = {
+    token: body.access_token,
+    expiresAt: Date.now() + (body.expires_in ?? 3600) * 1000,
+  };
+  return cachedToken.token;
+}
+
+async function graphGet<T>(url: string): Promise<T> {
+  const token = await getToken();
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Graph ${res.status}: ${text.slice(0, 300)}`);
+  }
+  return res.json() as Promise<T>;
+}
+
+export interface SiteRef {
+  siteId: string;
+  driveId: string;
+  webUrl: string;
+}
+
+/** Resolve a SharePoint site URL like https://tenant.sharepoint.com/sites/PMM to its default document library. */
+export async function resolveSite(siteUrl: string): Promise<SiteRef> {
+  const u = new URL(siteUrl);
+  const sitePath = u.pathname.replace(/\/+$/, "");
+  const site = await graphGet<{ id: string; webUrl: string }>(
+    `${GRAPH}/sites/${u.hostname}:${sitePath}`
+  );
+  const drive = await graphGet<{ id: string }>(`${GRAPH}/sites/${site.id}/drive`);
+  return { siteId: site.id, driveId: drive.id, webUrl: site.webUrl };
+}
+
+export interface DriveItem {
+  id: string;
+  name: string;
+  webUrl?: string;
+  folder?: unknown;
+  file?: { mimeType: string };
+  parentReference?: { path?: string };
+  deleted?: unknown;
+  lastModifiedDateTime?: string;
+}
+
+/** Browse a folder ("" = library root) — used by the admin UI to pick folders. */
+export async function listChildren(driveId: string, folderPath: string): Promise<DriveItem[]> {
+  const base =
+    folderPath && folderPath !== "/"
+      ? `${GRAPH}/drives/${driveId}/root:/${encodeURI(folderPath.replace(/^\/+/, ""))}:/children`
+      : `${GRAPH}/drives/${driveId}/root/children`;
+  const res = await graphGet<{ value: DriveItem[] }>(`${base}?$top=200`);
+  return res.value;
+}
+
+/** Delta sync: returns changed items since the stored token plus the next token. */
+export async function deltaSync(
+  driveId: string,
+  deltaLink: string | null
+): Promise<{ items: DriveItem[]; nextDeltaLink: string }> {
+  let url = deltaLink ?? `${GRAPH}/drives/${driveId}/root/delta`;
+  const items: DriveItem[] = [];
+  for (;;) {
+    const page = await graphGet<{
+      value: DriveItem[];
+      "@odata.nextLink"?: string;
+      "@odata.deltaLink"?: string;
+    }>(url);
+    items.push(...page.value);
+    if (page["@odata.nextLink"]) url = page["@odata.nextLink"];
+    else return { items, nextDeltaLink: page["@odata.deltaLink"] ?? url };
+  }
+}
+
+async function downloadToTemp(driveId: string, item: DriveItem): Promise<string> {
+  const token = await getToken();
+  const res = await fetch(`${GRAPH}/drives/${driveId}/items/${item.id}/content`, {
+    headers: { Authorization: `Bearer ${token}` },
+    redirect: "follow",
+  });
+  if (!res.ok) throw new Error(`download failed ${res.status} for ${item.name}`);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "hive-sp-"));
+  const filePath = path.join(dir, item.name);
+  fs.writeFileSync(filePath, Buffer.from(await res.arrayBuffer()));
+  return filePath;
+}
+
+const SUPPORTED = [".pdf", ".docx", ".txt", ".md", ".vtt", ".srt", ".csv"];
+
+interface SpIntegrationConfig {
+  siteUrl: string;
+  folderPath: string;
+  doc_type: string;
+  product_line?: string;
+  siteId?: string;
+  driveId?: string;
+  deltaLink?: string | null;
+  lastSync?: string;
+  lastResult?: string;
+}
+
+/** Ingest one downloaded file through the same pipeline as the local watcher. */
+async function ingestFile(
+  localPath: string,
+  item: DriveItem,
+  cfg: SpIntegrationConfig
+): Promise<string> {
+  const sb = supabase()!;
+  const { status, text } = await extractText(localPath);
+  if (status !== "done" || text.trim() === "") return `skipped ${item.name} (${status})`;
+
+  if (cfg.doc_type === "release_note") {
+    const { data: products } = await sb.from("products").select("id, line");
+    const product =
+      products?.find(
+        (p) => cfg.product_line && p.line.toLowerCase() === cfg.product_line.toLowerCase()
+      ) ?? products?.[0];
+    if (!product) return `no product match for ${item.name}`;
+    const { data: rn } = await sb
+      .from("release_notes")
+      .insert({
+        product_id: product.id,
+        filename: item.name,
+        source_path: item.webUrl ?? `sharepoint:${item.id}`,
+        raw_text: text,
+        processed_at: new Date().toISOString(),
+      })
+      .select("id")
+      .single();
+    await sb.from("feature_reviews").insert({
+      release_note_id: rn?.id,
+      product_id: product.id,
+      proposed: {
+        note: "Release note synced from SharePoint — run Process to extract features.",
+        filename: item.name,
+        snippet: text.slice(0, 1500),
+      },
+      change_type: "added",
+      confidence: 0.1,
+      status: "pending",
+    });
+    return `release note ingested: ${item.name}`;
+  }
+
+  await sb.from("context_docs").insert({
+    title: item.name,
+    source: "folder_watch",
+    doc_type: cfg.doc_type,
+    content: text.slice(0, 200_000),
+    approved: false,
+  });
+  return `context doc ingested (pending approval): ${item.name}`;
+}
+
+/** Run a delta sync for one sharepoint_graph integration row. */
+export async function syncIntegration(integrationId: string): Promise<string[]> {
+  const sb = supabase()!;
+  const { data: integ, error } = await sb
+    .from("integrations")
+    .select("id, name, config, enabled")
+    .eq("id", integrationId)
+    .eq("kind", "sharepoint_graph")
+    .single();
+  if (error || !integ) throw new Error("SharePoint connection not found");
+
+  const cfg = integ.config as SpIntegrationConfig;
+  const log: string[] = [];
+
+  if (!cfg.driveId) {
+    const site = await resolveSite(cfg.siteUrl);
+    cfg.siteId = site.siteId;
+    cfg.driveId = site.driveId;
+    log.push(`resolved site ${site.webUrl}`);
+  }
+
+  const { items, nextDeltaLink } = await deltaSync(cfg.driveId!, cfg.deltaLink ?? null);
+  const folderNeedle = cfg.folderPath.replace(/^\/+|\/+$/g, "").toLowerCase();
+  const relevant = items.filter((it) => {
+    if (it.deleted || it.folder || !it.file) return false;
+    if (!SUPPORTED.includes(path.extname(it.name).toLowerCase())) return false;
+    if (folderNeedle === "") return true;
+    const parent = (it.parentReference?.path ?? "").toLowerCase();
+    return parent.includes(folderNeedle);
+  });
+
+  for (const item of relevant) {
+    try {
+      const local = await downloadToTemp(cfg.driveId!, item);
+      log.push(await ingestFile(local, item, cfg));
+      fs.rmSync(path.dirname(local), { recursive: true, force: true });
+    } catch (err) {
+      log.push(`failed ${item.name}: ${(err as Error).message}`);
+    }
+  }
+
+  cfg.deltaLink = nextDeltaLink;
+  cfg.lastSync = new Date().toISOString();
+  cfg.lastResult = `${relevant.length} file(s) processed`;
+  await sb.from("integrations").update({ config: cfg }).eq("id", integrationId);
+  log.push(`delta sync complete: ${relevant.length} file(s)`);
+  return log;
+}
+
+let pollTimer: ReturnType<typeof setInterval> | null = null;
+
+/** Poll all enabled sharepoint_graph connections every 5 minutes while the flag is on. */
+export function startSharePointPolling(): void {
+  if (pollTimer) return;
+  const tick = async () => {
+    try {
+      if (!graphConfigured() || !(await flagEnabled("sharepoint_graph"))) return;
+      const sb = supabase();
+      if (!sb) return;
+      const { data } = await sb
+        .from("integrations")
+        .select("id, name")
+        .eq("kind", "sharepoint_graph")
+        .eq("enabled", true);
+      for (const integ of data ?? []) {
+        try {
+          const log = await syncIntegration(integ.id);
+          console.log(`[sharepoint] ${integ.name}: ${log[log.length - 1]}`);
+        } catch (err) {
+          console.error(`[sharepoint] ${integ.name} sync failed: ${(err as Error).message}`);
+        }
+      }
+    } catch (err) {
+      console.error("[sharepoint] poll error:", (err as Error).message);
+    }
+  };
+  pollTimer = setInterval(() => void tick(), 5 * 60 * 1000);
+  void tick();
+  console.log("[sharepoint] polling scheduler armed (5 min interval, gated on flag + credentials)");
+}

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { apiGet, apiPost, getProducts, Product } from "../lib/api";
 import { useAuth } from "../auth/AuthContext";
 
@@ -46,6 +46,7 @@ const TYPE_ICON: Record<string, string> = {
 export function ArtifactLibrary() {
   const { me } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const admin = me?.role === "admin";
 
   const [products, setProducts] = useState<Product[]>([]);
@@ -53,13 +54,19 @@ export function ArtifactLibrary() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // filters
+  // filters — the title search is seeded from ?q= (topbar search deep link)
   const [productId, setProductId] = useState("");
   const [assetType, setAssetType] = useState("");
   const [status, setStatus] = useState("");
   const [persona, setPersona] = useState("");
-  const [q, setQ] = useState("");
+  const [q, setQ] = useState(searchParams.get("q") ?? "");
   const [mine, setMine] = useState(false);
+
+  // Follow-up topbar searches while already on /library update the filter too.
+  useEffect(() => {
+    const incoming = searchParams.get("q");
+    if (incoming !== null) setQ(incoming);
+  }, [searchParams]);
 
   // create form
   const [showCreate, setShowCreate] = useState(false);

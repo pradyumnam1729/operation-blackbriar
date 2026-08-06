@@ -252,7 +252,18 @@ export function Studio() {
               className="btn"
               style={{ marginTop: 14, width: "100%", justifyContent: "center" }}
               onClick={generate}
-              disabled={busy || promptId === "" || title.trim() === ""}
+              disabled={busy || !template || promptId === "" || title.trim() === ""}
+              title={
+                busy
+                  ? "Generating…"
+                  : !template
+                    ? "Select a template first"
+                    : promptId === ""
+                      ? "Select a prompt first"
+                      : title.trim() === ""
+                        ? "Give the draft a title first"
+                        : "Generate the draft"
+              }
             >
               <i className="fa-solid fa-wand-magic-sparkles" />
               {busy ? "Generating…" : "Generate draft"}

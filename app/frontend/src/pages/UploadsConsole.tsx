@@ -89,6 +89,19 @@ export function UploadsConsole() {
     return () => window.clearTimeout(t);
   }, [load]);
 
+  // Escape closes the preview drawer / promote modal (backdrop click and buttons also work).
+  useEffect(() => {
+    if (!preview && !promoteRow) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setPreview(null);
+        setPromoteRow(null);
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [preview, promoteRow]);
+
   useEffect(() => {
     // Requests dropdown — endpoint belongs to the requests module; parse defensively.
     apiGet<unknown>("/api/requests")

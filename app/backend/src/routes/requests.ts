@@ -97,9 +97,12 @@ requestsRouter.post("/", async (req, res) => {
   for (const admin of admins ?? []) {
     if (admin.id === req.user!.id) continue;
     void notify(admin.id, "request_created", {
+      entity_type: "request",
+      entity_id: created.id,
       request_id: created.id,
       title: created.title,
       request_type: created.request_type,
+      by: req.user!.fullName ?? req.user!.email,
       requester: req.user!.fullName ?? req.user!.email,
     });
   }
@@ -178,9 +181,12 @@ requestsRouter.post("/:id/status", async (req, res) => {
   });
   if (existing.requester_id && existing.requester_id !== req.user!.id) {
     void notify(existing.requester_id, "request_status_changed", {
+      entity_type: "request",
+      entity_id: existing.id,
       request_id: existing.id,
       title: existing.title,
       status,
+      by: req.user!.fullName ?? req.user!.email,
       changed_by: req.user!.fullName ?? req.user!.email,
     });
   }

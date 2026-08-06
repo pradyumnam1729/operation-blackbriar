@@ -154,6 +154,16 @@ export function Requests() {
     if (selectedId) void loadDetail(selectedId);
   }, [selectedId]);
 
+  // Escape closes the request drawer (backdrop click and the X also work).
+  useEffect(() => {
+    if (!selectedId) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setSelectedId(null);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [selectedId]);
+
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     if (!title.trim()) {
@@ -207,8 +217,8 @@ export function Requests() {
       await apiUpload("/api/uploads", form);
       await loadDetail(id);
       setUploadNote("Files attached.");
-    } catch {
-      setUploadNote("Uploads are coming online — the uploads module is still being built. Try again shortly.");
+    } catch (e) {
+      setUploadNote(`Upload failed: ${(e as Error).message}`);
     } finally {
       setUploadBusy(false);
     }
@@ -414,7 +424,17 @@ export function Requests() {
                   }}
                 />
                 {uploadBusy && <p className="empty-note" style={{ padding: "6px 0 0" }}>Uploading…</p>}
-                {uploadNote && <p className="empty-note" style={{ padding: "6px 0 0" }}>{uploadNote}</p>}
+                {uploadNote && (
+                  <p
+                    className="empty-note"
+                    style={{
+                      padding: "6px 0 0",
+                      ...(uploadNote.startsWith("Upload failed") ? { color: "var(--red)", fontWeight: 500 } : {}),
+                    }}
+                  >
+                    {uploadNote}
+                  </p>
+                )}
 
                 <h3 style={{ fontSize: 14, fontWeight: 500, margin: "18px 0 8px" }}>Linked artifacts</h3>
                 {detail.artifacts.length === 0 ? (

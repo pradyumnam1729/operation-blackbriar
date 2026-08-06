@@ -87,7 +87,7 @@ Plant the questions that expose the maturity gap — name the lens, then let the
 - **Do not pitch pure feature parity.** Win on Plan → Build → Maintain continuity, modern UX, and the AI-native narrative — this is the standing guidance against depth-heavy incumbents (`positioning-and-icp.md`).
 - **Do not attack Oracle EAM as a competitor** — Aurigo integrates with Oracle EAM. Compete on Primavera/Unifier (Plan/Build); position as the intelligence layer above EAM (`positioning-and-icp.md`).
 - **Do not name external win rates or pricing.** Internal only; pricing is not locked (`gtm-rules.md`).
-- **Do not use "ROI," "defensible," or "single source of truth"** in public-sector framing — use program outcomes / capital program performance, transparent and accountable program delivery, unified system (`gtm-rules.md`).
+- **Do not use "ROI," "defensible," or the banned source-of-truth phrase** in public-sector framing — use program outcomes / capital program performance, transparent and accountable program delivery, unified system (see the forbidden list in `gtm-rules.md`).
 - **No trash-talk.** Frame maturity, not inferiority.
 
 ---

@@ -144,6 +144,16 @@ export function WinLoss() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterQs, q]);
 
+  // Escape closes the opportunity drawer (backdrop click and the X also work).
+  useEffect(() => {
+    if (!selected) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setSelected(null);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [selected]);
+
   const refresh = async () => {
     setRefreshing(true);
     try {

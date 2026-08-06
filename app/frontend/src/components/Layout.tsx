@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { apiGet } from "../lib/api";
@@ -25,6 +25,13 @@ const ADMIN_NAV: NavItem[] = [
   { to: "/foundation", label: "Foundation", icon: "fa-book", adminOnly: true },
 ];
 
+const ROLE_LABELS: Record<string, string> = {
+  admin: "PMM Admin",
+  sales: "Sales",
+  marketing: "Marketing",
+  elt: "ELT",
+};
+
 function HiveMark() {
   return (
     <svg viewBox="0 0 90 84" width="30" height="28">
@@ -47,6 +54,9 @@ export function Layout() {
   const navigate = useNavigate();
   const [collapsed, setCollapsed] = useState(false);
   const [hasUnread, setHasUnread] = useState(false);
+  const [search, setSearch] = useState("");
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -61,6 +71,30 @@ export function Layout() {
       window.clearInterval(t);
     };
   }, []);
+
+  // Avatar menu: close on outside click / Escape.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMenuOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [menuOpen]);
+
+  const submitSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    const q = search.trim();
+    navigate(q ? `/library?q=${encodeURIComponent(q)}` : "/library");
+    setSearch("");
+  };
 
   const renderItem = (n: NavItem) => (
     <NavLink
@@ -119,6 +153,15 @@ export function Layout() {
           <span style={{ fontSize: 13, color: "var(--text-secondary)", fontWeight: 500 }}>
             Hive
           </span>
+          <form className="search" onSubmit={submitSearch} role="search">
+            <i className="fa-solid fa-magnifying-glass" style={{ fontSize: 13 }} />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search the repository…"
+              aria-label="Search the repository"
+            />
+          </form>
           <div className="top-actions">
             <button
               className="icon-btn"
@@ -128,8 +171,75 @@ export function Layout() {
               <i className="fa-regular fa-bell" />
               {hasUnread && <span className="dot" />}
             </button>
-            <div className="avatar" title={me?.email}>
-              {initials(me?.fullName ?? null, me?.email ?? "")}
+            <div ref={menuRef} style={{ position: "relative" }}>
+              <button
+                className="avatar"
+                title={me?.email}
+                aria-label="Account menu"
+                aria-expanded={menuOpen}
+                onClick={() => setMenuOpen((o) => !o)}
+                style={{ border: "none", cursor: "pointer", padding: 0 }}
+              >
+                {initials(me?.fullName ?? null, me?.email ?? "")}
+              </button>
+              {menuOpen && (
+                <div
+                  style={{
+                    position: "absolute",
+                    top: "calc(100% + 8px)",
+                    right: 0,
+                    minWidth: 230,
+                    background: "#fff",
+                    border: "1px solid var(--border)",
+                    borderRadius: "var(--r-md)",
+                    boxShadow: "var(--shadow-2)",
+                    padding: 6,
+                    zIndex: 100,
+                  }}
+                >
+                  <div style={{ padding: "10px 12px", borderBottom: "1px solid var(--border)" }}>
+                    <div style={{ fontSize: 13.5, fontWeight: 500, color: "var(--text-primary)" }}>
+                      {me?.fullName ?? me?.email}
+                    </div>
+                    <div style={{ fontSize: 12, color: "var(--text-muted)", margin: "2px 0 6px" }}>
+                      {me?.email}
+                    </div>
+                    <span className={`pill ${me?.role === "admin" ? "pill-live" : "pill-archived"}`}>
+                      {ROLE_LABELS[me?.role ?? ""] ?? me?.role ?? "—"}
+                    </span>
+                  </div>
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => {
+                      setMenuOpen(false);
+                      void signOut();
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        setMenuOpen(false);
+                        void signOut();
+                      }
+                    }}
+                    style={{
+                      padding: "9px 12px",
+                      marginTop: 4,
+                      borderRadius: "var(--r-sm)",
+                      fontSize: 13,
+                      color: "var(--text-primary)",
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                    }}
+                    onMouseEnter={(e) => ((e.currentTarget as HTMLDivElement).style.background = "var(--bg-page)")}
+                    onMouseLeave={(e) => ((e.currentTarget as HTMLDivElement).style.background = "transparent")}
+                  >
+                    <i className="fa-solid fa-right-from-bracket" style={{ color: "var(--text-secondary)" }} />
+                    Sign out
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>

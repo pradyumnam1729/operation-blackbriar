@@ -463,6 +463,13 @@ export function ArtifactEditor() {
             <button
               className="btn btn-sm"
               disabled={compareFrom === "" || compareTo === "" || compareFrom === compareTo}
+              title={
+                compareFrom === "" || compareTo === ""
+                  ? "Pick two versions to compare"
+                  : compareFrom === compareTo
+                    ? "Pick two different versions"
+                    : "Compare the selected versions"
+              }
               onClick={runCompare}
             >
               <i className="fa-solid fa-code-compare" /> Compare
