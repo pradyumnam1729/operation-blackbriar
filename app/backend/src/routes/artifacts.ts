@@ -5,6 +5,7 @@ import { cleanHtml, htmlToText } from "../services/html";
 import { logActivity } from "../services/activity";
 import { diffVersionsHtml } from "../services/versionDiff";
 import { checkForbiddenWords } from "../services/guardrails";
+import { TemplateGenError, reRenderWithFills } from "../services/templateGenerate";
 
 // Artifact Library: versioned rich-content assets. All content is sanitized
 // HTML — markdown never crosses this boundary. Non-admin roles (sales,
@@ -185,11 +186,78 @@ artifactsRouter.get("/:id", requireAuth, async (req, res) => {
     .eq("version", artifact.current_version)
     .maybeSingle();
 
+  // Template-generated artifacts carry raw renders (blueprint §2) — the editor
+  // mounts the render surface instead of the rich editor when one exists.
+  const { count: renderCount } = await sb
+    .from("artifact_renders")
+    .select("id", { count: "exact", head: true })
+    .eq("artifact_id", artifact.id);
+
   res.json({
     artifact: flatten(artifact),
     versions: versions ?? [],
     contentHtml: current?.content_html ?? "",
+    hasRender: (renderCount ?? 0) > 0,
   });
+});
+
+// ---------- render payload (template-generated artifacts) ----------
+// GET /api/artifacts/:id/render?version= → { render } (renders inherit the artifact's visibility)
+artifactsRouter.get("/:id/render", requireAuth, async (req, res) => {
+  const sb = supabase()!;
+  const artifact = await fetchArtifact(req.params.id);
+  if (!artifact) return res.status(404).json({ error: "Artifact not found" });
+  if (!canRead(req.user!.id, isAdmin(req), artifact)) {
+    return res.status(403).json({ error: "Not authorized to view this artifact" });
+  }
+
+  let version = artifact.current_version;
+  if (req.query.version !== undefined) {
+    const v = Number(req.query.version);
+    if (!Number.isInteger(v) || v < 1) return res.status(400).json({ error: "Invalid version number" });
+    version = v;
+  }
+
+  const { data, error } = await sb
+    .from("artifact_renders")
+    .select("format, payload, slot_fills, warnings, template_id, template_version, messaging_doc_id")
+    .eq("artifact_id", artifact.id)
+    .eq("version", version)
+    .maybeSingle();
+  if (error) return res.status(500).json({ error: error.message });
+  if (!data) return res.status(404).json({ error: "No render for this artifact" });
+  res.json({ render: data });
+});
+
+// ---------- slot edits (deterministic re-render, no model call) ----------
+// POST /api/artifacts/:id/slots { fills: {slot_id: text}, note? }
+artifactsRouter.post("/:id/slots", requireAuth, async (req, res) => {
+  const artifact = await fetchArtifact(req.params.id);
+  if (!artifact) return res.status(404).json({ error: "Artifact not found" });
+  if (!canEdit(req.user!.id, isAdmin(req), artifact)) {
+    return res.status(403).json({ error: "Only the creator or a PMM admin can edit this artifact" });
+  }
+
+  const { fills, note } = req.body as { fills?: Record<string, unknown>; note?: string };
+  if (!fills || typeof fills !== "object" || Array.isArray(fills)) {
+    return res.status(400).json({ error: "fills object is required" });
+  }
+  const clean: Record<string, string> = {};
+  for (const [key, value] of Object.entries(fills)) {
+    if (typeof value === "string") clean[key] = value;
+  }
+
+  try {
+    const { version } = await reRenderWithFills(artifact.id, clean, note, req.user!.id);
+    res.status(201).json({ version });
+  } catch (err) {
+    if (err instanceof TemplateGenError) {
+      return res
+        .status(err.status)
+        .json(err.over ? { error: err.message, over: err.over } : { error: err.message });
+    }
+    res.status(500).json({ error: (err as Error).message });
+  }
 });
 
 // ---------- single version content ----------
@@ -315,6 +383,24 @@ artifactsRouter.post("/:id/rollback", requireAuth, async (req, res) => {
     created_by: req.user!.id,
   });
   if (vErr) return res.status(500).json({ error: vErr.message });
+
+  // Template-rendered artifacts: carry the target version's render forward too,
+  // else the rollback silently strips the rendered payload (export would fall
+  // back to the digest with no warning).
+  const { data: targetRender } = await sb
+    .from("artifact_renders")
+    .select("format, payload, slot_fills, warnings, template_version, messaging_doc_id")
+    .eq("artifact_id", artifact.id)
+    .eq("version", to)
+    .maybeSingle();
+  if (targetRender) {
+    const { error: rErr } = await sb.from("artifact_renders").insert({
+      artifact_id: artifact.id,
+      version: newVersion,
+      ...targetRender,
+    });
+    if (rErr) return res.status(500).json({ error: rErr.message });
+  }
 
   const { error: uErr } = await sb
     .from("artifacts")

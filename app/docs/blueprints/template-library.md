@@ -37,7 +37,7 @@ A library of **layout-locked, slot-based templates** that Claude fills from the 
 | Studio page (type pills → template cards → generate panel), ArtifactEditor (RichEditor + versions + status controls), `apiGet/apiPost` typed helpers, `MAIN_NAV`/`ADMIN_NAV` | `app/frontend/src/pages/Studio.tsx`, `ArtifactEditor.tsx`, `lib/api.ts`, `components/Layout.tsx` | UI patterns to extend (§4) |
 | Exemplars: `reference output/Output/Masterworks AI/Datasheets/*.pdf`, `.../Decks/*.pptx`, `Masterworks Sales Enablement/Datasheet|Sales Deck|Brochure/*` | `reference output/Output/` tree | `exemplar_path` seed values (§1.2) — display-only pointers, no file serving in MVP |
 
-**Migration numbering:** 0001–0009 exist. This feature's migration is **`0010_template_library.sql`**.
+**Migration numbering:** 0001–0009 exist. This feature's migration is **`0011_template_library.sql`**.
 
 ### 0.1 Decisions recorded (per method step 3 — candidate ADRs when `pmm-playbook/vol-3-architecture/adrs/` is created)
 
@@ -50,7 +50,7 @@ A library of **layout-locked, slot-based templates** that Claude fills from the 
 
 ---
 
-## 1. Migration `supabase/migrations/0010_template_library.sql`
+## 1. Migration `supabase/migrations/0011_template_library.sql`
 
 ```sql
 -- Template Library: layout-locked, slot-based templates filled from the latest
@@ -596,7 +596,7 @@ Templates (page; owns filters, template list, selected template)
 
 | Path | Contents |
 |---|---|
-| `C:\Users\pradyumna.m\Downloads\Applications\Hackathon\operation-blackbriar\supabase\migrations\0010_template_library.sql` | §1 DDL + the three full seed templates (§1.2) |
+| `C:\Users\pradyumna.m\Downloads\Applications\Hackathon\operation-blackbriar\supabase\migrations\0011_template_library.sql` | §1 DDL + the three full seed templates (§1.2) |
 | `C:\Users\pradyumna.m\Downloads\Applications\Hackathon\operation-blackbriar\app\backend\src\services\templateRender.ts` | §3.1 (pure functions) |
 | `C:\Users\pradyumna.m\Downloads\Applications\Hackathon\operation-blackbriar\app\backend\src\services\templateGenerate.ts` | §3.2 (model orchestration, prompts) |
 | `C:\Users\pradyumna.m\Downloads\Applications\Hackathon\operation-blackbriar\app\backend\src\routes\templates.ts` | endpoints 1–7 |

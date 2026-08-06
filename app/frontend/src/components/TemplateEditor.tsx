@@ -91,13 +91,13 @@ export function TemplateEditor({ template, onClose, onSaved }: Props) {
       funnel_stage: funnelStage === "" ? null : funnelStage,
       exemplar_path: exemplarPath.trim() === "" ? null : exemplarPath.trim(),
       preview_color: previewColor.trim() === "" ? null : previewColor.trim(),
-      approved,
     };
     setSaving(true);
     try {
+      // Contract: `approved` is togglable on PUT only — POST creates unapproved.
       const saved = creating
         ? await createTemplate(payload)
-        : await updateTemplate(template.id, payload);
+        : await updateTemplate(template.id, { ...payload, approved });
       onSaved(saved);
     } catch (e) {
       if (e instanceof ApiError && Array.isArray(e.body.issues)) {
@@ -241,15 +241,22 @@ export function TemplateEditor({ template, onClose, onSaved }: Props) {
           placeholder='[{"id":"headline","label":"Headline","purpose":"…","max_chars":60,"required":true,"render":"text","source_sections":["B1"]}]'
         />
 
-        <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12, cursor: "pointer" }}>
-          <input
-            type="checkbox"
-            checked={approved}
-            onChange={(e) => setApproved(e.target.checked)}
-            style={{ width: "auto" }}
-          />
-          Approved — visible to all roles and usable for generation
-        </label>
+        {creating ? (
+          <p className="empty-note" style={{ padding: "12px 0 0" }}>
+            New templates start unapproved — review the saved preview, then approve via Edit to
+            make the template visible to all roles.
+          </p>
+        ) : (
+          <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12, cursor: "pointer" }}>
+            <input
+              type="checkbox"
+              checked={approved}
+              onChange={(e) => setApproved(e.target.checked)}
+              style={{ width: "auto" }}
+            />
+            Approved — visible to all roles and usable for generation
+          </label>
+        )}
 
         <button
           className="btn btn-primary"

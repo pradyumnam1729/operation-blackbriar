@@ -1,10 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import type { Editor } from "@tiptap/react";
-import { apiDelete, apiGet, apiPost } from "../lib/api";
+import {
+  apiDelete,
+  apiGet,
+  apiPost,
+  ArtifactRender,
+  getArtifactRender,
+  getTemplate,
+  TemplateDetail,
+} from "../lib/api";
 import { useAuth } from "../auth/AuthContext";
 import { RichEditor } from "../components/RichEditor";
 import { Comments } from "../components/Comments";
+import { TemplatePreview } from "../components/TemplatePreview";
+import { SlotFillPanel } from "../components/SlotFillPanel";
 
 type ArtifactStatus = "draft" | "in_review" | "final" | "archived";
 
@@ -34,6 +44,8 @@ interface DetailResponse {
   artifact: ArtifactDetail;
   versions: VersionMeta[];
   contentHtml: string;
+  /** True for template-generated artifacts — an artifact_renders row exists. */
+  hasRender?: boolean;
 }
 
 const STATUS_LABELS: Record<ArtifactStatus, string> = {
@@ -96,6 +108,11 @@ export function ArtifactEditor() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Template-generated artifacts: raw render + the template's slot definitions.
+  const [render, setRender] = useState<ArtifactRender | null>(null);
+  const [renderTpl, setRenderTpl] = useState<TemplateDetail | null>(null);
+  const [viewRender, setViewRender] = useState<ArtifactRender | null>(null);
+
   const editorRef = useRef<Editor | null>(null);
 
   // AI
@@ -128,6 +145,28 @@ export function ArtifactEditor() {
       setVersions(data.versions);
       setHtml(data.contentHtml);
       setLoadError(null);
+      if (data.hasRender) {
+        // Template-generated: mount the render surface instead of RichEditor.
+        try {
+          const r = await getArtifactRender(id);
+          setRender(r);
+          if (r.template_id) {
+            // Slot definitions (labels, limits, wiring) live on the template.
+            try {
+              setRenderTpl(await getTemplate(r.template_id));
+            } catch {
+              setRenderTpl(null); // template deleted/hidden — editing disabled
+            }
+          } else {
+            setRenderTpl(null);
+          }
+        } catch {
+          setRender(null); // fall back to the classic editor surface
+        }
+      } else {
+        setRender(null);
+        setRenderTpl(null);
+      }
     } catch (e) {
       setLoadError((e as Error).message);
     } finally {
@@ -196,11 +235,20 @@ export function ArtifactEditor() {
     if (!id) return;
     setPanelError(null);
     setDiffHtml(null);
+    setViewRender(null);
     try {
       const r = await apiGet<{ version: { version: number; content_html: string; note: string | null } }>(
         `/api/artifacts/${id}/versions/${v}`
       );
       setViewVersion(r.version);
+      if (render) {
+        // Template-generated: also show that version's rendered payload.
+        try {
+          setViewRender(await getArtifactRender(id, v));
+        } catch {
+          setViewRender(null);
+        }
+      }
     } catch (e) {
       setPanelError((e as Error).message);
     }
@@ -210,6 +258,7 @@ export function ArtifactEditor() {
     if (!id || compareFrom === "" || compareTo === "") return;
     setPanelError(null);
     setViewVersion(null);
+    setViewRender(null);
     try {
       const r = await apiGet<{ diffHtml: string }>(
         `/api/artifacts/${id}/diff?from=${compareFrom}&to=${compareTo}`
@@ -228,6 +277,7 @@ export function ArtifactEditor() {
       await apiPost(`/api/artifacts/${id}/rollback`, { to: v });
       setViewVersion(null);
       setDiffHtml(null);
+      setViewRender(null);
       await load();
     } catch (e) {
       setPanelError((e as Error).message);
@@ -334,7 +384,96 @@ export function ArtifactEditor() {
         </div>
       )}
 
-      {canEdit ? (
+      {render !== null ? (
+        <>
+          {render.warnings.length > 0 && (
+            <div
+              style={{
+                marginBottom: 18,
+                padding: "12px 16px",
+                background: "#FCE8E8",
+                borderRadius: "var(--r-md)",
+                color: "#A32D2D",
+                fontSize: 13,
+              }}
+              role="alert"
+            >
+              <b>
+                <i className="fa-solid fa-triangle-exclamation" style={{ marginRight: 6 }} />
+                {render.warnings.length} slot{render.warnings.length === 1 ? "" : "s"} need
+                {render.warnings.length === 1 ? "s" : ""} PMM input
+              </b>{" "}
+              — the render shows &ldquo;⚠ needs PMM input&rdquo; placeholders until the text is
+              supplied below.
+              <ul style={{ margin: "6px 0 0", paddingLeft: 20 }}>
+                {render.warnings.map((w, i) => (
+                  <li key={i}>
+                    <b>{w.slot_id}</b>: {w.detail}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {artifact.status === "final" && (
+            <div
+              style={{
+                marginBottom: 18,
+                padding: "12px 16px",
+                background: "#E4F4EE",
+                borderRadius: "var(--r-md)",
+                color: "#0E6B4E",
+                fontSize: 13,
+                fontWeight: 500,
+              }}
+            >
+              <i className="fa-solid fa-circle-check" style={{ marginRight: 6 }} />
+              Final — the rendered file is exported to the Output folder with the next finals
+              export. Use Download for a local copy.
+            </div>
+          )}
+
+          {canEdit && !renderTpl && (
+            <div className="card">
+              <p className="empty-note" style={{ padding: 0, margin: 0 }}>
+                The template behind this artifact is no longer available, so slot editing is
+                disabled. The rendered file below still works — or generate a new draft from a
+                current template in the Template library.
+              </p>
+            </div>
+          )}
+
+          <div
+            className={canEdit && renderTpl ? "grid grid-2" : undefined}
+            style={canEdit && renderTpl ? { alignItems: "start" } : undefined}
+          >
+            {canEdit && renderTpl && (
+              <SlotFillPanel
+                key={artifact.current_version}
+                artifactId={artifact.id}
+                slots={renderTpl.slots}
+                fills={render.slot_fills}
+                warnings={render.warnings}
+                onSaved={load}
+              />
+            )}
+            <div className="card">
+              <div className="row-between" style={{ marginBottom: 10 }}>
+                <h3 style={{ margin: 0, fontSize: 14, fontWeight: 500 }}>
+                  <i className="fa-solid fa-eye" style={{ marginRight: 8, color: "var(--teal-dark)" }} />
+                  Rendered artifact (v{artifact.current_version})
+                </h3>
+                {render.template_version !== null && (
+                  <span style={{ fontSize: 11.5, color: "var(--text-muted)" }}>
+                    template v{render.template_version}
+                  </span>
+                )}
+              </div>
+              <TemplatePreview format={render.format} payload={render.payload} title={artifact.title} />
+            </div>
+          </div>
+        </>
+      ) : canEdit ? (
         <>
           <div className="card">
             <div className="chip-row" style={{ marginTop: 0, alignItems: "center" }}>
@@ -480,6 +619,7 @@ export function ArtifactEditor() {
                 onClick={() => {
                   setDiffHtml(null);
                   setViewVersion(null);
+                  setViewRender(null);
                 }}
               >
                 <i className="fa-solid fa-xmark" /> Close preview
@@ -505,7 +645,15 @@ export function ArtifactEditor() {
               Version {viewVersion.version} (read-only)
               {viewVersion.note ? ` — ${viewVersion.note}` : ""}
             </p>
-            <div className="prose" dangerouslySetInnerHTML={{ __html: viewVersion.content_html }} />
+            {viewRender !== null ? (
+              <TemplatePreview
+                format={viewRender.format}
+                payload={viewRender.payload}
+                title={`${artifact.title}-v${viewVersion.version}`}
+              />
+            ) : (
+              <div className="prose" dangerouslySetInnerHTML={{ __html: viewVersion.content_html }} />
+            )}
           </div>
         )}
 

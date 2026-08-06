@@ -48,6 +48,24 @@ export function detectDocType(filename: string): string | null {
 
 const DOC_TYPES = ["release_note", "prd", "jtbd", "transcript", "battlecard", "other"];
 
+/** Unambiguous per-file product match: every word of the product name appears
+ *  in the filename (e.g. "masterworks-maintain-…"). Null otherwise — a shared
+ *  context doc is visible to every product's questionnaire. */
+export function matchProductByFilename<T extends { name: string }>(
+  filename: string,
+  products: T[]
+): T | null {
+  const name = filename.toLowerCase();
+  return (
+    products.find((p) =>
+      p.name
+        .toLowerCase()
+        .split(/\s+/)
+        .every((w) => name.includes(w))
+    ) ?? null
+  );
+}
+
 /**
  * Content-based classification for files whose name carries no type signal
  * (e.g. "Asset condition management_ product walkthrough and feedback.docx"
@@ -186,6 +204,20 @@ async function ingestOne(filePath: string, cfg: LocalFoldersConfig): Promise<str
     return `release note ingested: ${filename} (${ingest.chunkCount} chunks)`;
   }
 
+  // The Foundation Questionnaire extracts from context_docs, not the chunked
+  // knowledge base — mirror non-release-note docs there or the questionnaire
+  // reports "no sources" even though retrieval can see the file.
+  const ctxProduct = matchProductByFilename(filename, products ?? []);
+  await sb.from("context_docs").delete().eq("title", filename).eq("source", "folder_watch");
+  await sb.from("context_docs").insert({
+    title: filename,
+    source: "folder_watch",
+    doc_type: docType,
+    product_id: ctxProduct?.id ?? null,
+    content: text.slice(0, 200_000),
+    approved: false,
+  });
+
   return `${docType} ingested: ${filename} (${ingest.chunkCount} chunks, AI-enabled)`;
 }
 
@@ -248,6 +280,16 @@ export function wrapExportHtml(title: string, bodyHtml: string, footer: string):
   ].join("\n");
 }
 
+/** Raw-render export extension by format (blueprint §5): finals generated from a
+ *  template export their self-contained payload, not the wrapped digest. */
+const RENDER_EXPORT_EXT: Record<string, string> = {
+  html: ".html",
+  svg: ".svg",
+  deck: "-deck.html",
+  email: ".html",
+  markdown: ".md",
+};
+
 /** Export every final artifact to the Output folder as a standalone styled HTML file. */
 export async function exportFinals(): Promise<string[]> {
   const row = await getLocalFolders();
@@ -263,6 +305,28 @@ export async function exportFinals(): Promise<string[]> {
 
   const log: string[] = [];
   for (const a of finals ?? []) {
+    const slug = a.title
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 80);
+
+    // Template-generated finals: export the raw render payload with the right
+    // extension; everything else keeps the styled wrapExportHtml shell.
+    const { data: render } = await sb
+      .from("artifact_renders")
+      .select("format, payload")
+      .eq("artifact_id", a.id)
+      .eq("version", a.current_version)
+      .maybeSingle();
+    if (render) {
+      const ext = RENDER_EXPORT_EXT[render.format] ?? ".html";
+      const file = path.join(cfg.outputPath, `${slug || a.id}${ext}`);
+      fs.writeFileSync(file, render.payload, "utf-8");
+      log.push(`exported ${path.basename(file)} (${render.format} render, ${render.payload.length} chars)`);
+      continue;
+    }
+
     const { data: v } = await sb
       .from("artifact_versions")
       .select("content_html")
@@ -272,11 +336,6 @@ export async function exportFinals(): Promise<string[]> {
     if (!v) continue;
     const productName =
       (a as unknown as { products: { name: string } | null }).products?.name ?? "Aurigo";
-    const slug = a.title
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 80);
     const html = wrapExportHtml(
       a.title,
       v.content_html,

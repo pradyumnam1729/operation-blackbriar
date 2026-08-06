@@ -1,17 +1,21 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { apiGet, apiPost, getProducts, Product } from "../lib/api";
+import { Link, useNavigate } from "react-router-dom";
+import {
+  apiGet,
+  apiPost,
+  ApiError,
+  generateFromTemplate,
+  getProducts,
+  listTemplates,
+  Product,
+  RenderWarning,
+  TemplateSummary,
+} from "../lib/api";
 
-// Asset Studio: pick an asset type → pick a (mock Canva) template → pick a
-// prompt + product + title → generate a draft artifact and open it in the editor.
-
-interface Template {
-  id: string;
-  name: string;
-  asset_type: string;
-  product_line: string | null;
-  preview_color: string | null;
-}
+// Asset Studio: pick an asset type → pick a template → generate a draft
+// artifact and open it in the editor. Slot-driven templates (Template Library)
+// fill their slots from the product's approved messaging document — no prompt
+// needed; legacy mock templates keep the prompt-library path.
 
 interface PromptEntry {
   id: string;
@@ -24,6 +28,8 @@ interface GenerateResponse {
   artifactId: string;
   guard: { ok: boolean; violations: string[] };
   degraded?: boolean;
+  warnings?: RenderWarning[];
+  messagingDocVersion?: number;
 }
 
 const ASSET_TYPES: { key: string; label: string; desc: string }[] = [
@@ -37,8 +43,8 @@ export function Studio() {
   const navigate = useNavigate();
   const [step, setStep] = useState(1);
   const [assetType, setAssetType] = useState("");
-  const [templates, setTemplates] = useState<Template[]>([]);
-  const [template, setTemplate] = useState<Template | null>(null);
+  const [templates, setTemplates] = useState<TemplateSummary[]>([]);
+  const [template, setTemplate] = useState<TemplateSummary | null>(null);
   const [prompts, setPrompts] = useState<PromptEntry[]>([]);
   const [promptId, setPromptId] = useState("");
   const [products, setProducts] = useState<Product[]>([]);
@@ -47,7 +53,12 @@ export function Studio() {
   const [extraBrief, setExtraBrief] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [gate409, setGate409] = useState<string | null>(null);
   const [result, setResult] = useState<GenerateResponse | null>(null);
+
+  // Slot-driven = the template carries a layout body; text comes from the
+  // approved messaging document, so no prompt is needed but a product is.
+  const slotDriven = template?.generation_ready === true;
 
   useEffect(() => {
     getProducts().then(setProducts).catch(() => {});
@@ -59,12 +70,13 @@ export function Studio() {
     setPromptId("");
     setResult(null);
     setError("");
+    setGate409(null);
     try {
       const [t, p] = await Promise.all([
-        apiGet<{ templates: Template[] }>(`/api/studio/templates?asset_type=${encodeURIComponent(key)}`),
+        listTemplates({ asset_type: key }),
         apiGet<{ prompts: PromptEntry[] }>(`/api/studio/prompts?asset_type=${encodeURIComponent(key)}`),
       ]);
-      setTemplates(t.templates);
+      setTemplates(t);
       setPrompts(p.prompts);
       if (p.prompts.length === 1) setPromptId(p.prompts[0].id);
       setStep(2);
@@ -73,17 +85,36 @@ export function Studio() {
     }
   };
 
-  const pickTemplate = (t: Template) => {
+  const pickTemplate = (t: TemplateSummary) => {
     setTemplate(t);
+    setResult(null);
+    setGate409(null);
     setStep(3);
   };
 
   const generate = async () => {
-    if (!template || promptId === "" || title.trim() === "") return;
+    if (!template || title.trim() === "") return;
+    if (template.generation_ready ? productId === "" : promptId === "") return;
     setBusy(true);
     setError("");
+    setGate409(null);
     setResult(null);
     try {
+      if (template.generation_ready) {
+        // Slot-driven path: layout is locked, slots fill from the product's
+        // final messaging doc. 409 = no final doc yet (§3.1 gate).
+        const r = await generateFromTemplate(template.id, {
+          product_id: productId,
+          title: title.trim(),
+          extra_brief: extraBrief.trim() === "" ? undefined : extraBrief.trim(),
+        });
+        if (r.guard.ok && r.warnings.length === 0) {
+          navigate(`/library/${r.artifactId}`);
+          return;
+        }
+        setResult(r); // warnings or guard violations — surface before opening the editor
+        return;
+      }
       const r = await apiPost<GenerateResponse>("/api/studio/generate", {
         template_id: template.id,
         prompt_id: promptId,
@@ -97,7 +128,8 @@ export function Studio() {
       }
       setResult(r); // degraded or guard violations — surface before opening the editor
     } catch (e) {
-      setError((e as Error).message);
+      if (e instanceof ApiError && e.status === 409) setGate409(e.message);
+      else setError((e as Error).message);
     } finally {
       setBusy(false);
     }
@@ -169,22 +201,33 @@ export function Studio() {
                       <i className="fa-solid fa-file-lines" />
                     </div>
                     <div className="tname">
-                      {t.name}
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                        {t.name}
+                        {t.generation_ready && <span className="pill pill-final">Slot-driven</span>}
+                      </div>
                       <div style={{ fontWeight: 400, fontSize: 11.5, color: "var(--text-muted)", marginTop: 2 }}>
                         {t.product_line ?? "All lines"}
+                        {t.format ? ` · ${t.format}` : ""}
                       </div>
                     </div>
                   </div>
                 ))}
               </div>
               <div className="empty-note" style={{ paddingBottom: 0 }}>
-                Canva template (mock preview — Canva Connect pending). Generation targets the in-app editor; the
-                Canva push activates once OAuth is granted.
+                Slot-driven templates carry a locked layout and fill from the product&rsquo;s approved
+                messaging document. Others are mock previews served by the prompt path — browse and
+                preview all of them in the Template library.
               </div>
             </div>
 
             <div className="card">
               <h3 style={{ margin: "0 0 12px", fontSize: 14, fontWeight: 500 }}>Prompt library</h3>
+              {slotDriven && (
+                <div className="empty-note" style={{ paddingTop: 0 }}>
+                  Not needed for a slot-driven template — the text comes from the approved messaging
+                  document, not a prompt.
+                </div>
+              )}
               {prompts.length === 0 && <div className="empty-note">No prompts for this asset type yet.</div>}
               {prompts.map((p) => (
                 <div
@@ -226,13 +269,29 @@ export function Studio() {
 
             <label>Product</label>
             <select value={productId} onChange={(e) => setProductId(e.target.value)}>
-              <option value="">— whole portfolio —</option>
+              <option
+                value=""
+                disabled={slotDriven}
+                title={
+                  slotDriven
+                    ? "Slot-driven generation runs from one product's approved messaging document"
+                    : undefined
+                }
+              >
+                — whole portfolio —
+              </option>
               {products.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name}
                 </option>
               ))}
             </select>
+            {slotDriven && productId === "" && (
+              <p style={{ margin: "4px 0 0", fontSize: 11.5, color: "var(--text-secondary)" }}>
+                Slot-driven generation runs from one product&rsquo;s approved messaging document —
+                pick a product.
+              </p>
+            )}
 
             <label>Title</label>
             <input
@@ -252,26 +311,71 @@ export function Studio() {
               className="btn"
               style={{ marginTop: 14, width: "100%", justifyContent: "center" }}
               onClick={generate}
-              disabled={busy || !template || promptId === "" || title.trim() === ""}
+              disabled={
+                busy ||
+                !template ||
+                title.trim() === "" ||
+                (slotDriven ? productId === "" : promptId === "")
+              }
               title={
                 busy
                   ? "Generating…"
                   : !template
                     ? "Select a template first"
-                    : promptId === ""
-                      ? "Select a prompt first"
-                      : title.trim() === ""
-                        ? "Give the draft a title first"
-                        : "Generate the draft"
+                    : slotDriven && productId === ""
+                      ? "Pick the product whose approved messaging feeds the slots"
+                      : !slotDriven && promptId === ""
+                        ? "Select a prompt first"
+                        : title.trim() === ""
+                          ? "Give the draft a title first"
+                          : "Generate the draft"
               }
             >
               <i className="fa-solid fa-wand-magic-sparkles" />
               {busy ? "Generating…" : "Generate draft"}
             </button>
 
+            {gate409 && (
+              <div
+                style={{
+                  marginTop: 14,
+                  padding: "12px 16px",
+                  background: "#FCE8E8",
+                  borderRadius: "var(--r-md)",
+                  color: "#A32D2D",
+                  fontSize: 13,
+                  fontWeight: 500,
+                }}
+              >
+                {gate409}
+                <div style={{ marginTop: 8 }}>
+                  <Link to="/questionnaire" style={{ fontWeight: 500, textDecoration: "underline" }}>
+                    Open the Foundation Questionnaire
+                  </Link>
+                </div>
+              </div>
+            )}
+
             {result && (
               <div style={{ marginTop: 16, borderTop: "1px solid var(--border)", paddingTop: 14 }}>
                 <div style={{ fontSize: 12.5, fontWeight: 500, marginBottom: 4 }}>Automated content check</div>
+                {result.warnings !== undefined && result.warnings.length > 0 && (
+                  <>
+                    <div className="check-row">
+                      <i className="fa-solid fa-triangle-exclamation" style={{ color: "var(--red)" }} />
+                      {result.warnings.length} slot{result.warnings.length === 1 ? "" : "s"} need
+                      {result.warnings.length === 1 ? "s" : ""} PMM input — the render carries visible
+                      placeholders until the text is supplied in the editor.
+                    </div>
+                    <ul style={{ margin: "4px 0 8px", paddingLeft: 22, fontSize: 12.5, color: "var(--text-secondary)" }}>
+                      {result.warnings.map((w, i) => (
+                        <li key={i}>
+                          <b>{w.slot_id}</b>: {w.detail}
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                )}
                 {result.degraded && (
                   <div className="check-row">
                     <i className="fa-solid fa-circle-xmark fail" /> AI generation unavailable — a starter scaffold

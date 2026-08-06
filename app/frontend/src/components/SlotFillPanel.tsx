@@ -149,7 +149,7 @@ export function SlotFillPanel({ artifactId, slots, fills, warnings, onSaved }: P
             </div>
             {serverOver && (
               <div style={{ fontSize: 12, color: "#A32D2D", fontWeight: 500, marginTop: 2 }}>
-                Rejected: {serverOver.chars} characters against a hard limit of {serverOver.max}.
+                Rejected: {serverOver.chars} {slot.render === "lines" && serverOver.max === slot.max_lines ? "lines" : "characters"} against a hard limit of {serverOver.max}.
               </div>
             )}
           </div>
