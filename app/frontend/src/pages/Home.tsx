@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { apiGet, askWarRoom } from "../lib/api";
+import { apiGet, apiPost, askWarRoom } from "../lib/api";
 import { useAuth } from "../auth/AuthContext";
+
+// Home dashboard (hive 2): persona-specific quick-generation cards. Every
+// card opens the generator — pick product + industry (+ content type for
+// marketing) — and produces a ready-to-review asset from the knowledge base.
 
 type Persona = "sales" | "marketing" | "elt";
 
@@ -19,7 +22,7 @@ const HOME_SUBS: Record<Persona, string> = {
 
 const PLACEHOLDERS: Record<Persona, string> = {
   sales: "Ask for a talk track, a battlecard, or a business case...",
-  marketing: "Ask for a datasheet, an FAQ, or messaging guidance...",
+  marketing: "Ask for a video script, a datasheet, or messaging guidance...",
   elt: "Ask for a KPI snapshot, a roadmap pulse, or a governance check...",
 };
 
@@ -30,7 +33,7 @@ const SUGGESTIONS: Record<Persona, string[]> = {
     "Find proof points for an airport client",
   ],
   marketing: [
-    "Draft an FAQ for Masterworks Plan capital planners",
+    "Draft a FAQ for Masterworks local agency buyers",
     "What are our approved differentiators for Primus?",
     "Check what our brand voice rules say about AI claims",
   ],
@@ -41,35 +44,61 @@ const SUGGESTIONS: Record<Persona, string[]> = {
   ],
 };
 
-interface QuickAction {
+interface GenCard {
   icon: string;
   title: string;
   desc: string;
-  to: string;
 }
 
-const QUICK: Record<Persona, QuickAction[]> = {
+// hive 2 persona card sets — every card generates, none navigate.
+const GEN_CARDS: Record<Persona, GenCard[]> = {
   sales: [
-    { icon: "fa-shield-halved", title: "Competitor battlecard", desc: "Strengths, weaknesses, landmines, talk track by competitor.", to: "/library" },
-    { icon: "fa-magnifying-glass", title: "Find an asset", desc: "Search finished, approved collateral by product and persona.", to: "/library" },
-    { icon: "fa-upload", title: "Request an asset", desc: "Need something that doesn't exist yet? File a request with context.", to: "/requests" },
-    { icon: "fa-layer-group", title: "Feature catalog", desc: "What shipped recently, per product, straight from release notes.", to: "/features" },
-    { icon: "fa-calculator", title: "Business case builder", desc: "Generate an executive one-pager from a template.", to: "/studio" },
+    { icon: "fa-bolt", title: "Elevator pitch", desc: "Tell it who you're calling — get a 30-second opener and discovery questions." },
+    { icon: "fa-shield-halved", title: "Competitive intel", desc: "Strengths, weaknesses, landmines, and talk track by competitor." },
+    { icon: "fa-lightbulb", title: "Value proposition", desc: "The value prop and proof points that win, by persona." },
+    { icon: "fa-magnifying-glass", title: "Enablement assets", desc: "Which proof points and case studies fit, by industry." },
+    { icon: "fa-star", title: "Customer proof points", desc: "Real quotes and metrics, matched to the prospect's industry." },
+    { icon: "fa-thumbs-up", title: "LinkedIn content kit", desc: "Ready-made posts and a posting guide." },
   ],
   marketing: [
-    { icon: "fa-wand-magic-sparkles", title: "Asset creation studio", desc: "Datasheets, decks, FAQs on approved brand templates.", to: "/studio" },
-    { icon: "fa-layer-group", title: "Feature catalog", desc: "Every recent feature by product, straight from release notes.", to: "/features" },
-    { icon: "fa-box-archive", title: "Content repository", desc: "Browse finished assets by product, type, and persona.", to: "/library" },
-    { icon: "fa-upload", title: "Submit source material", desc: "Attach transcripts, briefs, and decks to a request.", to: "/requests" },
-    { icon: "fa-comments", title: "Collaborate", desc: "Comment, @mention, and resolve threads on any asset.", to: "/library" },
-    { icon: "fa-bell", title: "Notifications", desc: "Mentions and updates across your requests and assets.", to: "/notifications" },
+    { icon: "fa-wand-magic-sparkles", title: "Content creation studio", desc: "Pick a product, then create case studies, social posts, video scripts, or ad campaign copy." },
+    { icon: "fa-bullhorn", title: "Campaign brief generator", desc: "Pick a theme and funnel stage for a full brief: lead message, target persona, channel mix, and CTA." },
+    { icon: "fa-magnifying-glass-chart", title: "SEO/AEO content brief builder", desc: "Pick a topic or keyword cluster for a content brief built to your AEO standard, not just SEO." },
+    { icon: "fa-rocket", title: "Launch asset kit", desc: "When a feature ships, generate the full bundle: website copy, a social post, a PR angle, and an email." },
   ],
   elt: [
-    { icon: "fa-layer-group", title: "Roadmap pulse", desc: "What shipped this quarter, by product.", to: "/features" },
-    { icon: "fa-box-archive", title: "Asset governance", desc: "Draft / in review / final mix across the repository.", to: "/library" },
-    { icon: "fa-upload", title: "Requests pipeline", desc: "What GTM teams are asking for right now.", to: "/requests" },
+    { icon: "fa-microphone-lines", title: "Keynote talk-track builder", desc: "8–10 talking points built from recent shipped features and a proof point." },
+    { icon: "fa-feather-pointed", title: "Thought-leadership draft generator", desc: "A byline/LinkedIn outline in your voice, drawn from customer evidence." },
+    { icon: "fa-chart-pie", title: "Quarterly exec summary", desc: "One-page rollup of position, launches, and outcomes — in board language." },
+    { icon: "fa-newspaper", title: "Analyst/press briefing brief", desc: "Feature list, competitive positioning, and cleared proof points, ready before a call." },
+    { icon: "fa-shield-halved", title: "Competitive intel", desc: "Strengths, weaknesses, landmines, and talk track by competitor." },
   ],
 };
+
+const GEN_PRODUCTS = ["Masterworks", "Masterworks AI", "Primus"];
+const GEN_INDUSTRIES = [
+  "Data centers",
+  "Energy and utilities",
+  "Federal",
+  "Life sciences",
+  "Local government",
+  "Manufacturing",
+  "State and large government",
+];
+const GEN_CONTENT_TYPES = [
+  "Video script",
+  "Email campaign",
+  "Social media",
+  "LinkedIn AD",
+  "Webpage copy",
+  "Event banner",
+];
+
+interface GenResult {
+  tag: string;
+  html: string;
+  evidence: { title: string; docType: string }[];
+}
 
 interface Bubble {
   role: "user" | "bot";
@@ -79,7 +108,6 @@ interface Bubble {
 
 export function Home() {
   const { me } = useAuth();
-  const navigate = useNavigate();
   const defaultPersona: Persona =
     me?.role === "marketing" ? "marketing" : me?.role === "elt" ? "elt" : "sales";
   const [persona, setPersona] = useState<Persona>(defaultPersona);
@@ -91,10 +119,29 @@ export function Home() {
   // with the built-in list as fallback.
   const [liveSuggestions, setLiveSuggestions] = useState<Record<string, string[]>>({});
 
+  // ---- generator modal state ----
+  const [genCard, setGenCard] = useState<GenCard | null>(null);
+  const [genPhase, setGenPhase] = useState<"select" | "loading" | "result">("select");
+  const [genProduct, setGenProduct] = useState("");
+  const [genIndustry, setGenIndustry] = useState("");
+  const [genType, setGenType] = useState("");
+  const [genResult, setGenResult] = useState<GenResult | null>(null);
+  const [genError, setGenError] = useState("");
+  const [loadMsg, setLoadMsg] = useState("");
+  const [copied, setCopied] = useState(false);
+  const loadTimer = useRef<number | null>(null);
+  const resultRef = useRef<HTMLDivElement | null>(null);
+
+  const needsContentType = persona === "marketing" && genCard?.title === "Content creation studio";
+  const genReady = genProduct !== "" && genIndustry !== "" && (!needsContentType || genType !== "");
+
   useEffect(() => {
     apiGet<{ suggestions: Record<string, string[]> }>("/api/guardrails/prompts")
       .then((r) => setLiveSuggestions(r.suggestions))
       .catch(() => {});
+    return () => {
+      if (loadTimer.current !== null) window.clearInterval(loadTimer.current);
+    };
   }, []);
 
   const suggestionsFor = (p: Persona): string[] => {
@@ -109,6 +156,72 @@ export function Home() {
     const first = (me?.fullName ?? me?.email ?? "").split(/[\s(@]/)[0];
     return `Good ${part}, ${first || "there"}`;
   }, [me]);
+
+  // ---- generator flow ----
+
+  const openGenerator = (card: GenCard) => {
+    setGenCard(card);
+    setGenPhase("select");
+    setGenProduct("");
+    setGenIndustry("");
+    setGenType("");
+    setGenResult(null);
+    setGenError("");
+    setCopied(false);
+  };
+
+  const closeGenerator = () => {
+    if (loadTimer.current !== null) window.clearInterval(loadTimer.current);
+    setGenCard(null);
+  };
+
+  const runGeneration = async () => {
+    if (!genCard || !genReady) return;
+    setGenPhase("loading");
+    setGenError("");
+    const stages = [
+      `Pulling ${genProduct} context and ${genIndustry} proof points…`,
+      genType !== ""
+        ? `Shaping this as a ${genType.toLowerCase()}…`
+        : "Matching knowledge-base evidence to this request…",
+      "Writing the draft in Aurigo voice…",
+    ];
+    let i = 0;
+    setLoadMsg(stages[0]);
+    if (loadTimer.current !== null) window.clearInterval(loadTimer.current);
+    loadTimer.current = window.setInterval(() => {
+      i = Math.min(i + 1, stages.length - 1);
+      setLoadMsg(stages[i]);
+    }, 3500);
+    try {
+      const r = await apiPost<GenResult>("/api/quick-generate", {
+        action: genCard.title,
+        product: genProduct,
+        industry: genIndustry,
+        contentType: needsContentType ? genType : undefined,
+      });
+      setGenResult(r);
+      setGenPhase("result");
+    } catch (e) {
+      setGenError((e as Error).message);
+      setGenPhase("select");
+    } finally {
+      if (loadTimer.current !== null) window.clearInterval(loadTimer.current);
+    }
+  };
+
+  const copyResult = async () => {
+    if (!resultRef.current) return;
+    try {
+      await navigator.clipboard.writeText(resultRef.current.innerText);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1800);
+    } catch {
+      /* clipboard unavailable */
+    }
+  };
+
+  // ---- chat ----
 
   const send = async (text?: string) => {
     const q = (text ?? input).trim();
@@ -138,6 +251,35 @@ export function Home() {
     .join("")
     .toUpperCase();
 
+  const pillRow = (label: string, values: string[], picked: string, onPick: (v: string) => void) => (
+    <div style={{ marginBottom: 16 }}>
+      <div
+        style={{
+          fontSize: 11.5,
+          textTransform: "uppercase",
+          letterSpacing: ".05em",
+          color: "var(--teal-dark)",
+          fontWeight: 600,
+          marginBottom: 8,
+        }}
+      >
+        {label}
+      </div>
+      <div className="step-pills">
+        {values.map((v) => (
+          <button
+            key={v}
+            type="button"
+            className={`step-pill ${picked === v ? "active" : ""}`}
+            onClick={() => onPick(v)}
+          >
+            {v}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+
   return (
     <div>
       <h1 className="pagetitle">{greeting}</h1>
@@ -159,8 +301,27 @@ export function Home() {
       </div>
 
       <div className="chat-hero">
-        <div className="chat-heading">
+        <div className="chat-heading" style={{ display: "flex", alignItems: "center" }}>
           <i className="fa-solid fa-wand-magic-sparkles" /> Ask Hive
+          {thread.length > 0 && (
+            <button
+              type="button"
+              title="Reset chat"
+              onClick={() => setThread([])}
+              style={{
+                marginLeft: "auto",
+                width: 30,
+                height: 30,
+                borderRadius: "50%",
+                border: "1px solid var(--border-strong, #CBD5E1)",
+                background: "#fff",
+                color: "var(--text-secondary)",
+                cursor: "pointer",
+              }}
+            >
+              <i className="fa-solid fa-arrow-rotate-left" style={{ fontSize: 12 }} />
+            </button>
+          )}
         </div>
         <div className="chat-thread" ref={threadRef}>
           {thread.map((b, i) => (
@@ -218,21 +379,176 @@ export function Home() {
         </div>
       </div>
 
-      <h3 className="section-label">Quick actions</h3>
+      <h3 className="section-label">Quick generation</h3>
       <div className="grid grid-3">
-        {QUICK[persona].map((q) => (
-          <div key={q.title} className="quick-card" onClick={() => navigate(q.to)}>
+        {GEN_CARDS[persona].map((q) => (
+          <div key={q.title} className="quick-card" onClick={() => openGenerator(q)}>
             <div className="qicon">
               <i className={`fa-solid ${q.icon}`} />
             </div>
             <h3>{q.title}</h3>
             <p>{q.desc}</p>
             <span className="go">
-              Open <i className="fa-solid fa-arrow-right" style={{ fontSize: 10 }} />
+              Generate <i className="fa-solid fa-arrow-right" style={{ fontSize: 10 }} />
             </span>
           </div>
         ))}
       </div>
+
+      {/* ---------- generator modal ---------- */}
+      {genCard && (
+        <div
+          onClick={(e) => {
+            if (e.target === e.currentTarget && genPhase !== "loading") closeGenerator();
+          }}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(4, 32, 39, 0.55)",
+            zIndex: 200,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 20,
+          }}
+        >
+          <div
+            style={{
+              background: "#fff",
+              borderRadius: "var(--r-lg)",
+              boxShadow: "0 24px 60px rgba(0,0,0,.35)",
+              width: genPhase === "result" ? "min(94vw, 760px)" : "min(92vw, 520px)",
+              maxHeight: "88vh",
+              overflowY: "auto",
+              padding: "26px 26px 22px",
+            }}
+          >
+            {/* head */}
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 4 }}>
+              <div
+                style={{
+                  width: 38,
+                  height: 38,
+                  borderRadius: "var(--r-sm)",
+                  background: "#E1F0F2",
+                  color: "var(--teal-dark)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexShrink: 0,
+                }}
+              >
+                <i className={`fa-solid ${genCard.icon}`} />
+              </div>
+              <h3 style={{ fontSize: 16, margin: 0, flex: 1 }}>{genCard.title}</h3>
+              {genResult && genPhase === "result" && (
+                <span className="pill pill-draft">{genResult.tag}</span>
+              )}
+              <button
+                type="button"
+                onClick={closeGenerator}
+                disabled={genPhase === "loading"}
+                style={{
+                  border: "none",
+                  background: "var(--bg-page)",
+                  width: 28,
+                  height: 28,
+                  borderRadius: "50%",
+                  color: "var(--text-secondary)",
+                  cursor: "pointer",
+                  flexShrink: 0,
+                }}
+              >
+                <i className="fa-solid fa-xmark" />
+              </button>
+            </div>
+
+            {genPhase === "select" && (
+              <>
+                <p style={{ color: "var(--text-secondary)", fontSize: 13, margin: "4px 0 20px", lineHeight: 1.5 }}>
+                  Tell us who this is for, and we'll generate it against the right product and
+                  industry context.
+                </p>
+                {genError && (
+                  <div style={{ background: "#FCE8E8", color: "#A32D2D", borderRadius: "var(--r-md)", padding: "10px 14px", fontSize: 13, marginBottom: 14 }}>
+                    {genError}
+                  </div>
+                )}
+                {pillRow("Product", GEN_PRODUCTS, genProduct, setGenProduct)}
+                {pillRow("Industry", GEN_INDUSTRIES, genIndustry, setGenIndustry)}
+                {needsContentType &&
+                  pillRow("Content type", GEN_CONTENT_TYPES, genType, setGenType)}
+                <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 6 }}>
+                  <button
+                    className="btn btn-primary"
+                    onClick={() => void runGeneration()}
+                    disabled={!genReady}
+                    style={!genReady ? { opacity: 0.4, cursor: "not-allowed" } : undefined}
+                    title={genReady ? "Generate" : "Pick the options above first"}
+                  >
+                    <i className="fa-solid fa-wand-magic-sparkles" /> Generate
+                  </button>
+                </div>
+              </>
+            )}
+
+            {genPhase === "loading" && (
+              <div style={{ textAlign: "center", padding: "36px 10px 30px" }}>
+                <i
+                  className="fa-solid fa-spinner fa-spin"
+                  style={{ fontSize: 26, color: "var(--teal-dark)", marginBottom: 16, display: "block" }}
+                />
+                <div style={{ fontSize: 13.5, color: "var(--text-secondary)" }}>{loadMsg}</div>
+              </div>
+            )}
+
+            {genPhase === "result" && genResult && (
+              <>
+                <div
+                  style={{
+                    fontSize: 12.5,
+                    color: "var(--teal-dark)",
+                    fontWeight: 500,
+                    background: "#E1F0F2",
+                    borderRadius: "var(--r-sm)",
+                    padding: "8px 12px",
+                    margin: "10px 0 14px",
+                  }}
+                >
+                  <i className="fa-solid fa-crosshairs" style={{ marginRight: 6 }} />
+                  Generated for <b>{genProduct}</b> · <b>{genIndustry}</b>
+                  {genType !== "" && (
+                    <>
+                      {" "}
+                      · <b>{genType}</b>
+                    </>
+                  )}
+                </div>
+                <div
+                  ref={resultRef}
+                  className="prose"
+                  style={{ border: "none", boxShadow: "none", padding: 0 }}
+                  dangerouslySetInnerHTML={{ __html: genResult.html }}
+                />
+                {genResult.evidence.length > 0 && (
+                  <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 12 }}>
+                    Grounded in: {genResult.evidence.map((e) => e.title).join(", ")}
+                  </div>
+                )}
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
+                  <button className="btn" onClick={() => setGenPhase("select")}>
+                    <i className="fa-solid fa-arrow-left" /> Go to the previous menu
+                  </button>
+                  <button className="btn btn-primary" onClick={() => void copyResult()}>
+                    <i className={`fa-solid ${copied ? "fa-check" : "fa-copy"}`} />{" "}
+                    {copied ? "Copied" : "Copy"}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

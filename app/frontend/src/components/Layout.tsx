@@ -16,8 +16,8 @@ const MAIN_NAV: NavItem[] = [
   { to: "/competitive", label: "Competitive intel", icon: "fa-chess" },
   { to: "/requests", label: "Requests & intake", icon: "fa-upload" },
   { to: "/studio", label: "Asset studio", icon: "fa-wand-magic-sparkles" },
-  { to: "/templates", label: "Template library", icon: "fa-object-group" },
-  { to: "/library", label: "PMM workspace", icon: "fa-box-archive" },
+  { to: "/templates", label: "Template library", icon: "fa-object-group", adminOnly: true },
+  { to: "/library", label: "PMM workspace", icon: "fa-box-archive", adminOnly: true },
 ];
 
 const ADMIN_NAV: NavItem[] = [
@@ -132,7 +132,9 @@ export function Layout() {
           </div>
         </div>
 
-        <div className="navgroup">{MAIN_NAV.map(renderItem)}</div>
+        <div className="navgroup">
+          {MAIN_NAV.filter((n) => !n.adminOnly || me?.role === "admin").map(renderItem)}
+        </div>
 
         {me?.role === "admin" && (
           <div className="navgroup">
@@ -155,15 +157,19 @@ export function Layout() {
           <span style={{ fontSize: 13, color: "var(--text-secondary)", fontWeight: 500 }}>
             Hive
           </span>
-          <form className="search" onSubmit={submitSearch} role="search">
-            <i className="fa-solid fa-magnifying-glass" style={{ fontSize: 13 }} />
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search the repository…"
-              aria-label="Search the repository"
-            />
-          </form>
+          {me?.role === "admin" ? (
+            <form className="search" onSubmit={submitSearch} role="search">
+              <i className="fa-solid fa-magnifying-glass" style={{ fontSize: 13 }} />
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search the repository…"
+                aria-label="Search the repository"
+              />
+            </form>
+          ) : (
+            <span />
+          )}
           <div className="top-actions">
             <button
               className="icon-btn"

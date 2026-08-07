@@ -25,25 +25,31 @@ function Root() {
   const { loading, me } = useAuth();
   if (loading) return <div style={{ padding: 40 }}>Loading…</div>;
   if (!me) return <Login />;
+  // Admin-only surfaces (Template library, PMM Workspace, Agents, Connectors,
+  // Guardrails, Uploads): other roles are bounced to Home.
+  const adminOnly = (el: React.ReactElement) =>
+    me.role === "admin" ? el : <Navigate to="/" replace />;
   return (
     <Routes>
       <Route element={<Layout />}>
         <Route path="/" element={<Home />} />
         <Route path="/ask" element={<Navigate to="/" replace />} />
         <Route path="/requests" element={<Requests />} />
-        <Route path="/library" element={<ArtifactLibrary />} />
+        {/* The workspace page is admin-only; the editor stays open so Studio
+            and battlecard saves can land non-admin drafts. */}
+        <Route path="/library" element={adminOnly(<ArtifactLibrary />)} />
         <Route path="/library/:id" element={<ArtifactEditor />} />
         <Route path="/features" element={<FeatureCatalog />} />
         <Route path="/competitive" element={<CompetitiveIntel />} />
         <Route path="/pmm" element={<Navigate to="/library?tab=questionnaire" replace />} />
-        <Route path="/pmm/:id" element={<PMMDocDetail />} />
-        <Route path="/pmm/:id/edit" element={<PMMWizard />} />
-        <Route path="/guardrails" element={<Guardrails />} />
+        <Route path="/pmm/:id" element={adminOnly(<PMMDocDetail />)} />
+        <Route path="/pmm/:id/edit" element={adminOnly(<PMMWizard />)} />
+        <Route path="/guardrails" element={adminOnly(<Guardrails />)} />
         <Route path="/studio" element={<Studio />} />
-        <Route path="/templates" element={<Templates />} />
-        <Route path="/uploads" element={<UploadsConsole />} />
-        <Route path="/integrations" element={<IntegrationsPage />} />
-        <Route path="/agents" element={<Agents />} />
+        <Route path="/templates" element={adminOnly(<Templates />)} />
+        <Route path="/uploads" element={adminOnly(<UploadsConsole />)} />
+        <Route path="/integrations" element={adminOnly(<IntegrationsPage />)} />
+        <Route path="/agents" element={adminOnly(<Agents />)} />
         <Route path="/questionnaire" element={<Navigate to="/library?tab=questionnaire" replace />} />
         <Route path="/notifications" element={<Notifications />} />
         <Route path="*" element={<Navigate to="/" replace />} />
