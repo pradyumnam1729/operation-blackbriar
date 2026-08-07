@@ -360,9 +360,11 @@ featuresRouter.post("/build-from-documents", requireAdmin, async (req, res) => {
     .single();
   if (!product) return res.status(404).json({ error: "Product not found" });
 
-  // Candidate sources: AI-enabled knowledge-base documents tagged to this
-  // product, plus untagged ones (uploads often carry no product); the prompt
-  // is told to keep only content that is clearly about this product.
+  // Candidate sources: AI-enabled knowledge-base documents. If the product
+  // has its OWN tagged documents, use only those — mixing in untagged
+  // documents dilutes the corpus and mis-attributes other products' features
+  // (seen with Masterworks AI picking up Maintain features). Untagged
+  // documents are only a fallback for products with nothing tagged yet.
   const { data: docs, error: docsError } = await sb
     .from("documents")
     .select("id, title, doc_type, product_id")
@@ -376,10 +378,8 @@ featuresRouter.post("/build-from-documents", requireAdmin, async (req, res) => {
     });
   }
 
-  // Product-tagged documents first so they survive the size cap.
-  const ordered = [...docs].sort(
-    (a, b) => Number(b.product_id === product_id) - Number(a.product_id === product_id)
-  );
+  const tagged = docs.filter((d) => d.product_id === product_id);
+  const ordered = tagged.length > 0 ? tagged : docs;
 
   const { data: chunks, error: chunksError } = await sb
     .from("document_chunks")
@@ -429,7 +429,7 @@ featuresRouter.post("/build-from-documents", requireAdmin, async (req, res) => {
       '{"name": string, "description": string, "category": string, "release_date": "YYYY-MM-DD" or null, "change_type": "added", "confidence": number between 0 and 1}',
       "Rules:",
       "- One object per distinct, concrete product capability. Aim for the 10-25 most important; no duplicates, no vague themes.",
-      "- Only include capabilities actually described in the documents — never invent. confidence reflects how explicitly the sources support the entry.",
+      "- Only include capabilities actually described in the documents — never invent. confidence reflects how explicitly the sources support the entry: a capability named and described in a PRD for this product warrants 0.8+; something only alluded to in a conversation warrants less.",
       "- description is one buyer-readable sentence. category is a short area label (e.g. Inspections, Work Orders).",
       "- release_date is null unless a document states a real date for that capability.",
       "",
