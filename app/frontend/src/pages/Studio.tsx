@@ -77,6 +77,28 @@ export function Studio() {
   const [view, setView] = useState<"create" | "finalized">(admin ? "create" : "finalized");
   const [finals, setFinals] = useState<FinalAsset[]>([]);
   const [finalsLoading, setFinalsLoading] = useState(false);
+  const [finalsError, setFinalsError] = useState("");
+
+  // View renders the finalized content in a new tab — the repository editor is
+  // reached only through the explicit Edit action.
+  const viewFinal = async (a: FinalAsset) => {
+    setFinalsError("");
+    try {
+      const r = await apiGet<{ contentHtml: string }>(`/api/artifacts/${a.id}`);
+      const html = [
+        '<!doctype html><html><head><meta charset="utf-8">',
+        `<title>${a.title}</title>`,
+        "<style>body{font-family:Roboto,Arial,sans-serif;color:#20282B;max-width:760px;margin:40px auto;padding:0 24px;line-height:1.65}h1{color:#053445}h2{color:#015F74}a{color:#015F74}table{border-collapse:collapse;width:100%}th,td{border:1px solid #E1E6E9;padding:8px 10px;text-align:left}th{background:#F5F7F8}</style>",
+        "</head><body>",
+        `<h1>${a.title}</h1>`,
+        r.contentHtml === "" ? "<p>(no rendered content)</p>" : r.contentHtml,
+        "</body></html>",
+      ].join("");
+      window.open(URL.createObjectURL(new Blob([html], { type: "text/html" })), "_blank");
+    } catch (e) {
+      setFinalsError((e as Error).message);
+    }
+  };
 
   useEffect(() => {
     if (view !== "finalized") return;
@@ -232,6 +254,11 @@ export function Studio() {
       {!showCreate ? (
         <>
           <div className="section-label">System finals</div>
+          {finalsError && (
+            <div style={{ marginBottom: 12, padding: "10px 14px", background: "#FCE8E8", borderRadius: "var(--r-md)", color: "#A32D2D", fontSize: 13 }}>
+              {finalsError}
+            </div>
+          )}
           {finalsLoading ? (
             <div className="empty-note">Loading finalized assets…</div>
           ) : finals.length === 0 ? (
@@ -240,52 +267,56 @@ export function Studio() {
               PMM workspace.
             </div>
           ) : (
-            <div className="grid grid-3">
-              {finals.map((a) => (
-                <div
-                  key={a.id}
-                  className="asset-card"
-                  onClick={() => navigate(`/library/${a.id}`)}
-                  style={{
-                    cursor: "pointer",
-                    border: "1px solid var(--border)",
-                    borderRadius: "var(--r-lg)",
-                    padding: 16,
-                    background: "#fff",
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: 8,
-                    boxShadow: "var(--shadow-1)",
-                  }}
-                >
-                  <div
-                    style={{
-                      height: 70,
-                      borderRadius: "var(--r-sm)",
-                      background: "var(--bg-page)",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      color: "var(--text-muted)",
-                      fontSize: 20,
-                    }}
-                  >
-                    <i className={`fa-solid ${FINAL_TYPE_ICON[a.asset_type] ?? "fa-file"}`} />
-                  </div>
-                  <div className="row-between">
-                    <h4 style={{ margin: 0, fontSize: 13.5, fontWeight: 500 }}>{a.title}</h4>
-                    <span className="pill pill-final">Final</span>
-                  </div>
-                  <div style={{ fontSize: 11.5, color: "var(--text-muted)" }}>
-                    {a.asset_type}
-                    {a.product_name ? ` · ${a.product_name}` : ""}
-                    {a.persona ? ` · ${a.persona}` : ""}
-                  </div>
-                  <div style={{ fontSize: 11.5, color: "var(--text-muted)" }}>
-                    v{a.current_version} · updated {new Date(a.updated_at).toLocaleDateString()}
-                  </div>
-                </div>
-              ))}
+            <div style={{ overflowX: "auto" }}>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Asset</th>
+                    <th>Type</th>
+                    <th>Product</th>
+                    <th>Persona</th>
+                    <th>Version</th>
+                    <th>Updated</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {finals.map((a) => (
+                    <tr key={a.id}>
+                      <td style={{ fontWeight: 500 }}>
+                        <i
+                          className={`fa-solid ${FINAL_TYPE_ICON[a.asset_type] ?? "fa-file"}`}
+                          style={{ color: "var(--teal-dark)", marginRight: 8 }}
+                        />
+                        {a.title}
+                      </td>
+                      <td>{a.asset_type}</td>
+                      <td>{a.product_name ?? "—"}</td>
+                      <td>{a.persona ?? "—"}</td>
+                      <td>v{a.current_version}</td>
+                      <td>{new Date(a.updated_at).toLocaleDateString()}</td>
+                      <td style={{ whiteSpace: "nowrap" }}>
+                        <button
+                          className="btn btn-sm"
+                          onClick={() => void viewFinal(a)}
+                          title="View the finalized content in a new tab"
+                        >
+                          <i className="fa-solid fa-eye" /> View
+                        </button>{" "}
+                        {admin && (
+                          <button
+                            className="btn btn-sm"
+                            onClick={() => navigate(`/library/${a.id}`)}
+                            title="Edit in the PMM workspace repository"
+                          >
+                            <i className="fa-solid fa-pen" /> Edit
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
           <ReferenceLibrary />

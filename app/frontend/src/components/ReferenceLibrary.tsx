@@ -117,69 +117,61 @@ export function ReferenceLibrary() {
         <div className="empty-note">The reference output folder is empty or missing.</div>
       )}
 
-      {groups.map(([label, files]) => (
-        <div key={label} style={{ marginBottom: 18 }}>
-          <h3 style={{ margin: "0 0 8px", fontSize: 13.5, fontWeight: 500, color: "var(--teal-dark)" }}>
-            <i className="fa-solid fa-folder-open" style={{ marginRight: 6 }} />
-            {label}
-            <span style={{ color: "var(--text-muted)", fontWeight: 400 }}> · {files.length}</span>
-          </h3>
-          <div className="grid grid-3">
-            {files.map((a) => (
-              <div
-                key={a.path}
-                style={{
-                  border: "1px solid var(--border)",
-                  borderRadius: "var(--r-lg)",
-                  padding: 14,
-                  background: "#fff",
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 8,
-                  boxShadow: "var(--shadow-1)",
-                }}
-              >
-                <div className="row-between" style={{ alignItems: "flex-start", gap: 8 }}>
-                  <div style={{ display: "flex", gap: 8, minWidth: 0 }}>
-                    <i
-                      className={`fa-solid ${EXT_ICON[a.ext] ?? "fa-file"}`}
-                      style={{ color: "var(--teal-dark)", fontSize: 18, marginTop: 2 }}
-                    />
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontSize: 13, fontWeight: 500, overflowWrap: "anywhere" }} title={a.path}>
-                        {a.name}
-                      </div>
-                      <div style={{ fontSize: 11.5, color: "var(--text-muted)" }}>
-                        {a.ext.slice(1)} · {kb(a.sizeBytes)} · {new Date(a.modified).toLocaleDateString()}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                <div style={{ display: "flex", gap: 8, marginTop: "auto" }}>
-                  <button
-                    className="btn btn-sm"
-                    disabled={busyPath === a.path}
-                    onClick={() => void act(a, "view")}
-                    title={a.kind === "document" ? "Open in a new tab" : "Open / play in a new tab"}
-                  >
-                    <i className="fa-solid fa-eye" /> View
-                  </button>
-                  {a.kind === "document" && (
-                    <button
-                      className="btn btn-sm btn-primary"
-                      disabled={busyPath === a.path}
-                      onClick={() => void act(a, "pdf")}
-                      title={a.ext === ".pdf" ? "Download the PDF" : "Open print-ready view — save as PDF from the print dialog"}
-                    >
-                      <i className="fa-solid fa-file-export" /> Export to PDF
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
+      {!loading && assets.length > 0 && (
+        <div style={{ overflowX: "auto" }}>
+          <table>
+            <thead>
+              <tr>
+                <th>Asset</th>
+                <th>Folder</th>
+                <th>Type</th>
+                <th>Size</th>
+                <th>Modified</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {groups.flatMap(([label, files]) =>
+                files.map((a) => (
+                  <tr key={a.path}>
+                    <td style={{ fontWeight: 500 }} title={a.path}>
+                      <i
+                        className={`fa-solid ${EXT_ICON[a.ext] ?? "fa-file"}`}
+                        style={{ color: "var(--teal-dark)", marginRight: 8 }}
+                      />
+                      {a.name}
+                    </td>
+                    <td style={{ fontSize: 12.5, color: "var(--text-secondary)", whiteSpace: "nowrap" }}>{label}</td>
+                    <td>{a.ext.slice(1)}</td>
+                    <td style={{ whiteSpace: "nowrap" }}>{kb(a.sizeBytes)}</td>
+                    <td style={{ whiteSpace: "nowrap" }}>{new Date(a.modified).toLocaleDateString()}</td>
+                    <td style={{ whiteSpace: "nowrap" }}>
+                      <button
+                        className="btn btn-sm"
+                        disabled={busyPath === a.path}
+                        onClick={() => void act(a, "view")}
+                        title={a.kind === "document" ? "Open in a new tab" : "Open / play in a new tab"}
+                      >
+                        <i className="fa-solid fa-eye" /> View
+                      </button>{" "}
+                      {a.kind === "document" && (
+                        <button
+                          className="btn btn-sm btn-primary"
+                          disabled={busyPath === a.path}
+                          onClick={() => void act(a, "pdf")}
+                          title={a.ext === ".pdf" ? "Download the PDF" : "Open print-ready view — save as PDF from the print dialog"}
+                        >
+                          <i className="fa-solid fa-file-export" /> Export to PDF
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
         </div>
-      ))}
+      )}
     </div>
   );
 }
