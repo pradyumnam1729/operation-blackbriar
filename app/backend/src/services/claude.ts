@@ -2,14 +2,16 @@ import Anthropic from "@anthropic-ai/sdk";
 import { loadBrandDna } from "./warRoom";
 import { guardrailContext } from "./guardrailFiles";
 
-const client = new Anthropic();
+export const client = new Anthropic();
 
-const MODEL = process.env.PMM_MODEL ?? "claude-opus-4-8";
+export const MODEL = process.env.PMM_MODEL ?? "claude-opus-4-8";
 
 // Stable system core — everything here must stay byte-identical across requests
 // so it caches as a prompt prefix (guardrails are cached 60s for the same
 // reason). Volatile, per-request content goes in the user message, never here.
-async function systemCore(): Promise<string> {
+// Exported for the agentic ask loop (askAgent.ts), which shares the same
+// grounding and voice rules but adds tool use.
+export async function systemCore(): Promise<string> {
   const guardrails = await guardrailContext();
   return [
     "You are the PMM Agent for Aurigo — a product marketing knowledge engine.",

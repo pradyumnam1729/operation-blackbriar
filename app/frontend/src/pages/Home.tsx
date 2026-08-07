@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { apiGet, apiPost, askWarRoom, RoutingProposal } from "../lib/api";
+import { apiGet, apiPost, askWarRoom, AskTraceStep, RoutingProposal } from "../lib/api";
 import { useAuth } from "../auth/AuthContext";
 import { RoutingCard } from "../components/RoutingCard";
 
@@ -147,7 +147,17 @@ interface Bubble {
   /** The original ask, kept so "Just answer this instead" can re-submit it
    *  with mode:"question". */
   question?: string;
+  /** Agentic evidence trail: the tools the model chose to consult. */
+  trace?: AskTraceStep[];
 }
+
+const TRACE_LABELS: Record<string, { icon: string; label: string }> = {
+  search_knowledge_base: { icon: "fa-database", label: "Searched knowledge base" },
+  search_war_room: { icon: "fa-folder-open", label: "Searched war room" },
+  get_product_features: { icon: "fa-layer-group", label: "Pulled feature catalog" },
+  get_competitor_sources: { icon: "fa-chess", label: "Fetched competitor sources" },
+  list_final_assets: { icon: "fa-box-archive", label: "Checked repository" },
+};
 
 export function Home() {
   const { me } = useAuth();
@@ -308,7 +318,7 @@ export function Home() {
         // until the human clicks Generate (§8.4).
         setThread((t) => [...t, { role: "bot", proposal: r.proposal, question: q }]);
       } else {
-        setThread((t) => [...t, { role: "bot", html: r.answerHtml }]);
+        setThread((t) => [...t, { role: "bot", html: r.answerHtml, trace: r.trace }]);
       }
     } catch (e) {
       setThread((t) => [
@@ -456,7 +466,46 @@ export function Home() {
                     onAnswerInstead={() => void send(b.question, "question")}
                   />
                 ) : b.html ? (
-                  <div className="prose" dangerouslySetInnerHTML={{ __html: b.html }} />
+                  <>
+                    {b.trace && b.trace.length > 0 && (
+                      <div
+                        style={{
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: 4,
+                          marginBottom: 10,
+                          paddingBottom: 10,
+                          borderBottom: "1px solid var(--border)",
+                        }}
+                      >
+                        {b.trace.map((s, ti) => {
+                          const meta = TRACE_LABELS[s.tool] ?? { icon: "fa-gear", label: s.tool };
+                          return (
+                            <div
+                              key={ti}
+                              style={{
+                                fontSize: 11.5,
+                                color: "var(--text-muted)",
+                                display: "flex",
+                                alignItems: "baseline",
+                                gap: 6,
+                              }}
+                            >
+                              <i
+                                className={`fa-solid ${meta.icon}`}
+                                style={{ fontSize: 10, color: "var(--teal-light)", width: 12 }}
+                              />
+                              <span style={{ fontWeight: 500, color: "var(--text-secondary)" }}>
+                                {meta.label}
+                              </span>
+                              <span>{s.summary}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                    <div className="prose" dangerouslySetInnerHTML={{ __html: b.html }} />
+                  </>
                 ) : (
                   b.text
                 )}
@@ -469,7 +518,8 @@ export function Home() {
                 <i className="fa-solid fa-wand-magic-sparkles" style={{ fontSize: 11 }} />
               </div>
               <div className="msg" style={{ color: "var(--text-muted)" }}>
-                Consulting the war room…
+                Gathering evidence — searching the knowledge base, catalog, and competitive
+                sources as needed…
               </div>
             </div>
           )}

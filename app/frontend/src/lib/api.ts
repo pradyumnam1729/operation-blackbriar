@@ -128,8 +128,13 @@ export interface RoutingProposal {
   reason: string;
 }
 
+export interface AskTraceStep {
+  tool: string;
+  summary: string;
+}
+
 export type AskResponse =
-  | { kind: "answer"; answerHtml: string; role: string }
+  | { kind: "answer"; answerHtml: string; role: string; trace?: AskTraceStep[] }
   | { kind: "routing"; role: string; proposal: RoutingProposal };
 
 /** mode "question" skips classification — the card's "Just answer this

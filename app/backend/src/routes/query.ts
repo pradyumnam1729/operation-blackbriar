@@ -14,6 +14,7 @@ import {
 } from "../services/agents";
 import { ROLE_FRAMING } from "../services/agentPrompts";
 import { classifyAsk } from "../services/askRouter";
+import { answerWithTools } from "../services/askAgent";
 
 // Persona output framing — Master Instructions §9.2 — now lives in
 // services/agentPrompts.ts (ROLE_FRAMING) as the code fallback; the
@@ -73,8 +74,32 @@ queryRouter.post("/", requireAuth, async (req, res) => {
   const framing =
     cfg.prompt_override ?? framingMap[(role ?? "").toLowerCase()] ?? framingMap.general;
 
-  // Context = war-room files + top-ranked chunks from AI-enabled knowledge-base
-  // documents (local folder syncs, promoted uploads).
+  // Locked suffix: the question block. The body is the resolved per-role
+  // framing (base_prompt is empty for this agent — special case, §2.2-2).
+  const prompt = composeAgentPrompt(
+    { base_prompt: framing, custom_instructions: cfg.custom_instructions, prompt_override: null },
+    { role: role ?? "general" },
+    `Question from the ${role ?? "internal"} team:\n${question}`
+  );
+
+  // Agentic path: the model gathers its own evidence via tools (knowledge
+  // base, war room, feature catalog, scraped competitor sources, repository)
+  // and returns a trace of what it consulted.
+  try {
+    const { answer, trace } = await answerWithTools(prompt, { model: resolveModel(cfg) });
+    void logQuery(role ?? "general", question, answer); // fire-and-forget; feeds C11/C13 metrics
+    // The frontend renders formatted HTML only — never raw markdown.
+    return res.json({
+      kind: "answer",
+      answerHtml: markdownToHtml(answer),
+      role: role ?? "general",
+      trace,
+    });
+  } catch (err) {
+    console.error("[query] agentic loop failed, falling back to single-shot:", (err as Error).message);
+  }
+
+  // Degraded fallback: the pre-agentic single-shot path over the full corpus.
   const warRoom = loadCorpus()
     .filter((d) => !d.relPath.startsWith("BRAND-DNA")) // already in the system prompt
     .map((d) => `<file path="GTM-War-Room/${d.relPath}">\n${d.content}\n</file>`)
@@ -85,18 +110,9 @@ queryRouter.post("/", requireAuth, async (req, res) => {
       ? `=== KNOWLEDGE BASE (most relevant excerpts) ===\n${chunksToContext(chunks)}\n\n${warRoom}`
       : warRoom;
 
-  // Locked suffix: the question block. The body is the resolved per-role
-  // framing (base_prompt is empty for this agent — special case, §2.2-2).
-  const prompt = composeAgentPrompt(
-    { base_prompt: framing, custom_instructions: cfg.custom_instructions, prompt_override: null },
-    { role: role ?? "general" },
-    `Question from the ${role ?? "internal"} team:\n${question}`
-  );
-
   try {
     const answer = await ask(prompt, { extraContext: corpus, model: resolveModel(cfg) });
-    void logQuery(role ?? "general", question, answer); // fire-and-forget; feeds C11/C13 metrics
-    // The frontend renders formatted HTML only — never raw markdown.
+    void logQuery(role ?? "general", question, answer);
     res.json({ kind: "answer", answerHtml: markdownToHtml(answer), role: role ?? "general" });
   } catch (err) {
     res.status(502).json({ error: (err as Error).message });
