@@ -47,6 +47,110 @@ const SUGGESTIONS = [
   "Where does e-Builder beat us, honestly?",
 ];
 
+interface PositioningAxis {
+  label: string;
+  low: string;
+  high: string;
+}
+
+interface PositioningPoint {
+  name: string;
+  type: "aurigo" | "competitor";
+  x: number;
+  y: number;
+  note: string | null;
+}
+
+interface PositioningMap {
+  id: string;
+  xAxis: PositioningAxis;
+  yAxis: PositioningAxis;
+  points: PositioningPoint[];
+  skipped: { name: string; reason: string }[];
+  summaryHtml: string | null;
+  evidence: { title: string; docType: string }[];
+  createdAt: string;
+}
+
+/** SVG quadrant scatter: Aurigo products in brand teal, competitors in slate. */
+function MapChart({ map }: { map: PositioningMap }) {
+  const W = 760;
+  const H = 460;
+  const M = { top: 28, right: 30, bottom: 64, left: 76 };
+  const plotW = W - M.left - M.right;
+  const plotH = H - M.top - M.bottom;
+  const px = (x: number) => M.left + (x / 100) * plotW;
+  const py = (y: number) => M.top + plotH - (y / 100) * plotH;
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: "auto", display: "block" }} role="img" aria-label="Positioning map">
+      <rect x={M.left} y={M.top} width={plotW} height={plotH} fill="var(--bg-page, #F7F9FA)" stroke="#E2E8F0" />
+      <line x1={px(50)} y1={M.top} x2={px(50)} y2={M.top + plotH} stroke="#D7E0E4" strokeDasharray="4 4" />
+      <line x1={M.left} y1={py(50)} x2={M.left + plotW} y2={py(50)} stroke="#D7E0E4" strokeDasharray="4 4" />
+
+      {/* x axis labels */}
+      <text x={M.left + plotW / 2} y={H - 12} textAnchor="middle" fontSize={12.5} fontWeight={500} fill="#334155">
+        {map.xAxis.label}
+      </text>
+      <text x={M.left} y={M.top + plotH + 20} textAnchor="start" fontSize={11} fill="#7C8B94">
+        ← {map.xAxis.low}
+      </text>
+      <text x={M.left + plotW} y={M.top + plotH + 20} textAnchor="end" fontSize={11} fill="#7C8B94">
+        {map.xAxis.high} →
+      </text>
+
+      {/* y axis labels */}
+      <text
+        x={20}
+        y={M.top + plotH / 2}
+        textAnchor="middle"
+        fontSize={12.5}
+        fontWeight={500}
+        fill="#334155"
+        transform={`rotate(-90 20 ${M.top + plotH / 2})`}
+      >
+        {map.yAxis.label}
+      </text>
+      <text x={M.left - 8} y={M.top + plotH} textAnchor="end" fontSize={11} fill="#7C8B94">
+        {map.yAxis.low}
+      </text>
+      <text x={M.left - 8} y={M.top + 10} textAnchor="end" fontSize={11} fill="#7C8B94">
+        {map.yAxis.high}
+      </text>
+
+      {map.points.map((p) => {
+        const cx = px(p.x);
+        const cy = py(p.y);
+        const aurigo = p.type === "aurigo";
+        const labelLeft = p.x > 72;
+        return (
+          <g key={p.name}>
+            <title>{p.note ? `${p.name} — ${p.note}` : p.name}</title>
+            <circle
+              cx={cx}
+              cy={cy}
+              r={aurigo ? 8 : 6}
+              fill={aurigo ? "#015F74" : "#94A3B8"}
+              stroke={aurigo ? "#F8D146" : "#fff"}
+              strokeWidth={aurigo ? 2 : 1.5}
+            />
+            <text
+              x={labelLeft ? cx - 12 : cx + 12}
+              y={cy + 4}
+              textAnchor={labelLeft ? "end" : "start"}
+              fontSize={12}
+              fontWeight={aurigo ? 600 : 400}
+              fill={aurigo ? "#015F74" : "#475569"}
+            >
+              {p.name}
+            </text>
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
 export function CompetitiveIntel() {
   const { me } = useAuth();
   const navigate = useNavigate();
@@ -66,6 +170,9 @@ export function CompetitiveIntel() {
   const [showAdd, setShowAdd] = useState(false);
   const [addForm, setAddForm] = useState({ name: "", website: "", category: "", aurigoProduct: "" });
   const [sourceUrlFor, setSourceUrlFor] = useState<{ id: string; url: string } | null>(null);
+  const [posMap, setPosMap] = useState<PositioningMap | null>(null);
+  const [mapBusy, setMapBusy] = useState(false);
+  const [mapError, setMapError] = useState("");
 
   const load = useCallback(async () => {
     try {
@@ -76,6 +183,8 @@ export function CompetitiveIntel() {
       setJinaOk(r.jinaConfigured);
       const h = await apiGet<{ comparisons: HistoryRow[] }>("/api/competitive/comparisons");
       setHistory(h.comparisons);
+      const m = await apiGet<{ map: PositioningMap | null }>("/api/competitive/positioning-map");
+      setPosMap(m.map);
     } catch (e) {
       setError((e as Error).message);
     }
@@ -106,6 +215,19 @@ export function CompetitiveIntel() {
       setInfo("");
     } finally {
       setBusy(false);
+    }
+  };
+
+  const refreshMap = async () => {
+    setMapBusy(true);
+    setMapError("");
+    try {
+      const r = await apiPost<{ map: PositioningMap }>("/api/competitive/positioning-map/refresh");
+      setPosMap(r.map);
+    } catch (e) {
+      setMapError((e as Error).message);
+    } finally {
+      setMapBusy(false);
     }
   };
 
@@ -344,6 +466,73 @@ export function CompetitiveIntel() {
           </div>
         </>
       )}
+
+      {/* ---------- positioning map ---------- */}
+      <div className="card">
+        <div className="row-between" style={{ marginBottom: 4 }}>
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 500 }}>
+            <i className="fa-solid fa-map-location-dot" style={{ color: "var(--teal-dark)", marginRight: 8 }} />
+            Live positioning map
+          </h3>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
+            {posMap && (
+              <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                built {new Date(posMap.createdAt).toLocaleString()}
+              </span>
+            )}
+            <button className="btn btn-primary btn-sm" onClick={() => void refreshMap()} disabled={mapBusy}>
+              <i className={`fa-solid ${mapBusy ? "fa-spinner fa-spin" : "fa-rotate"}`} />{" "}
+              {mapBusy ? "Building…" : posMap ? "Rebuild map" : "Build map"}
+            </button>
+          </span>
+        </div>
+        <p style={{ fontSize: 12.5, color: "var(--text-secondary)", margin: "0 0 12px" }}>
+          Aurigo products are placed from the knowledge base — customer conversations included —
+          and competitors only from their scraped sources. Hover a point for the reasoning.
+        </p>
+        {mapError && (
+          <div style={{ background: "#FCE8E8", color: "#A32D2D", borderRadius: "var(--r-md)", padding: "10px 14px", fontSize: 13, marginBottom: 12 }}>
+            {mapError}
+          </div>
+        )}
+        {mapBusy && !posMap && (
+          <div className="empty-note">Reading scraped sources and the knowledge base — this can take up to a minute…</div>
+        )}
+        {posMap ? (
+          <>
+            <MapChart map={posMap} />
+            <div style={{ display: "flex", gap: 18, alignItems: "center", marginTop: 10, fontSize: 12, color: "var(--text-secondary)" }}>
+              <span>
+                <span style={{ display: "inline-block", width: 10, height: 10, borderRadius: "50%", background: "#015F74", border: "2px solid #F8D146", marginRight: 6, verticalAlign: "-1px" }} />
+                Aurigo products
+              </span>
+              <span>
+                <span style={{ display: "inline-block", width: 10, height: 10, borderRadius: "50%", background: "#94A3B8", marginRight: 6, verticalAlign: "-1px" }} />
+                Competitors
+              </span>
+              {posMap.skipped.length > 0 && (
+                <span style={{ color: "var(--text-muted)" }}>
+                  Not placed (insufficient evidence): {posMap.skipped.map((s) => s.name).join(", ")}
+                </span>
+              )}
+            </div>
+            {posMap.summaryHtml && (
+              <div
+                className="prose"
+                style={{ border: "none", boxShadow: "none", padding: 0, marginTop: 12 }}
+                dangerouslySetInnerHTML={{ __html: posMap.summaryHtml }}
+              />
+            )}
+          </>
+        ) : (
+          !mapBusy && (
+            <div className="empty-note">
+              No map built yet. Scrape at least one competitor in the registry below, then build the
+              map.
+            </div>
+          )
+        )}
+      </div>
 
       {/* ---------- registry ---------- */}
       <div className="card">

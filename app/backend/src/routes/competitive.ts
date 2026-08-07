@@ -2,7 +2,12 @@ import { Router } from "express";
 import { requireAdmin, requireAuth } from "../middleware/auth";
 import { supabase } from "../services/db";
 import { logActivity } from "../services/activity";
-import { compare, ensureSources } from "../services/competitive";
+import {
+  buildPositioningMap,
+  compare,
+  ensureSources,
+  getLatestPositioningMap,
+} from "../services/competitive";
 import { AgentError } from "../services/agents";
 import { jinaConfigured } from "../services/jina";
 import { cleanHtml } from "../services/html";
@@ -130,6 +135,31 @@ competitiveRouter.post("/compare", requireAuth, async (req, res) => {
     // Disabled agent (Agents tab kill switch) -> 409; everything else stays 502.
     const status = err instanceof AgentError ? err.status : 502;
     res.status(status).json({ error: (err as Error).message });
+  }
+});
+
+// GET /api/competitive/positioning-map — the latest stored map (live view).
+competitiveRouter.get("/positioning-map", requireAuth, async (_req, res) => {
+  try {
+    const map = await getLatestPositioningMap();
+    res.json({ map });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// POST /api/competitive/positioning-map/refresh — rebuild from current
+// scraped sources + knowledge base (customer conversations included).
+competitiveRouter.post("/positioning-map/refresh", requireAuth, async (req, res) => {
+  try {
+    const map = await buildPositioningMap(req.user!.id);
+    void logActivity("positioning_map", map.id, req.user!.id, "positioning_map_built", {
+      points: map.points.length,
+      skipped: map.skipped.length,
+    });
+    res.json({ map });
+  } catch (err) {
+    res.status(502).json({ error: (err as Error).message });
   }
 });
 

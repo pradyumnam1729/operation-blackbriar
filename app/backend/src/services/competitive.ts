@@ -273,3 +273,221 @@ export async function compare(
     throw err;
   }
 }
+
+// ---------------------------------------------------------------------------
+// Live positioning map. Same evidence discipline as compare(): Aurigo points
+// are grounded in the knowledge base (which includes customer conversations);
+// competitor points come only from their scraped sources — competitors with
+// no usable evidence are skipped, never guessed.
+
+export interface PositioningAxis {
+  label: string;
+  low: string;
+  high: string;
+}
+
+export interface PositioningPoint {
+  name: string;
+  type: "aurigo" | "competitor";
+  x: number;
+  y: number;
+  note: string | null;
+}
+
+export interface PositioningMap {
+  id: string;
+  xAxis: PositioningAxis;
+  yAxis: PositioningAxis;
+  points: PositioningPoint[];
+  skipped: { name: string; reason: string }[];
+  summaryHtml: string | null;
+  evidence: { title: string; docType: string }[];
+  createdAt: string;
+}
+
+interface MapRow {
+  id: string;
+  x_axis: PositioningAxis;
+  y_axis: PositioningAxis;
+  points: PositioningPoint[];
+  skipped: { name: string; reason: string }[];
+  summary_html: string | null;
+  evidence: { title: string; docType: string }[];
+  created_at: string;
+}
+
+function rowToMap(row: MapRow): PositioningMap {
+  return {
+    id: row.id,
+    xAxis: row.x_axis,
+    yAxis: row.y_axis,
+    points: row.points,
+    skipped: row.skipped ?? [],
+    summaryHtml: row.summary_html,
+    evidence: row.evidence ?? [],
+    createdAt: row.created_at,
+  };
+}
+
+export async function getLatestPositioningMap(): Promise<PositioningMap | null> {
+  const sb = supabase()!;
+  const { data } = await sb
+    .from("positioning_maps")
+    .select("id, x_axis, y_axis, points, skipped, summary_html, evidence, created_at")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return data ? rowToMap(data as MapRow) : null;
+}
+
+function isAxis(v: unknown): v is PositioningAxis {
+  const o = v as Record<string, unknown> | null;
+  return (
+    !!o &&
+    typeof o.label === "string" &&
+    typeof o.low === "string" &&
+    typeof o.high === "string"
+  );
+}
+
+/** Defensively parse the model's answer: first {...} JSON block, validated. */
+function parseMapAnswer(raw: string): {
+  xAxis: PositioningAxis;
+  yAxis: PositioningAxis;
+  points: PositioningPoint[];
+  skipped: { name: string; reason: string }[];
+  summary: string | null;
+} | null {
+  const start = raw.indexOf("{");
+  const end = raw.lastIndexOf("}");
+  if (start === -1 || end <= start) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw.slice(start, end + 1));
+  } catch {
+    return null;
+  }
+  const o = parsed as Record<string, unknown>;
+  if (!isAxis(o.x_axis) || !isAxis(o.y_axis) || !Array.isArray(o.points)) return null;
+
+  const points: PositioningPoint[] = [];
+  for (const entry of o.points) {
+    const p = entry as Record<string, unknown>;
+    const name = typeof p.name === "string" ? p.name.trim() : "";
+    const x = Number(p.x);
+    const y = Number(p.y);
+    if (!name || !Number.isFinite(x) || !Number.isFinite(y)) continue;
+    points.push({
+      name,
+      type: p.type === "aurigo" ? "aurigo" : "competitor",
+      x: Math.max(0, Math.min(100, x)),
+      y: Math.max(0, Math.min(100, y)),
+      note: typeof p.note === "string" ? p.note : null,
+    });
+  }
+  if (points.length < 2) return null;
+
+  const skipped = Array.isArray(o.skipped)
+    ? (o.skipped as Record<string, unknown>[])
+        .filter((s) => typeof s?.name === "string")
+        .map((s) => ({
+          name: s.name as string,
+          reason: typeof s.reason === "string" ? s.reason : "insufficient evidence",
+        }))
+    : [];
+
+  return {
+    xAxis: o.x_axis,
+    yAxis: o.y_axis,
+    points,
+    skipped,
+    summary: typeof o.summary === "string" ? o.summary : null,
+  };
+}
+
+export async function buildPositioningMap(userId: string): Promise<PositioningMap> {
+  const sb = supabase()!;
+
+  const { data: comps } = await sb
+    .from("competitors")
+    .select("id, name, category, aurigo_product");
+  const { data: srcs } = await sb
+    .from("competitor_sources")
+    .select("competitor_id, url, label, content_md, scraped_at")
+    .eq("status", "ok");
+
+  const withEvidence: { name: string; category: string | null; context: string }[] = [];
+  const preSkipped: { name: string; reason: string }[] = [];
+  for (const c of comps ?? []) {
+    const own = (srcs ?? []).filter((s) => s.competitor_id === c.id && s.content_md);
+    if (own.length === 0) {
+      preSkipped.push({ name: c.name, reason: "no scraped sources yet — refresh it in the registry" });
+      continue;
+    }
+    const context = own
+      .map(
+        (s) =>
+          `<source url="${s.url}" title="${s.label ?? ""}">\n${(s.content_md ?? "").slice(0, 12_000)}\n</source>`
+      )
+      .join("\n");
+    withEvidence.push({ name: c.name, category: c.category, context });
+  }
+  if (withEvidence.length === 0) {
+    throw new Error(
+      "No competitor has scraped sources yet. Refresh a competitor in the registry, then build the map."
+    );
+  }
+
+  const chunks = await retrieveChunks(
+    "positioning value propositions differentiators customers capital program asset management public sector",
+    12
+  );
+
+  const competitorBlock = withEvidence
+    .map((c) => `=== COMPETITOR: ${c.name}${c.category ? ` (${c.category})` : ""} ===\n${c.context}`)
+    .join("\n\n");
+
+  const prompt = [
+    "Build a market positioning map for Aurigo against the competitors below.",
+    "Respond with ONLY a JSON object — no prose before or after — shaped exactly like:",
+    '{"x_axis": {"label": string, "low": string, "high": string}, "y_axis": {"label": string, "low": string, "high": string}, "points": [{"name": string, "type": "aurigo" | "competitor", "x": number 0-100, "y": number 0-100, "note": string}], "skipped": [{"name": string, "reason": string}], "summary": string}',
+    "Rules:",
+    "- Choose the two axes that best separate this market based on the evidence (for example public-sector capital program focus vs. general construction, or full life cycle suite vs. point solution). low/high name the two ends of each axis.",
+    '- Place the Aurigo products Masterworks, Primus, and Essentials as separate points with type "aurigo", grounded in the Aurigo knowledge base below (which includes customer conversations).',
+    "- Place each competitor ONLY from facts present in its scraped sources. If the sources are too thin to place one honestly, leave it out of points and add it to skipped with a short reason. Never invent a placement.",
+    "- note: one sentence explaining the placement, citing what the evidence actually says.",
+    '- summary: 3-5 sentences (markdown) on what the map reveals for Aurigo\'s position and open whitespace. Use "AI-native" as the only AI modifier and write "life cycle" as two words.',
+    "",
+    competitorBlock,
+    chunks.length > 0
+      ? `=== AURIGO KNOWLEDGE BASE (ground truth, incl. customer conversations) ===\n${chunksToContext(chunks)}`
+      : "",
+  ]
+    .filter((s) => s !== "")
+    .join("\n\n");
+
+  const raw = await ask(prompt, { maxTokens: 4000 });
+  const parsed = parseMapAnswer(raw);
+  if (!parsed) {
+    throw new Error("The model did not return a usable positioning map. Try again.");
+  }
+
+  const evidence = chunks.map((c) => ({ title: c.title, docType: c.doc_type }));
+  const skipped = [...parsed.skipped, ...preSkipped];
+
+  const { data: row, error } = await sb
+    .from("positioning_maps")
+    .insert({
+      x_axis: parsed.xAxis,
+      y_axis: parsed.yAxis,
+      points: parsed.points,
+      skipped,
+      summary_html: parsed.summary ? markdownToHtml(parsed.summary) : null,
+      evidence,
+      created_by: userId,
+    })
+    .select("id, x_axis, y_axis, points, skipped, summary_html, evidence, created_at")
+    .single();
+  if (error || !row) throw new Error(error?.message ?? "Could not store the positioning map");
+  return rowToMap(row as MapRow);
+}
