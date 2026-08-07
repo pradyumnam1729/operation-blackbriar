@@ -2,10 +2,8 @@ import { Router } from "express";
 import { requireAuth } from "../middleware/auth";
 import { ask } from "../services/claude";
 import { markdownToHtml, htmlToText } from "../services/html";
-import { loadCorpus } from "../services/warRoom";
-import { chunksToContext, retrieveChunks } from "../services/ingestion";
 
-// AI endpoints for the editor and generators. All output leaves this module as
+// AI endpoints for the artifact editor. All output leaves this module as
 // sanitized, user-ready HTML — the frontend never renders markdown.
 export const aiRouter = Router();
 
@@ -43,35 +41,3 @@ aiRouter.post("/edit", requireAuth, async (req, res) => {
   }
 });
 
-// POST /api/ai/generate  { brief, productName?, assetType?, persona? } → { html }
-aiRouter.post("/generate", requireAuth, async (req, res) => {
-  const { brief, productName, assetType, persona } = req.body as {
-    brief?: string;
-    productName?: string;
-    assetType?: string;
-    persona?: string;
-  };
-  if (!brief) return res.status(400).json({ error: "brief is required" });
-  const warRoom = loadCorpus()
-    .filter((d) => !d.relPath.startsWith("BRAND-DNA"))
-    .map((d) => `<file path="GTM-War-Room/${d.relPath}">\n${d.content}\n</file>`)
-    .join("\n\n");
-  const chunks = await retrieveChunks(`${brief} ${productName ?? ""} ${assetType ?? ""}`, 8);
-  const corpus =
-    chunks.length > 0
-      ? `=== KNOWLEDGE BASE (most relevant excerpts) ===\n${chunksToContext(chunks)}\n\n${warRoom}`
-      : warRoom;
-  try {
-    const md = await ask(
-      [
-        `Produce a ${assetType ?? "document"} for product "${productName ?? "Aurigo"}"${persona ? `, persona: ${persona}` : ""}.`,
-        `Brief: ${brief}`,
-        "Return only the finished content in Markdown with proper headings — no preamble, no meta-commentary.",
-      ].join("\n"),
-      { extraContext: corpus }
-    );
-    res.json({ html: markdownToHtml(md) });
-  } catch (err) {
-    res.status(502).json({ error: (err as Error).message });
-  }
-});

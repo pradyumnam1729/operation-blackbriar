@@ -3,8 +3,6 @@ import express from "express";
 import cors from "cors";
 import path from "path";
 import { queryRouter } from "./routes/query";
-import { foundationRouter } from "./routes/foundation";
-import { assetsRouter } from "./routes/assets";
 import { meRouter } from "./routes/me";
 import { productsRouter } from "./routes/products";
 import { aiRouter } from "./routes/ai";
@@ -29,7 +27,6 @@ import { agentsRouter } from "./routes/agents";
 import { syncAgentBaselines } from "./services/agents";
 import { WAR_ROOM_DIR } from "./services/warRoom";
 import { dbStatus } from "./services/db";
-import { startWatchers } from "./services/watcher";
 import { startSharePointPolling } from "./services/sharepoint";
 import { restartInputWatcher } from "./services/localFolders";
 
@@ -45,8 +42,6 @@ app.use("/api/me", meRouter);
 app.use("/api/products", productsRouter);
 app.use("/api/ai", aiRouter);
 app.use("/api/query", queryRouter);
-app.use("/api/foundation", foundationRouter);
-app.use("/api/assets", assetsRouter); // legacy war-room asset generator
 app.use("/api/requests", requestsRouter);
 app.use("/api/uploads", uploadsRouter);
 app.use("/api/artifacts", artifactsRouter);
@@ -73,7 +68,6 @@ const port = Number(process.env.PORT ?? 3001);
 app.listen(port, () => {
   console.log(`PMM Agent backend on http://localhost:${port}`);
   console.log(`War room: ${WAR_ROOM_DIR}`);
-  void startWatchers();
   startSharePointPolling();
   void restartInputWatcher();
   // Reconcile agent base prompts from canonical sources (code constants +

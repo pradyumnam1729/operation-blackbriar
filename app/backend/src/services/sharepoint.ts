@@ -4,6 +4,8 @@ import path from "path";
 import { supabase } from "./db";
 import { extractText } from "./extract";
 import { flagEnabled } from "./activity";
+import { ingestDocument } from "./ingestion";
+import { classifyContent, detectDocType, matchProductByFilename } from "./localFolders";
 
 // Microsoft Graph SharePoint connector (app-only, client-credentials flow).
 // Credentials come from the admin UI (stored as the sharepoint_credentials row
@@ -263,7 +265,10 @@ interface SpIntegrationConfig {
   lastResult?: string;
 }
 
-/** Ingest one downloaded file through the same pipeline as the local watcher. */
+/** Ingest one downloaded file through the same pipeline as the local Input
+ *  folder: per-file type + product classification, chunked into the knowledge
+ *  base (Ask Hive / generation retrieval), then routed to the release-note
+ *  review queue or mirrored into context_docs for the questionnaire. */
 async function ingestFile(
   localPath: string,
   item: DriveItem,
@@ -273,17 +278,41 @@ async function ingestFile(
   const { status, text } = await extractText(localPath);
   if (status !== "done" || text.trim() === "") return `skipped ${item.name} (${status})`;
 
-  if (cfg.doc_type === "release_note") {
-    const { data: products } = await sb.from("products").select("id, line");
-    const product =
-      products?.find(
-        (p) => cfg.product_line && p.line.toLowerCase() === cfg.product_line.toLowerCase()
-      ) ?? products?.[0];
-    if (!product) return `no product match for ${item.name}`;
+  const { data: products } = await sb.from("products").select("id, name, line");
+  let docType = detectDocType(item.name);
+  let product = matchProductByFilename(item.name, products ?? []);
+  if (!docType || !product) {
+    const cls = await classifyContent(text, (products ?? []).map((p) => p.name));
+    docType = docType ?? cls.docType;
+    product = product ?? products?.find((p) => p.name === cls.productName) ?? null;
+  }
+  docType = docType ?? cfg.doc_type;
+  const lineDefault =
+    products?.find(
+      (p) => cfg.product_line && p.line.toLowerCase() === cfg.product_line!.toLowerCase()
+    ) ?? null;
+
+  const ingest = await ingestDocument({
+    title: item.name,
+    filename: item.name,
+    text,
+    source: "sharepoint",
+    docType,
+    productId: product?.id ?? null,
+    productName: product?.name ?? null,
+    aiEnabled: true,
+  });
+  if (ingest.deduped) {
+    return `duplicate skipped: ${item.name} matches existing document "${ingest.duplicateOf}"`;
+  }
+
+  if (docType === "release_note") {
+    const releaseProduct = product ?? lineDefault ?? products?.[0];
+    if (!releaseProduct) return `no product match for ${item.name}`;
     const { data: rn } = await sb
       .from("release_notes")
       .insert({
-        product_id: product.id,
+        product_id: releaseProduct.id,
         filename: item.name,
         source_path: item.webUrl ?? `sharepoint:${item.id}`,
         raw_text: text,
@@ -293,7 +322,7 @@ async function ingestFile(
       .single();
     await sb.from("feature_reviews").insert({
       release_note_id: rn?.id,
-      product_id: product.id,
+      product_id: releaseProduct.id,
       proposed: {
         note: "Release note synced from SharePoint — run Process to extract features.",
         filename: item.name,
@@ -303,17 +332,19 @@ async function ingestFile(
       confidence: 0.1,
       status: "pending",
     });
-    return `release note ingested: ${item.name}`;
+    return `release note ingested: ${item.name} (${ingest.chunkCount} chunks)`;
   }
 
+  await sb.from("context_docs").delete().eq("title", item.name).eq("source", "folder_watch");
   await sb.from("context_docs").insert({
     title: item.name,
     source: "folder_watch",
-    doc_type: cfg.doc_type,
+    doc_type: docType,
+    product_id: product?.id ?? null,
     content: text.slice(0, 200_000),
     approved: false,
   });
-  return `context doc ingested (pending approval): ${item.name}`;
+  return `${docType} ingested: ${item.name} (${ingest.chunkCount} chunks, AI-enabled)`;
 }
 
 /** Run a delta sync for one sharepoint_graph integration row. */

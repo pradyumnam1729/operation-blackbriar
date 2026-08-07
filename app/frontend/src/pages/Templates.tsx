@@ -1,16 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import {
-  ApiError,
   deleteTemplate,
-  generateFromTemplate,
-  GenerateFromTemplateResponse,
-  getProducts,
   getTemplate,
   listTemplates,
   previewTemplate,
-  Product,
   TemplateDetail,
   TemplatePreviewPayload,
   TemplateSummary,
@@ -19,8 +14,9 @@ import { TemplatePreview } from "../components/TemplatePreview";
 import { TemplateEditor } from "../components/TemplateEditor";
 
 // Template Library (blueprint §4.2): browse layout-locked, slot-based templates,
-// preview them in a sandboxed iframe, and generate draft artifacts from the
-// product's approved messaging document. Authoring is PMM-admin only.
+// preview them in a sandboxed iframe, and author them (PMM-admin only).
+// Generation is consolidated in the Asset studio — the drawer's Generate button
+// deep-links there with the template preselected (/studio?template=<id>).
 
 const TYPE_FILTERS: { key: string; label: string }[] = [
   { key: "", label: "All" },
@@ -57,175 +53,6 @@ const errStrip: React.CSSProperties = {
 };
 
 const basename = (p: string) => p.split(/[\\/]/).pop() ?? p;
-
-// ---------- Generate modal ----------
-
-interface GenerateModalProps {
-  template: TemplateSummary;
-  onClose: () => void;
-}
-
-function GenerateModal({ template, onClose }: GenerateModalProps) {
-  const navigate = useNavigate();
-  const [products, setProducts] = useState<Product[]>([]);
-  const [productId, setProductId] = useState("");
-  const [title, setTitle] = useState("");
-  const [extraBrief, setExtraBrief] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [gate409, setGate409] = useState<string | null>(null);
-  const [result, setResult] = useState<GenerateFromTemplateResponse | null>(null);
-
-  useEffect(() => {
-    getProducts().then(setProducts).catch(() => {});
-  }, []);
-
-  const generate = async () => {
-    if (productId === "" || title.trim() === "") return;
-    setBusy(true);
-    setError(null);
-    setGate409(null);
-    setResult(null);
-    try {
-      const r = await generateFromTemplate(template.id, {
-        product_id: productId,
-        title: title.trim(),
-        extra_brief: extraBrief.trim() === "" ? undefined : extraBrief.trim(),
-      });
-      if (r.warnings.length === 0 && r.guard.ok) {
-        navigate(`/library/${r.artifactId}`);
-        return;
-      }
-      setResult(r); // warnings or guard violations — surface before opening the draft
-    } catch (e) {
-      if (e instanceof ApiError && e.status === 409) setGate409(e.message);
-      else setError((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div className="modalwrap" onClick={onClose}>
-      <div className="modal" style={{ width: 480 }} onClick={(e) => e.stopPropagation()}>
-        <div className="row-between">
-          <h3>Generate from template</h3>
-          <button className="btn btn-sm" aria-label="Close" onClick={onClose}>
-            <i className="fa-solid fa-xmark" />
-          </button>
-        </div>
-        <p style={{ marginTop: 0 }}>
-          <b style={{ color: "var(--teal-dark)" }}>{template.name}</b> — the layout is locked;
-          slot text comes from the product&rsquo;s approved messaging document.
-        </p>
-
-        <label htmlFor="gen-product">Product</label>
-        <select id="gen-product" value={productId} onChange={(e) => setProductId(e.target.value)}>
-          <option value="">— select a product —</option>
-          {products.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </select>
-
-        <label htmlFor="gen-title">Title</label>
-        <input
-          id="gen-title"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          placeholder="e.g. Masterworks Overview Datasheet — State DOTs"
-        />
-
-        <label htmlFor="gen-brief">Extra brief (optional)</label>
-        <textarea
-          id="gen-brief"
-          value={extraBrief}
-          onChange={(e) => setExtraBrief(e.target.value)}
-          placeholder="Deal context, angles to emphasize…"
-        />
-
-        <button
-          className="btn btn-primary"
-          style={{ marginTop: 14, width: "100%", justifyContent: "center" }}
-          disabled={busy || productId === "" || title.trim() === ""}
-          onClick={generate}
-          title={
-            busy
-              ? "Generating…"
-              : productId === ""
-                ? "Pick the product whose approved messaging feeds the slots"
-                : title.trim() === ""
-                  ? "Give the draft a title first"
-                  : "Generate the draft"
-          }
-        >
-          {busy ? (
-            <i className="fa-solid fa-spinner fa-spin" />
-          ) : (
-            <i className="fa-solid fa-wand-magic-sparkles" />
-          )}
-          {busy ? "Generating draft…" : "Generate draft"}
-        </button>
-
-        {gate409 && (
-          <div style={{ ...errStrip, marginTop: 14, marginBottom: 0 }}>
-            {gate409}
-            <div style={{ marginTop: 8 }}>
-              <Link to="/questionnaire" style={{ fontWeight: 500, textDecoration: "underline" }}>
-                Open the Foundation Questionnaire
-              </Link>
-            </div>
-          </div>
-        )}
-        {error && <div style={{ ...errStrip, marginTop: 14, marginBottom: 0 }}>{error}</div>}
-
-        {result && (
-          <div style={{ marginTop: 16, borderTop: "1px solid var(--border)", paddingTop: 12 }}>
-            {result.warnings.length > 0 && (
-              <>
-                <div className="check-row">
-                  <i className="fa-solid fa-triangle-exclamation" style={{ color: "var(--red)" }} />
-                  {result.warnings.length} slot{result.warnings.length === 1 ? "" : "s"} need
-                  {result.warnings.length === 1 ? "s" : ""} PMM input — the render shows visible
-                  placeholders.
-                </div>
-                <ul style={{ margin: "4px 0 8px", paddingLeft: 22, fontSize: 12.5, color: "var(--text-secondary)" }}>
-                  {result.warnings.map((w, i) => (
-                    <li key={i}>
-                      <b>{w.slot_id}</b>: {w.detail}
-                    </li>
-                  ))}
-                </ul>
-              </>
-            )}
-            {result.guard.ok ? (
-              <div className="check-row">
-                <i className="fa-solid fa-circle-check pass" /> Forbidden-words list — clear
-              </div>
-            ) : (
-              <div className="check-row">
-                <i className="fa-solid fa-circle-xmark fail" /> Forbidden-words list —{" "}
-                {result.guard.violations.join(", ")} (fix before the draft can move past review)
-              </div>
-            )}
-            <div className="check-row" style={{ color: "var(--text-secondary)" }}>
-              <i className="fa-solid fa-file-shield" style={{ color: "var(--teal-dark)" }} />
-              Filled from Messaging Doc v{result.messagingDocVersion}
-            </div>
-            <button
-              className="btn btn-primary"
-              style={{ marginTop: 8, width: "100%", justifyContent: "center" }}
-              onClick={() => navigate(`/library/${result.artifactId}`)}
-            >
-              <i className="fa-solid fa-pen-to-square" /> Open draft
-            </button>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
 
 // ---------- Preview drawer ----------
 
@@ -286,8 +113,12 @@ function PreviewDrawer({ summary, admin, onClose, onEdit, onGenerate }: PreviewD
 
         <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
           {summary.generation_ready && summary.approved && (
-            <button className="btn btn-primary" onClick={() => onGenerate(summary)}>
-              <i className="fa-solid fa-wand-magic-sparkles" /> Generate draft
+            <button
+              className="btn btn-primary"
+              title="Generation happens in the Asset studio — this opens it with the template preselected"
+              onClick={() => onGenerate(summary)}
+            >
+              <i className="fa-solid fa-wand-magic-sparkles" /> Generate in Asset studio
             </button>
           )}
           {admin && detail && (
@@ -365,6 +196,7 @@ function PreviewDrawer({ summary, admin, onClose, onEdit, onGenerate }: PreviewD
 
 export function Templates() {
   const { me } = useAuth();
+  const navigate = useNavigate();
   const admin = me?.role === "admin";
 
   const [typeFilter, setTypeFilter] = useState("");
@@ -375,7 +207,6 @@ export function Templates() {
 
   const [selected, setSelected] = useState<TemplateSummary | null>(null);
   const [editing, setEditing] = useState<TemplateDetail | null | "new">(null);
-  const [generating, setGenerating] = useState<TemplateSummary | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -584,7 +415,7 @@ export function Templates() {
             setSelected(null);
             setEditing(d);
           }}
-          onGenerate={(t) => setGenerating(t)}
+          onGenerate={(t) => navigate(`/studio?template=${t.id}`)}
         />
       )}
 
@@ -599,9 +430,6 @@ export function Templates() {
         />
       )}
 
-      {generating && (
-        <GenerateModal template={generating} onClose={() => setGenerating(null)} />
-      )}
     </div>
   );
 }

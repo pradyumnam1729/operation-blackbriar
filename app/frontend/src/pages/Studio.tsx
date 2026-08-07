@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import {
   apiGet,
   apiPost,
@@ -91,6 +91,27 @@ export function Studio() {
     setGate409(null);
     setStep(3);
   };
+
+  // /studio?template=<id> deep link (Template library's Generate button):
+  // preselect the template's asset type and jump straight to the details step.
+  const [searchParams] = useSearchParams();
+  useEffect(() => {
+    const tid = searchParams.get("template");
+    if (!tid) return;
+    void (async () => {
+      try {
+        const all = await listTemplates();
+        const t = all.find((x) => x.id === tid);
+        if (!t) return;
+        await pickType(t.asset_type);
+        setTemplate(t);
+        setStep(3);
+      } catch {
+        // fall back to the normal wizard
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const generate = async () => {
     if (!template || title.trim() === "") return;

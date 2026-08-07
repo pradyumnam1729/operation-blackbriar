@@ -148,26 +148,6 @@ sharepointRouter.post("/test", requireAuth, requireAdmin, async (req, res) => {
   }
 });
 
-// POST /api/sharepoint/browse — list folders/files at a path for folder picking.
-sharepointRouter.post("/browse", requireAuth, requireAdmin, async (req, res) => {
-  const { siteUrl, folderPath } = req.body as { siteUrl?: string; folderPath?: string };
-  if (!siteUrl) return res.status(400).json({ error: "siteUrl is required" });
-  try {
-    const site = await resolveSite(siteUrl);
-    const items = await listChildren(site.driveId, folderPath ?? "");
-    res.json({
-      items: items.map((i) => ({
-        name: i.name,
-        isFolder: Boolean(i.folder),
-        webUrl: i.webUrl,
-        modified: i.lastModifiedDateTime,
-      })),
-    });
-  } catch (err) {
-    res.status(502).json({ error: (err as Error).message });
-  }
-});
-
 // POST /api/sharepoint/connections — add a connection (admin).
 sharepointRouter.post("/connections", requireAuth, requireAdmin, async (req, res) => {
   const { name, siteUrl, folderPath, docType, productLine } = req.body as {

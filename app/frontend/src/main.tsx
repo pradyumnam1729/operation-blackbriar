@@ -38,7 +38,7 @@ function Root() {
         <Route path="/features" element={<FeatureCatalog />} />
         <Route path="/winloss" element={<WinLoss />} />
         <Route path="/competitive" element={<CompetitiveIntel />} />
-        <Route path="/pmm" element={<Navigate to="/library?tab=pmm" replace />} />
+        <Route path="/pmm" element={<Navigate to="/questionnaire" replace />} />
         <Route path="/pmm/:id" element={<PMMDocDetail />} />
         <Route path="/pmm/:id/edit" element={<PMMWizard />} />
         <Route path="/guardrails" element={<Guardrails />} />

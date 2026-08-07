@@ -98,17 +98,6 @@ export const getProducts = () =>
 export const askWarRoom = (question: string, role: string) =>
   apiPost<{ answerHtml: string; role: string }>("/api/query", { question, role });
 
-export interface FoundationResponse {
-  sections: { path: string; title: string; preview: string }[];
-  context: { path: string; exists: boolean }[];
-}
-
-export const getFoundation = () => apiGet<FoundationResponse>("/api/foundation");
-export const getFoundationFile = (path: string) =>
-  apiGet<{ path: string; content: string }>(
-    `/api/foundation/file?path=${encodeURIComponent(path)}`
-  );
-
 // ---- Foundation Questionnaire pipeline (admin) ----
 
 export interface CitedSource {
