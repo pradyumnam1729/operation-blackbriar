@@ -62,6 +62,10 @@ export function chunkText(text: string): Chunk[] {
       const tail = buffer.slice(-CHUNK_OVERLAP);
       flush();
       buffer = tail.trimStart() === "" ? "" : `…${tail}`;
+      // The new chunk starts here — under whatever heading is now current.
+      // Without this, the overlap tail keeps the buffer non-empty and every
+      // chunk after the first inherits the document's first heading.
+      bufferHeading = currentHeading;
     }
     if (buffer === "") bufferHeading = currentHeading;
     buffer = buffer === "" ? p : `${buffer}\n\n${p}`;
