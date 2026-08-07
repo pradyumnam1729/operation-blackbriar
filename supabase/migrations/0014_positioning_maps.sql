@@ -17,3 +17,8 @@ create table if not exists positioning_maps (
 
 create index if not exists positioning_maps_created_at_idx
   on positioning_maps (created_at desc);
+
+-- v2: tunable maps — quadrant labels + the build parameters (axes, product
+-- and competitor scope) so the UI can restore the last configuration.
+alter table positioning_maps add column if not exists quadrants jsonb;
+alter table positioning_maps add column if not exists params jsonb not null default '{}'::jsonb;

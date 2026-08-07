@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { apiDelete, apiGet, apiPost } from "../lib/api";
 import { useAuth } from "../auth/AuthContext";
@@ -58,87 +58,181 @@ interface PositioningPoint {
   type: "aurigo" | "competitor";
   x: number;
   y: number;
+  size: number;
   note: string | null;
+}
+
+interface QuadrantLabels {
+  top_left: string;
+  top_right: string;
+  bottom_left: string;
+  bottom_right: string;
+}
+
+interface MapParams {
+  xAxis?: PositioningAxis;
+  yAxis?: PositioningAxis;
+  products?: string[];
+  competitorIds?: string[];
 }
 
 interface PositioningMap {
   id: string;
   xAxis: PositioningAxis;
   yAxis: PositioningAxis;
+  quadrants: QuadrantLabels | null;
   points: PositioningPoint[];
   skipped: { name: string; reason: string }[];
   summaryHtml: string | null;
   evidence: { title: string; docType: string }[];
+  params: MapParams;
   createdAt: string;
 }
 
-/** SVG quadrant scatter: Aurigo products in brand teal, competitors in slate. */
-function MapChart({ map }: { map: PositioningMap }) {
-  const W = 760;
-  const H = 460;
-  const M = { top: 28, right: 30, bottom: 64, left: 76 };
+// Axis presets the map can be rebuilt around. "Model's choice" lets the AI
+// pick the most separating axes from the evidence; the rest pin the axis.
+const AXIS_PRESETS: PositioningAxis[] = [
+  { label: "Buyer focus", low: "General construction", high: "Public-sector capital programs" },
+  { label: "Scope of coverage", low: "Point solution", high: "Full life cycle suite" },
+  { label: "AI depth", low: "Bolt-on features", high: "AI-native platform" },
+  { label: "Deployment model", low: "Heavy implementation", high: "Fast time to value" },
+  { label: "Buyer size", low: "Small teams", high: "Enterprise programs" },
+  { label: "Asset orientation", low: "Project delivery", high: "Asset & maintenance management" },
+];
+
+const MAP_AURIGO_PRODUCTS = ["Masterworks", "Masterworks AI", "Primus", "Essentials"];
+
+interface Tip {
+  x: number;
+  y: number;
+  title: string;
+  note: string | null;
+  size: number;
+}
+
+/**
+ * Industry-standard quadrant chart: tinted quadrants with labels, center
+ * cross, evidence-weighted bubble sizes, brand colors, hover tooltips.
+ */
+function MapChart({ map, onHover }: { map: PositioningMap; onHover: (t: Tip | null) => void }) {
+  const W = 820;
+  const H = 540;
+  const M = { top: 34, right: 34, bottom: 70, left: 82 };
   const plotW = W - M.left - M.right;
   const plotH = H - M.top - M.bottom;
   const px = (x: number) => M.left + (x / 100) * plotW;
   const py = (y: number) => M.top + plotH - (y / 100) * plotH;
+  const radius = (size: number) => 7 + (Math.max(20, Math.min(100, size)) / 100) * 13;
+
+  const quadLabel = (text: string, x: number, y: number, anchor: "start" | "end") => (
+    <text
+      x={x}
+      y={y}
+      textAnchor={anchor}
+      fontSize={10.5}
+      fontWeight={600}
+      letterSpacing="0.08em"
+      fill="#8CA3AC"
+      style={{ textTransform: "uppercase" }}
+    >
+      {text.toUpperCase()}
+    </text>
+  );
+
+  // Sort so bigger bubbles render first (small ones stay clickable on top).
+  const points = [...map.points].sort((a, b) => b.size - a.size);
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: "auto", display: "block" }} role="img" aria-label="Positioning map">
-      <rect x={M.left} y={M.top} width={plotW} height={plotH} fill="var(--bg-page, #F7F9FA)" stroke="#E2E8F0" />
-      <line x1={px(50)} y1={M.top} x2={px(50)} y2={M.top + plotH} stroke="#D7E0E4" strokeDasharray="4 4" />
-      <line x1={M.left} y1={py(50)} x2={M.left + plotW} y2={py(50)} stroke="#D7E0E4" strokeDasharray="4 4" />
+    <svg
+      viewBox={`0 0 ${W} ${H}`}
+      style={{ width: "100%", height: "auto", display: "block" }}
+      role="img"
+      aria-label="Positioning map"
+    >
+      {/* quadrant tints */}
+      <rect x={M.left} y={M.top} width={plotW / 2} height={plotH / 2} fill="#F3F8F9" />
+      <rect x={px(50)} y={M.top} width={plotW / 2} height={plotH / 2} fill="#E9F4F5" />
+      <rect x={M.left} y={py(50)} width={plotW / 2} height={plotH / 2} fill="#F8FAFB" />
+      <rect x={px(50)} y={py(50)} width={plotW / 2} height={plotH / 2} fill="#F3F8F9" />
+      <rect x={M.left} y={M.top} width={plotW} height={plotH} fill="none" stroke="#DCE5E9" />
 
-      {/* x axis labels */}
-      <text x={M.left + plotW / 2} y={H - 12} textAnchor="middle" fontSize={12.5} fontWeight={500} fill="#334155">
+      {/* center cross */}
+      <line x1={px(50)} y1={M.top} x2={px(50)} y2={M.top + plotH} stroke="#C4D3D9" strokeDasharray="5 5" />
+      <line x1={M.left} y1={py(50)} x2={M.left + plotW} y2={py(50)} stroke="#C4D3D9" strokeDasharray="5 5" />
+
+      {/* quadrant labels */}
+      {map.quadrants && (
+        <>
+          {quadLabel(map.quadrants.top_left, M.left + 10, M.top + 18, "start")}
+          {quadLabel(map.quadrants.top_right, M.left + plotW - 10, M.top + 18, "end")}
+          {quadLabel(map.quadrants.bottom_left, M.left + 10, M.top + plotH - 10, "start")}
+          {quadLabel(map.quadrants.bottom_right, M.left + plotW - 10, M.top + plotH - 10, "end")}
+        </>
+      )}
+
+      {/* x axis */}
+      <text x={M.left + plotW / 2} y={H - 14} textAnchor="middle" fontSize={13} fontWeight={600} fill="#0B4D5C">
         {map.xAxis.label}
       </text>
-      <text x={M.left} y={M.top + plotH + 20} textAnchor="start" fontSize={11} fill="#7C8B94">
+      <text x={M.left} y={M.top + plotH + 22} textAnchor="start" fontSize={11} fill="#7C8B94">
         ← {map.xAxis.low}
       </text>
-      <text x={M.left + plotW} y={M.top + plotH + 20} textAnchor="end" fontSize={11} fill="#7C8B94">
+      <text x={M.left + plotW} y={M.top + plotH + 22} textAnchor="end" fontSize={11} fill="#7C8B94">
         {map.xAxis.high} →
       </text>
 
-      {/* y axis labels */}
+      {/* y axis */}
       <text
-        x={20}
+        x={22}
         y={M.top + plotH / 2}
         textAnchor="middle"
-        fontSize={12.5}
-        fontWeight={500}
-        fill="#334155"
-        transform={`rotate(-90 20 ${M.top + plotH / 2})`}
+        fontSize={13}
+        fontWeight={600}
+        fill="#0B4D5C"
+        transform={`rotate(-90 22 ${M.top + plotH / 2})`}
       >
         {map.yAxis.label}
       </text>
-      <text x={M.left - 8} y={M.top + plotH} textAnchor="end" fontSize={11} fill="#7C8B94">
+      <text x={M.left - 10} y={M.top + plotH - 2} textAnchor="end" fontSize={11} fill="#7C8B94">
         {map.yAxis.low}
       </text>
-      <text x={M.left - 8} y={M.top + 10} textAnchor="end" fontSize={11} fill="#7C8B94">
-        {map.yAxis.high}
+      <text x={M.left - 10} y={M.top + 12} textAnchor="end" fontSize={11} fill="#7C8B94">
+        {map.yAxis.high} ↑
       </text>
 
-      {map.points.map((p) => {
+      {points.map((p) => {
         const cx = px(p.x);
         const cy = py(p.y);
+        const r = radius(p.size);
         const aurigo = p.type === "aurigo";
-        const labelLeft = p.x > 72;
+        const labelLeft = p.x > 70;
         return (
-          <g key={p.name}>
-            <title>{p.note ? `${p.name} — ${p.note}` : p.name}</title>
+          <g
+            key={p.name}
+            style={{ cursor: "pointer" }}
+            onMouseEnter={(e) =>
+              onHover({ x: e.clientX, y: e.clientY, title: p.name, note: p.note, size: p.size })
+            }
+            onMouseMove={(e) =>
+              onHover({ x: e.clientX, y: e.clientY, title: p.name, note: p.note, size: p.size })
+            }
+            onMouseLeave={() => onHover(null)}
+          >
             <circle
               cx={cx}
               cy={cy}
-              r={aurigo ? 8 : 6}
-              fill={aurigo ? "#015F74" : "#94A3B8"}
+              r={r}
+              fill={aurigo ? "#015F74" : "#64748B"}
+              fillOpacity={aurigo ? 0.92 : 0.55}
               stroke={aurigo ? "#F8D146" : "#fff"}
-              strokeWidth={aurigo ? 2 : 1.5}
+              strokeWidth={aurigo ? 2.5 : 1.5}
             />
+            {aurigo && <circle cx={cx} cy={cy} r={2.6} fill="#F8D146" />}
             <text
-              x={labelLeft ? cx - 12 : cx + 12}
+              x={labelLeft ? cx - r - 7 : cx + r + 7}
               y={cy + 4}
               textAnchor={labelLeft ? "end" : "start"}
-              fontSize={12}
+              fontSize={12.5}
               fontWeight={aurigo ? 600 : 400}
               fill={aurigo ? "#015F74" : "#475569"}
             >
@@ -170,9 +264,34 @@ export function CompetitiveIntel() {
   const [showAdd, setShowAdd] = useState(false);
   const [addForm, setAddForm] = useState({ name: "", website: "", category: "", aurigoProduct: "" });
   const [sourceUrlFor, setSourceUrlFor] = useState<{ id: string; url: string } | null>(null);
+  const [tab, setTab] = useState<"compare" | "map">("compare");
   const [posMap, setPosMap] = useState<PositioningMap | null>(null);
   const [mapBusy, setMapBusy] = useState(false);
   const [mapError, setMapError] = useState("");
+  const [tip, setTip] = useState<Tip | null>(null);
+
+  // Map parameters. "auto" = the model picks the axes; a preset label pins
+  // that axis; "custom" uses the free-text axis fields.
+  const [xPreset, setXPreset] = useState("auto");
+  const [yPreset, setYPreset] = useState("auto");
+  const [xCustom, setXCustom] = useState<PositioningAxis>({ label: "", low: "", high: "" });
+  const [yCustom, setYCustom] = useState<PositioningAxis>({ label: "", low: "", high: "" });
+  const [mapProducts, setMapProducts] = useState<string[]>(["Masterworks", "Primus", "Essentials"]);
+  const [mapCompetitors, setMapCompetitors] = useState<string[]>([]);
+  const paramsRestored = useRef(false);
+
+  const resolveAxis = (preset: string, custom: PositioningAxis): PositioningAxis | undefined => {
+    if (preset === "auto") return undefined;
+    if (preset === "custom")
+      return custom.label.trim() !== ""
+        ? {
+            label: custom.label.trim(),
+            low: custom.low.trim() || "Low",
+            high: custom.high.trim() || "High",
+          }
+        : undefined;
+    return AXIS_PRESETS.find((a) => a.label === preset);
+  };
 
   const load = useCallback(async () => {
     try {
@@ -185,6 +304,23 @@ export function CompetitiveIntel() {
       setHistory(h.comparisons);
       const m = await apiGet<{ map: PositioningMap | null }>("/api/competitive/positioning-map");
       setPosMap(m.map);
+      // Restore the last build's parameters into the controls, once.
+      if (m.map && !paramsRestored.current) {
+        paramsRestored.current = true;
+        const p = m.map.params;
+        if (p.xAxis) {
+          const preset = AXIS_PRESETS.find((a) => a.label === p.xAxis!.label);
+          setXPreset(preset ? preset.label : "custom");
+          if (!preset) setXCustom(p.xAxis);
+        }
+        if (p.yAxis) {
+          const preset = AXIS_PRESETS.find((a) => a.label === p.yAxis!.label);
+          setYPreset(preset ? preset.label : "custom");
+          if (!preset) setYCustom(p.yAxis);
+        }
+        if (p.products && p.products.length > 0) setMapProducts(p.products);
+        if (p.competitorIds && p.competitorIds.length > 0) setMapCompetitors(p.competitorIds);
+      }
     } catch (e) {
       setError((e as Error).message);
     }
@@ -221,8 +357,15 @@ export function CompetitiveIntel() {
   const refreshMap = async () => {
     setMapBusy(true);
     setMapError("");
+    const xAxis = resolveAxis(xPreset, xCustom);
+    const yAxis = resolveAxis(yPreset, yCustom);
     try {
-      const r = await apiPost<{ map: PositioningMap }>("/api/competitive/positioning-map/refresh");
+      const r = await apiPost<{ map: PositioningMap }>("/api/competitive/positioning-map/refresh", {
+        xAxis: xAxis && yAxis ? xAxis : undefined,
+        yAxis: xAxis && yAxis ? yAxis : undefined,
+        products: mapProducts,
+        competitorIds: mapCompetitors.length > 0 ? mapCompetitors : undefined,
+      });
       setPosMap(r.map);
     } catch (e) {
       setMapError((e as Error).message);
@@ -230,6 +373,9 @@ export function CompetitiveIntel() {
       setMapBusy(false);
     }
   };
+
+  const toggleIn = (list: string[], v: string) =>
+    list.includes(v) ? list.filter((x) => x !== v) : [...list, v];
 
   const saveBattlecard = async () => {
     if (!result) return;
@@ -363,6 +509,17 @@ export function CompetitiveIntel() {
         </div>
       )}
 
+      <div className="tab-row" style={{ margin: "4px 0 16px" }}>
+        <button className={tab === "compare" ? "active" : ""} onClick={() => setTab("compare")}>
+          <i className="fa-solid fa-chess" style={{ marginRight: 6 }} /> Compare &amp; registry
+        </button>
+        <button className={tab === "map" ? "active" : ""} onClick={() => setTab("map")}>
+          <i className="fa-solid fa-map-location-dot" style={{ marginRight: 6 }} /> Positioning map
+        </button>
+      </div>
+
+      {tab === "compare" && (
+      <>
       {/* ---------- ask ---------- */}
       <div className="chat-hero">
         <div className="chat-heading">
@@ -466,73 +623,6 @@ export function CompetitiveIntel() {
           </div>
         </>
       )}
-
-      {/* ---------- positioning map ---------- */}
-      <div className="card">
-        <div className="row-between" style={{ marginBottom: 4 }}>
-          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 500 }}>
-            <i className="fa-solid fa-map-location-dot" style={{ color: "var(--teal-dark)", marginRight: 8 }} />
-            Live positioning map
-          </h3>
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
-            {posMap && (
-              <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
-                built {new Date(posMap.createdAt).toLocaleString()}
-              </span>
-            )}
-            <button className="btn btn-primary btn-sm" onClick={() => void refreshMap()} disabled={mapBusy}>
-              <i className={`fa-solid ${mapBusy ? "fa-spinner fa-spin" : "fa-rotate"}`} />{" "}
-              {mapBusy ? "Building…" : posMap ? "Rebuild map" : "Build map"}
-            </button>
-          </span>
-        </div>
-        <p style={{ fontSize: 12.5, color: "var(--text-secondary)", margin: "0 0 12px" }}>
-          Aurigo products are placed from the knowledge base — customer conversations included —
-          and competitors only from their scraped sources. Hover a point for the reasoning.
-        </p>
-        {mapError && (
-          <div style={{ background: "#FCE8E8", color: "#A32D2D", borderRadius: "var(--r-md)", padding: "10px 14px", fontSize: 13, marginBottom: 12 }}>
-            {mapError}
-          </div>
-        )}
-        {mapBusy && !posMap && (
-          <div className="empty-note">Reading scraped sources and the knowledge base — this can take up to a minute…</div>
-        )}
-        {posMap ? (
-          <>
-            <MapChart map={posMap} />
-            <div style={{ display: "flex", gap: 18, alignItems: "center", marginTop: 10, fontSize: 12, color: "var(--text-secondary)" }}>
-              <span>
-                <span style={{ display: "inline-block", width: 10, height: 10, borderRadius: "50%", background: "#015F74", border: "2px solid #F8D146", marginRight: 6, verticalAlign: "-1px" }} />
-                Aurigo products
-              </span>
-              <span>
-                <span style={{ display: "inline-block", width: 10, height: 10, borderRadius: "50%", background: "#94A3B8", marginRight: 6, verticalAlign: "-1px" }} />
-                Competitors
-              </span>
-              {posMap.skipped.length > 0 && (
-                <span style={{ color: "var(--text-muted)" }}>
-                  Not placed (insufficient evidence): {posMap.skipped.map((s) => s.name).join(", ")}
-                </span>
-              )}
-            </div>
-            {posMap.summaryHtml && (
-              <div
-                className="prose"
-                style={{ border: "none", boxShadow: "none", padding: 0, marginTop: 12 }}
-                dangerouslySetInnerHTML={{ __html: posMap.summaryHtml }}
-              />
-            )}
-          </>
-        ) : (
-          !mapBusy && (
-            <div className="empty-note">
-              No map built yet. Scrape at least one competitor in the registry below, then build the
-              map.
-            </div>
-          )
-        )}
-      </div>
 
       {/* ---------- registry ---------- */}
       <div className="card">
@@ -674,6 +764,187 @@ export function CompetitiveIntel() {
             </div>
           ))}
         </div>
+      )}
+      </>
+      )}
+
+      {/* ---------- positioning map tab ---------- */}
+      {tab === "map" && (
+        <>
+          <div className="card">
+            <div className="row-between" style={{ marginBottom: 10 }}>
+              <h3 style={{ margin: 0, fontSize: 15, fontWeight: 500 }}>Map parameters</h3>
+              <button className="btn btn-primary btn-sm" onClick={() => void refreshMap()} disabled={mapBusy}>
+                <i className={`fa-solid ${mapBusy ? "fa-spinner fa-spin" : "fa-wand-magic-sparkles"}`} />{" "}
+                {mapBusy ? "Building…" : posMap ? "Rebuild map" : "Build map"}
+              </button>
+            </div>
+            <div className="grid grid-2" style={{ alignItems: "start" }}>
+              <div>
+                <label style={{ marginTop: 0 }}>X axis</label>
+                <select value={xPreset} onChange={(e) => setXPreset(e.target.value)}>
+                  <option value="auto">Model's choice (best separator)</option>
+                  {AXIS_PRESETS.map((a) => (
+                    <option key={a.label} value={a.label}>
+                      {a.label} ({a.low} → {a.high})
+                    </option>
+                  ))}
+                  <option value="custom">Custom axis…</option>
+                </select>
+                {xPreset === "custom" && (
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginTop: 8 }}>
+                    <input placeholder="Axis label" value={xCustom.label} onChange={(e) => setXCustom({ ...xCustom, label: e.target.value })} />
+                    <input placeholder="Low end" value={xCustom.low} onChange={(e) => setXCustom({ ...xCustom, low: e.target.value })} />
+                    <input placeholder="High end" value={xCustom.high} onChange={(e) => setXCustom({ ...xCustom, high: e.target.value })} />
+                  </div>
+                )}
+                <label>Y axis</label>
+                <select value={yPreset} onChange={(e) => setYPreset(e.target.value)}>
+                  <option value="auto">Model's choice (best separator)</option>
+                  {AXIS_PRESETS.map((a) => (
+                    <option key={a.label} value={a.label}>
+                      {a.label} ({a.low} → {a.high})
+                    </option>
+                  ))}
+                  <option value="custom">Custom axis…</option>
+                </select>
+                {yPreset === "custom" && (
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginTop: 8 }}>
+                    <input placeholder="Axis label" value={yCustom.label} onChange={(e) => setYCustom({ ...yCustom, label: e.target.value })} />
+                    <input placeholder="Low end" value={yCustom.low} onChange={(e) => setYCustom({ ...yCustom, low: e.target.value })} />
+                    <input placeholder="High end" value={yCustom.high} onChange={(e) => setYCustom({ ...yCustom, high: e.target.value })} />
+                  </div>
+                )}
+                {(resolveAxis(xPreset, xCustom) === undefined) !== (resolveAxis(yPreset, yCustom) === undefined) && (
+                  <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: "8px 0 0" }}>
+                    Pin both axes to use them — with only one pinned, the model chooses both.
+                  </p>
+                )}
+              </div>
+              <div>
+                <label style={{ marginTop: 0 }}>Aurigo products on the map</label>
+                <div className="step-pills">
+                  {MAP_AURIGO_PRODUCTS.map((p) => (
+                    <button
+                      key={p}
+                      type="button"
+                      className={`step-pill ${mapProducts.includes(p) ? "active" : ""}`}
+                      onClick={() => setMapProducts((l) => toggleIn(l, p))}
+                    >
+                      {p}
+                    </button>
+                  ))}
+                </div>
+                <label>Competitors (none selected = all with sources)</label>
+                <div className="step-pills">
+                  {competitors.map((c) => {
+                    const hasSources = c.sources.some((s) => s.status === "ok");
+                    return (
+                      <button
+                        key={c.id}
+                        type="button"
+                        className={`step-pill ${mapCompetitors.includes(c.id) ? "active" : ""}`}
+                        style={!hasSources ? { opacity: 0.45 } : undefined}
+                        title={hasSources ? c.name : `${c.name} — no scraped sources yet; it will be listed as skipped`}
+                        onClick={() => setMapCompetitors((l) => toggleIn(l, c.id))}
+                      >
+                        {c.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+            {mapError && (
+              <div style={{ background: "#FCE8E8", color: "#A32D2D", borderRadius: "var(--r-md)", padding: "10px 14px", fontSize: 13, marginTop: 12 }}>
+                {mapError}
+              </div>
+            )}
+          </div>
+
+          <div className="card">
+            <div className="row-between" style={{ marginBottom: 4 }}>
+              <h3 style={{ margin: 0, fontSize: 15, fontWeight: 500 }}>
+                <i className="fa-solid fa-map-location-dot" style={{ color: "var(--teal-dark)", marginRight: 8 }} />
+                {posMap ? `${posMap.xAxis.label} × ${posMap.yAxis.label}` : "Positioning map"}
+              </h3>
+              {posMap && (
+                <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                  built {new Date(posMap.createdAt).toLocaleString()}
+                </span>
+              )}
+            </div>
+            <p style={{ fontSize: 12.5, color: "var(--text-secondary)", margin: "0 0 12px" }}>
+              Aurigo products are placed from the knowledge base — customer conversations included —
+              and competitors only from their scraped sources. Bubble size is evidence-weighted
+              presence on these axes. Hover a bubble for the reasoning.
+            </p>
+            {mapBusy && (
+              <div className="empty-note">
+                Reading scraped sources and the knowledge base — this can take up to a minute…
+              </div>
+            )}
+            {posMap && !mapBusy ? (
+              <>
+                <MapChart map={posMap} onHover={setTip} />
+                <div style={{ display: "flex", gap: 18, alignItems: "center", flexWrap: "wrap", marginTop: 10, fontSize: 12, color: "var(--text-secondary)" }}>
+                  <span>
+                    <span style={{ display: "inline-block", width: 10, height: 10, borderRadius: "50%", background: "#015F74", border: "2px solid #F8D146", marginRight: 6, verticalAlign: "-1px" }} />
+                    Aurigo products
+                  </span>
+                  <span>
+                    <span style={{ display: "inline-block", width: 10, height: 10, borderRadius: "50%", background: "#64748B", opacity: 0.7, marginRight: 6, verticalAlign: "-1px" }} />
+                    Competitors
+                  </span>
+                  <span style={{ color: "var(--text-muted)" }}>Bubble size = evidence strength</span>
+                  {posMap.skipped.length > 0 && (
+                    <span style={{ color: "var(--text-muted)" }}>
+                      Not placed (insufficient evidence): {posMap.skipped.map((s) => s.name).join(", ")}
+                    </span>
+                  )}
+                </div>
+                {posMap.summaryHtml && (
+                  <div
+                    className="prose"
+                    style={{ border: "none", boxShadow: "none", padding: 0, marginTop: 12 }}
+                    dangerouslySetInnerHTML={{ __html: posMap.summaryHtml }}
+                  />
+                )}
+              </>
+            ) : (
+              !mapBusy && (
+                <div className="empty-note">
+                  No map built yet. Set the parameters above and build — competitors need scraped
+                  sources (Compare &amp; registry tab) to be placed.
+                </div>
+              )
+            )}
+          </div>
+
+          {tip && (
+            <div
+              style={{
+                position: "fixed",
+                left: Math.min(tip.x + 14, window.innerWidth - 320),
+                top: tip.y + 14,
+                zIndex: 300,
+                maxWidth: 300,
+                background: "#0B2E36",
+                color: "#F2F7F8",
+                borderRadius: "var(--r-md)",
+                padding: "10px 13px",
+                fontSize: 12.5,
+                lineHeight: 1.5,
+                boxShadow: "0 10px 30px rgba(0,0,0,.3)",
+                pointerEvents: "none",
+              }}
+            >
+              <div style={{ fontWeight: 600, marginBottom: 3 }}>{tip.title}</div>
+              {tip.note && <div>{tip.note}</div>}
+              <div style={{ color: "#9FC1C9", marginTop: 4 }}>Evidence strength: {tip.size}/100</div>
+            </div>
+          )}
+        </>
       )}
     </div>
   );

@@ -149,10 +149,22 @@ competitiveRouter.get("/positioning-map", requireAuth, async (_req, res) => {
 });
 
 // POST /api/competitive/positioning-map/refresh — rebuild from current
-// scraped sources + knowledge base (customer conversations included).
+// scraped sources + knowledge base. Body carries the tunable parameters:
+// { xAxis?, yAxis?, products?, competitorIds? }.
 competitiveRouter.post("/positioning-map/refresh", requireAuth, async (req, res) => {
+  const { xAxis, yAxis, products, competitorIds } = (req.body ?? {}) as {
+    xAxis?: { label: string; low: string; high: string };
+    yAxis?: { label: string; low: string; high: string };
+    products?: string[];
+    competitorIds?: string[];
+  };
   try {
-    const map = await buildPositioningMap(req.user!.id);
+    const map = await buildPositioningMap(req.user!.id, {
+      xAxis: xAxis?.label ? xAxis : undefined,
+      yAxis: yAxis?.label ? yAxis : undefined,
+      products: Array.isArray(products) ? products : undefined,
+      competitorIds: Array.isArray(competitorIds) ? competitorIds : undefined,
+    });
     void logActivity("positioning_map", map.id, req.user!.id, "positioning_map_built", {
       points: map.points.length,
       skipped: map.skipped.length,

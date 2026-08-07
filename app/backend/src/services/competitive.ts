@@ -291,17 +291,34 @@ export interface PositioningPoint {
   type: "aurigo" | "competitor";
   x: number;
   y: number;
+  size: number;
   note: string | null;
+}
+
+export interface QuadrantLabels {
+  top_left: string;
+  top_right: string;
+  bottom_left: string;
+  bottom_right: string;
+}
+
+export interface PositioningMapParams {
+  xAxis?: PositioningAxis;
+  yAxis?: PositioningAxis;
+  products?: string[];
+  competitorIds?: string[];
 }
 
 export interface PositioningMap {
   id: string;
   xAxis: PositioningAxis;
   yAxis: PositioningAxis;
+  quadrants: QuadrantLabels | null;
   points: PositioningPoint[];
   skipped: { name: string; reason: string }[];
   summaryHtml: string | null;
   evidence: { title: string; docType: string }[];
+  params: PositioningMapParams;
   createdAt: string;
 }
 
@@ -309,22 +326,32 @@ interface MapRow {
   id: string;
   x_axis: PositioningAxis;
   y_axis: PositioningAxis;
+  quadrants: QuadrantLabels | null;
   points: PositioningPoint[];
   skipped: { name: string; reason: string }[];
   summary_html: string | null;
   evidence: { title: string; docType: string }[];
+  params: PositioningMapParams | null;
   created_at: string;
 }
+
+const MAP_COLS =
+  "id, x_axis, y_axis, quadrants, points, skipped, summary_html, evidence, params, created_at";
 
 function rowToMap(row: MapRow): PositioningMap {
   return {
     id: row.id,
     xAxis: row.x_axis,
     yAxis: row.y_axis,
-    points: row.points,
+    quadrants: row.quadrants ?? null,
+    points: (row.points ?? []).map((p) => ({
+      ...p,
+      size: Number.isFinite(Number(p.size)) ? Number(p.size) : 60,
+    })),
     skipped: row.skipped ?? [],
     summaryHtml: row.summary_html,
     evidence: row.evidence ?? [],
+    params: row.params ?? {},
     createdAt: row.created_at,
   };
 }
@@ -333,7 +360,7 @@ export async function getLatestPositioningMap(): Promise<PositioningMap | null> 
   const sb = supabase()!;
   const { data } = await sb
     .from("positioning_maps")
-    .select("id, x_axis, y_axis, points, skipped, summary_html, evidence, created_at")
+    .select(MAP_COLS)
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -354,6 +381,7 @@ function isAxis(v: unknown): v is PositioningAxis {
 function parseMapAnswer(raw: string): {
   xAxis: PositioningAxis;
   yAxis: PositioningAxis;
+  quadrants: QuadrantLabels | null;
   points: PositioningPoint[];
   skipped: { name: string; reason: string }[];
   summary: string | null;
@@ -377,15 +405,32 @@ function parseMapAnswer(raw: string): {
     const x = Number(p.x);
     const y = Number(p.y);
     if (!name || !Number.isFinite(x) || !Number.isFinite(y)) continue;
+    const size = Number(p.size);
     points.push({
       name,
       type: p.type === "aurigo" ? "aurigo" : "competitor",
       x: Math.max(0, Math.min(100, x)),
       y: Math.max(0, Math.min(100, y)),
+      size: Number.isFinite(size) ? Math.max(20, Math.min(100, size)) : 60,
       note: typeof p.note === "string" ? p.note : null,
     });
   }
   if (points.length < 2) return null;
+
+  const q = o.quadrants as Record<string, unknown> | undefined;
+  const quadrants: QuadrantLabels | null =
+    q &&
+    typeof q.top_left === "string" &&
+    typeof q.top_right === "string" &&
+    typeof q.bottom_left === "string" &&
+    typeof q.bottom_right === "string"
+      ? {
+          top_left: q.top_left,
+          top_right: q.top_right,
+          bottom_left: q.bottom_left,
+          bottom_right: q.bottom_right,
+        }
+      : null;
 
   const skipped = Array.isArray(o.skipped)
     ? (o.skipped as Record<string, unknown>[])
@@ -399,18 +444,36 @@ function parseMapAnswer(raw: string): {
   return {
     xAxis: o.x_axis,
     yAxis: o.y_axis,
+    quadrants,
     points,
     skipped,
     summary: typeof o.summary === "string" ? o.summary : null,
   };
 }
 
-export async function buildPositioningMap(userId: string): Promise<PositioningMap> {
+const MAP_AURIGO_PRODUCTS = ["Masterworks", "Masterworks AI", "Primus", "Essentials"];
+
+export async function buildPositioningMap(
+  userId: string,
+  params: PositioningMapParams = {}
+): Promise<PositioningMap> {
   const sb = supabase()!;
+
+  const aurigoProducts =
+    params.products && params.products.length > 0
+      ? params.products.filter((p) => MAP_AURIGO_PRODUCTS.includes(p))
+      : ["Masterworks", "Primus", "Essentials"];
+  if (aurigoProducts.length === 0) {
+    throw new Error("Pick at least one Aurigo product to place on the map.");
+  }
 
   const { data: comps } = await sb
     .from("competitors")
     .select("id, name, category, aurigo_product");
+  const scoped =
+    params.competitorIds && params.competitorIds.length > 0
+      ? (comps ?? []).filter((c) => params.competitorIds!.includes(c.id))
+      : (comps ?? []);
   const { data: srcs } = await sb
     .from("competitor_sources")
     .select("competitor_id, url, label, content_md, scraped_at")
@@ -418,7 +481,7 @@ export async function buildPositioningMap(userId: string): Promise<PositioningMa
 
   const withEvidence: { name: string; category: string | null; context: string }[] = [];
   const preSkipped: { name: string; reason: string }[] = [];
-  for (const c of comps ?? []) {
+  for (const c of scoped) {
     const own = (srcs ?? []).filter((s) => s.competitor_id === c.id && s.content_md);
     if (own.length === 0) {
       preSkipped.push({ name: c.name, reason: "no scraped sources yet — refresh it in the registry" });
@@ -434,12 +497,12 @@ export async function buildPositioningMap(userId: string): Promise<PositioningMa
   }
   if (withEvidence.length === 0) {
     throw new Error(
-      "No competitor has scraped sources yet. Refresh a competitor in the registry, then build the map."
+      "None of the selected competitors have scraped sources. Refresh them in the registry, then build the map."
     );
   }
 
   const chunks = await retrieveChunks(
-    "positioning value propositions differentiators customers capital program asset management public sector",
+    `positioning value propositions differentiators customers ${aurigoProducts.join(" ")} ${params.xAxis?.label ?? ""} ${params.yAxis?.label ?? ""}`,
     12
   );
 
@@ -447,14 +510,25 @@ export async function buildPositioningMap(userId: string): Promise<PositioningMa
     .map((c) => `=== COMPETITOR: ${c.name}${c.category ? ` (${c.category})` : ""} ===\n${c.context}`)
     .join("\n\n");
 
+  const axisInstruction =
+    params.xAxis && params.yAxis
+      ? [
+          `- Use EXACTLY these axes. X axis: "${params.xAxis.label}" (0 = ${params.xAxis.low}, 100 = ${params.xAxis.high}). Y axis: "${params.yAxis.label}" (0 = ${params.yAxis.low}, 100 = ${params.yAxis.high}). Echo them back verbatim in x_axis / y_axis.`,
+        ]
+      : [
+          "- Choose the two axes that best separate this market based on the evidence (for example public-sector capital program focus vs. general construction, or full life cycle suite vs. point solution). low/high name the two ends of each axis.",
+        ];
+
   const prompt = [
     "Build a market positioning map for Aurigo against the competitors below.",
     "Respond with ONLY a JSON object — no prose before or after — shaped exactly like:",
-    '{"x_axis": {"label": string, "low": string, "high": string}, "y_axis": {"label": string, "low": string, "high": string}, "points": [{"name": string, "type": "aurigo" | "competitor", "x": number 0-100, "y": number 0-100, "note": string}], "skipped": [{"name": string, "reason": string}], "summary": string}',
+    '{"x_axis": {"label": string, "low": string, "high": string}, "y_axis": {"label": string, "low": string, "high": string}, "quadrants": {"top_left": string, "top_right": string, "bottom_left": string, "bottom_right": string}, "points": [{"name": string, "type": "aurigo" | "competitor", "x": number 0-100, "y": number 0-100, "size": number 20-100, "note": string}], "skipped": [{"name": string, "reason": string}], "summary": string}',
     "Rules:",
-    "- Choose the two axes that best separate this market based on the evidence (for example public-sector capital program focus vs. general construction, or full life cycle suite vs. point solution). low/high name the two ends of each axis.",
-    '- Place the Aurigo products Masterworks, Primus, and Essentials as separate points with type "aurigo", grounded in the Aurigo knowledge base below (which includes customer conversations).',
+    ...axisInstruction,
+    `- Place these Aurigo products as separate points with type "aurigo": ${aurigoProducts.join(", ")}. Ground them in the Aurigo knowledge base below (which includes customer conversations). Do not place any other Aurigo product.`,
     "- Place each competitor ONLY from facts present in its scraped sources. If the sources are too thin to place one honestly, leave it out of points and add it to skipped with a short reason. Never invent a placement.",
+    "- size: evidence-weighted market presence on these axes, 20-100 — how strongly the available evidence supports this player's position (NOT company revenue).",
+    "- quadrants: a 2-4 word label characterizing each quadrant of this map (top_left = low X / high Y, top_right = high X / high Y, bottom_left = low X / low Y, bottom_right = high X / low Y).",
     "- note: one sentence explaining the placement, citing what the evidence actually says.",
     '- summary: 3-5 sentences (markdown) on what the map reveals for Aurigo\'s position and open whitespace. Use "AI-native" as the only AI modifier and write "life cycle" as two words.',
     "",
@@ -478,15 +552,17 @@ export async function buildPositioningMap(userId: string): Promise<PositioningMa
   const { data: row, error } = await sb
     .from("positioning_maps")
     .insert({
-      x_axis: parsed.xAxis,
-      y_axis: parsed.yAxis,
+      x_axis: params.xAxis ?? parsed.xAxis,
+      y_axis: params.yAxis ?? parsed.yAxis,
+      quadrants: parsed.quadrants,
       points: parsed.points,
       skipped,
       summary_html: parsed.summary ? markdownToHtml(parsed.summary) : null,
       evidence,
+      params,
       created_by: userId,
     })
-    .select("id, x_axis, y_axis, points, skipped, summary_html, evidence, created_at")
+    .select(MAP_COLS)
     .single();
   if (error || !row) throw new Error(error?.message ?? "Could not store the positioning map");
   return rowToMap(row as MapRow);
