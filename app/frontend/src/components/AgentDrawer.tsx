@@ -34,7 +34,7 @@ const PRE_BOX: CSSProperties = {
 };
 
 /** Contracts whose output is machine-parsed — the untested-override advisory applies. */
-const JSON_CONTRACTS = ["fq-answers-json", "fills-json", "section-headings"];
+const JSON_CONTRACTS = ["fq-answers-json", "fills-json", "section-headings", "route-json"];
 
 const FALLBACK_ROLES = [
   "sales",

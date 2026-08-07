@@ -5,6 +5,7 @@ import { REPO_ROOT } from "./warRoom";
 import { parseModelJson } from "./questionnaire";
 import { TemplateSlot, validateFills } from "./templateRender";
 import {
+  ASK_ROUTER_BASE_PROMPT,
   COMPETITIVE_BASE_PROMPT,
   EXTRACTION_BASE_PROMPT,
   MERGE_BASE_PROMPT,
@@ -27,7 +28,25 @@ import {
 // policy but can never remove the output contract.
 
 export type AgentKind = "task" | "pmm";
-export type AgentContract = "fq-answers-json" | "fills-json" | "section-headings" | "markdown";
+export type AgentContract =
+  | "fq-answers-json"
+  | "fills-json"
+  | "section-headings"
+  | "markdown"
+  | "route-json";
+
+/** One row of the ask-router's template catalog (ask-to-artifact blueprint §4.1).
+ *  Defined HERE (not in askRouter.ts) so the dependency stays one-way:
+ *  askRouter.ts imports agents.ts, never the reverse (blueprint §7). */
+export interface RouterCandidate {
+  id: string;
+  name: string;
+  asset_type: string;
+  product_line: string | null;
+  audience: string | null;
+  persona: string | null;
+  funnel_stage: string | null;
+}
 
 export interface AgentConfig {
   id: string;
@@ -180,6 +199,19 @@ export const AGENT_REGISTRY: Record<string, AgentRegistryEntry> = {
     contract: "markdown",
     defaultsSchema: NO_DEFAULTS,
     registryDefaults: {},
+  },
+  "ask-router": {
+    key: "ask-router",
+    kind: "task",
+    name: "Ask router",
+    description:
+      "Classifies Ask-the-War-Room requests as questions or artifact requests; for artifact requests it proposes the template, product, and brief for a one-click-confirm generation. Disabled = classification skipped, every request is answered as a question.",
+    basePrompt: ASK_ROUTER_BASE_PROMPT,
+    placeholders: [], // question, role, catalog all ride in the locked suffix
+    contract: "route-json",
+    defaultsSchema:
+      '{"min_confidence": 0.6} — artifact classifications below this confidence are treated as questions. 0 routes every artifact guess; 1 routes none.',
+    registryDefaults: { min_confidence: 0.6 },
   },
   "voice-of-market": pmmEntry(
     "voice-of-market",
@@ -541,6 +573,8 @@ export interface ContractCheckOptions {
   sectionIds?: string[];
   /** fills-json: slots whose hard character limits the fills must respect. */
   slots?: TemplateSlot[];
+  /** route-json: catalog ids a proposed template_id must belong to. */
+  validTemplateIds?: string[];
 }
 
 /** Deterministic contract check on a test-run output — the same walls the real
@@ -623,6 +657,47 @@ export function checkContract(
       );
       if (missing.length > 0) {
         return { checked: true, ok: false, error: `Missing section heading(s): ${missing.join(", ")}.` };
+      }
+      return { checked: true, ok: true };
+    }
+    case "route-json": {
+      // Ask-to-artifact blueprint §5.1 — deterministic, in order.
+      let parsed: Record<string, unknown>;
+      try {
+        parsed = parseModelJson<Record<string, unknown>>(output);
+      } catch (err) {
+        return { checked: true, ok: false, error: `Not parseable as JSON: ${(err as Error).message}` };
+      }
+      if (parsed.intent !== "question" && parsed.intent !== "artifact") {
+        return { checked: true, ok: false, error: 'intent must be "question" or "artifact".' };
+      }
+      if (
+        typeof parsed.confidence !== "number" ||
+        !Number.isFinite(parsed.confidence) ||
+        parsed.confidence < 0 ||
+        parsed.confidence > 1
+      ) {
+        return { checked: true, ok: false, error: "confidence must be a number between 0 and 1." };
+      }
+      if (parsed.intent === "artifact") {
+        if (typeof parsed.asset_type !== "string" || parsed.asset_type.trim() === "") {
+          return { checked: true, ok: false, error: "asset_type must be a non-empty string for artifact intent." };
+        }
+        if (typeof parsed.brief !== "string" || parsed.brief.trim() === "") {
+          return { checked: true, ok: false, error: "brief must be a non-empty string for artifact intent." };
+        }
+        if (parsed.template_id !== undefined && parsed.template_id !== null) {
+          if (typeof parsed.template_id !== "string") {
+            return { checked: true, ok: false, error: "template_id must be a string when present." };
+          }
+          if (opts.validTemplateIds && !opts.validTemplateIds.includes(parsed.template_id)) {
+            return {
+              checked: true,
+              ok: false,
+              error: `template_id "${parsed.template_id}" is not in the catalog — at run time the router falls back to the asset type's first approved template.`,
+            };
+          }
+        }
       }
       return { checked: true, ok: true };
     }
@@ -794,6 +869,22 @@ export const SAMPLE_SLOTS: TemplateSlot[] = [
 export const SAMPLE_SECTION_XML = `<section id="B1" title="Messaging Hierarchy">
 Your capital program answers to the public — every project, every dollar. Masterworks is the AI-native capital program management platform public-sector agencies use to plan, build, and account for infrastructure from one unified system. Twelve state DOTs run their programs on it, with federal compliance (Davis-Bacon, Buy America, FHWA reimbursement tracking) built in, so a legislature-ready program answer takes hours, not weeks.
 </section>`;
+
+/** Canonical ask-router demo line (ask-to-artifact blueprint §5.2) — the
+ *  test-run default when the admin supplies no question. */
+export const SAMPLE_ROUTER_QUESTION =
+  "I need a leave-behind for a DOT prospect about risk prediction";
+
+export const SAMPLE_ROUTER_CANDIDATES: RouterCandidate[] = [
+  { id: "sample-tpl-onepager", name: "Masterworks AI One-Pager", asset_type: "one-pager",
+    product_line: "Masterworks", audience: "public-sector agencies",
+    persona: "Capital program director", funnel_stage: "decision" },
+  { id: "sample-tpl-battlecard", name: "Masterworks AI Battlecard — Objection Handling",
+    asset_type: "battlecard", product_line: "Masterworks", audience: null,
+    persona: null, funnel_stage: null },
+  { id: "sample-tpl-faq", name: "Masterworks AI — Sales FAQ", asset_type: "faq",
+    product_line: "Masterworks", audience: null, persona: null, funnel_stage: null },
+];
 
 export const SAMPLE_COMPETITOR_XML = `<competitor_source url="https://example.com/kahua-sample" title="Kahua — Program Management (static sample)" scraped="2026-08-06">
 Kahua describes itself as a construction program management platform for owners and program managers. The sample page lists capabilities for cost management, document management, and process automation, a partner ecosystem, and configurable apps built on its platform. It cites deployments with public and private owners and highlights integrations with common ERP and design tools. Pricing is not published on the page. This block is a built-in static sample used only for Agents-tab test runs — no scraping happens here, and claims should be treated as illustrative, not current competitor fact.

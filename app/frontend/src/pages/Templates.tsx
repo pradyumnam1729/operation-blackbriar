@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import {
   deleteTemplate,
@@ -238,6 +238,20 @@ export function Templates() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // /templates?preview=<id> deep link (ask-to-artifact card's Preview link):
+  // once the list is in, open the existing preview drawer for that template.
+  // Handled once so closing the drawer doesn't re-open it on reloads.
+  const [searchParams] = useSearchParams();
+  const previewHandled = useRef(false);
+  useEffect(() => {
+    if (previewHandled.current || templates.length === 0) return;
+    const pid = searchParams.get("preview");
+    if (pid === null) return;
+    previewHandled.current = true;
+    const t = templates.find((x) => x.id === pid);
+    if (t) setSelected(t);
+  }, [templates, searchParams]);
 
   const remove = async (t: TemplateSummary) => {
     if (!window.confirm(`Delete template “${t.name}”? Artifacts already generated from it keep their renders.`)) return;

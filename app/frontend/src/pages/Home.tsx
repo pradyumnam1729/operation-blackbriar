@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { apiGet, apiPost, askWarRoom } from "../lib/api";
+import { apiGet, apiPost, askWarRoom, RoutingProposal } from "../lib/api";
 import { useAuth } from "../auth/AuthContext";
+import { RoutingCard } from "../components/RoutingCard";
 
 // Home dashboard (hive 2): persona-specific quick-generation cards. Every
 // card opens the generator — pick product + industry (+ content type for
@@ -140,6 +141,12 @@ interface Bubble {
   role: "user" | "bot";
   text?: string;
   html?: string;
+  /** kind:"routing" ask response — rendered as a RoutingCard confirmation
+   *  (blueprint ask-to-artifact.md §6.2). */
+  proposal?: RoutingProposal;
+  /** The original ask, kept so "Just answer this instead" can re-submit it
+   *  with mode:"question". */
+  question?: string;
 }
 
 export function Home() {
@@ -170,10 +177,11 @@ export function Home() {
   const resultRef = useRef<HTMLDivElement | null>(null);
 
   const needsContentType = persona === "marketing" && genCard?.title === "Content creation studio";
-  // Industry vertical and competitor pickers are both Competitive-intel-only —
-  // every other quick action just needs a product and defaults silently to
-  // "Generic / All Verticals" (set by pickGenProduct).
-  const needsIndustry = genCard?.title === "Competitive intel";
+  // Industry vertical applies to EVERY quick action — an elevator pitch for a
+  // DOT is not one for a water utility. "Generic / All Verticals" stays
+  // preselected (pickGenProduct), so one-click generation still works.
+  // Competitor remains Competitive-intel-only.
+  const needsIndustry = genCard !== null;
   const competitorOptions = GEN_COMPETITORS_BY_PRODUCT[genProduct] ?? [];
   const needsCompetitor = genCard?.title === "Competitive intel" && competitorOptions.length > 0;
   const genReady =
@@ -285,15 +293,23 @@ export function Home() {
 
   // ---- chat ----
 
-  const send = async (text?: string) => {
+  // mode "question" skips the ask-router — used by the routing card's
+  // "Just answer this instead" (misclassification recovery in one click).
+  const send = async (text?: string, mode?: "auto" | "question") => {
     const q = (text ?? input).trim();
     if (q === "" || busy) return;
     setInput("");
     setThread((t) => [...t, { role: "user", text: q }]);
     setBusy(true);
     try {
-      const r = await askWarRoom(q, PERSONA_TO_ROLE[persona]);
-      setThread((t) => [...t, { role: "bot", html: r.answerHtml }]);
+      const r = await askWarRoom(q, PERSONA_TO_ROLE[persona], mode);
+      if (r.kind === "routing") {
+        // Artifact request — render the confirmation card; nothing generates
+        // until the human clicks Generate (§8.4).
+        setThread((t) => [...t, { role: "bot", proposal: r.proposal, question: q }]);
+      } else {
+        setThread((t) => [...t, { role: "bot", html: r.answerHtml }]);
+      }
     } catch (e) {
       setThread((t) => [
         ...t,
@@ -433,7 +449,13 @@ export function Home() {
                 )}
               </div>
               <div className="msg">
-                {b.html ? (
+                {b.proposal ? (
+                  <RoutingCard
+                    proposal={b.proposal}
+                    question={b.question ?? ""}
+                    onAnswerInstead={() => void send(b.question, "question")}
+                  />
+                ) : b.html ? (
                   <div className="prose" dangerouslySetInnerHTML={{ __html: b.html }} />
                 ) : (
                   b.text

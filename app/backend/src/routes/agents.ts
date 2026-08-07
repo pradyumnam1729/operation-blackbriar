@@ -21,6 +21,8 @@ import {
   SAMPLE_MESSAGING_SECTIONS,
   SAMPLE_MESSAGING_VARS,
   SAMPLE_QUESTIONS,
+  SAMPLE_ROUTER_CANDIDATES,
+  SAMPLE_ROUTER_QUESTION,
   SAMPLE_SECTION_XML,
   SAMPLE_SLOTS,
   SAMPLE_SLOT_FILL_VARS,
@@ -36,6 +38,7 @@ import {
 } from "../services/agents";
 import { ROLE_FRAMING } from "../services/agentPrompts";
 import { buildExtractionSuffix, buildMergeSuffix } from "../services/questionnaire";
+import { buildRouterSuffix } from "../services/askRouter";
 import { buildSlotFillSuffix } from "../services/templateGenerate";
 import { SECTION_INSTRUCTIONS, buildProduceSuffix } from "../services/messagingDoc";
 
@@ -78,6 +81,8 @@ function contractSuffixPreview(entry: AgentRegistryEntry): string {
         "=== AURIGO KNOWLEDGE BASE (ground truth) ===\n<knowledge-base excerpts>",
         "=== QUESTION (from a GTM teammate) ===\nCompetitor: <name>\n<the question>",
       ].join("\n\n");
+    case "ask-router":
+      return buildRouterSuffix(SAMPLE_ROUTER_CANDIDATES, "<the request>", "general");
     default:
       return "Task brief from the PMM admin:\n<the brief>";
   }
@@ -427,6 +432,21 @@ agentsRouter.post("/:key/test-run", async (req, res) => {
         prompt = composeAgentPrompt(candidate, {}, suffix);
         break;
       }
+      case "ask-router": {
+        // Static sample default — no 400; the admin can still type their own
+        // (ask-to-artifact blueprint §5.3). No extraContext: the router never
+        // sees the corpus. Expected sample result: intent "artifact",
+        // template_id "sample-tpl-onepager" — the canonical demo line
+        // round-trips on the Agents tab.
+        const routerQuestion = question !== "" ? question : SAMPLE_ROUTER_QUESTION;
+        prompt = composeAgentPrompt(
+          candidate,
+          {},
+          buildRouterSuffix(SAMPLE_ROUTER_CANDIDATES, routerQuestion, role)
+        );
+        contractOpts = { validTemplateIds: SAMPLE_ROUTER_CANDIDATES.map((c) => c.id) };
+        break;
+      }
       default: {
         // Any PMM sub-agent: config + test-run only in MVP (§0.1-1).
         if (brief === "") {
@@ -459,7 +479,9 @@ agentsRouter.post("/:key/test-run", async (req, res) => {
   const started = Date.now();
   let raw: string;
   try {
-    raw = await ask(prompt, { extraContext, maxTokens: 8000, model: modelUsed });
+    // Mirror the runtime cap for the router (askRouter.ts uses 500).
+    const maxTokens = entry.key === "ask-router" ? 500 : 8000;
+    raw = await ask(prompt, { extraContext, maxTokens, model: modelUsed });
   } catch (err) {
     return res.status(502).json({ error: `Test run failed: ${(err as Error).message}` });
   }

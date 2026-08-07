@@ -95,8 +95,47 @@ export const getMe = () => apiGet<{ user: Me }>("/api/me").then((r) => r.user);
 export const getProducts = () =>
   apiGet<{ products: Product[] }>("/api/products").then((r) => r.products);
 
-export const askWarRoom = (question: string, role: string) =>
-  apiPost<{ answerHtml: string; role: string }>("/api/query", { question, role });
+// ---- Ask-to-artifact routing (blueprint app/docs/blueprints/ask-to-artifact.md §3.1, §6.1) ----
+
+/** Template the router chose — always a validated row from the candidate set,
+ *  never raw model output. */
+export interface RoutingTemplateRef {
+  id: string;
+  name: string;
+  asset_type: string;
+  product_line: string | null;
+  audience: string | null;
+  persona: string | null;
+  funnel_stage: string | null;
+}
+
+export interface RoutingProposal {
+  /** Router's stated confidence (already past the server-side threshold). */
+  confidence: number;
+  /** From the chosen template row, not the model's guess. */
+  asset_type: string;
+  template: RoutingTemplateRef;
+  /** True when the model's template_id was invalid/absent and the server fell
+   *  back to the asset type's first approved template. */
+  template_fallback_used: boolean;
+  /** Resolved products row (default: Masterworks AI). */
+  product: { id: string; name: string };
+  /** Code-built: `${product.name} — ${template.name}`. */
+  suggested_title: string;
+  /** Model-drafted, user-editable; sent as extra_brief on Generate. */
+  brief: string;
+  /** One line explaining the routing, shown on the card. */
+  reason: string;
+}
+
+export type AskResponse =
+  | { kind: "answer"; answerHtml: string; role: string }
+  | { kind: "routing"; role: string; proposal: RoutingProposal };
+
+/** mode "question" skips classification — the card's "Just answer this
+ *  instead" escape hatch. Default "auto" classifies first. */
+export const askWarRoom = (question: string, role: string, mode?: "auto" | "question") =>
+  apiPost<AskResponse>("/api/query", { question, role, mode });
 
 // ---- Foundation Questionnaire pipeline (admin) ----
 
@@ -393,7 +432,8 @@ export type AgentContract =
   | "fq-answers-json"
   | "fills-json"
   | "section-headings"
-  | "markdown";
+  | "markdown"
+  | "route-json";
 
 export interface AgentSummary {
   key: string;

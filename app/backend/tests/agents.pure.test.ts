@@ -233,9 +233,9 @@ test("agentFileDescription drops the identity prefix, keeps one sentence, surviv
 
 // ---------- registry shape ----------
 
-test("AGENT_REGISTRY holds exactly 6 task + 14 pmm agents with the blueprint contracts", () => {
+test("AGENT_REGISTRY holds exactly 7 task + 14 pmm agents with the blueprint contracts", () => {
   const entries = Object.values(AGENT_REGISTRY);
-  assert.equal(entries.filter((e) => e.kind === "task").length, 6);
+  assert.equal(entries.filter((e) => e.kind === "task").length, 7);
   assert.equal(entries.filter((e) => e.kind === "pmm").length, 14);
   // Task base prompts are canonical code constants (ask-war-room's is the
   // documented empty special case — its body is the per-role framing).
@@ -246,8 +246,109 @@ test("AGENT_REGISTRY holds exactly 6 task + 14 pmm agents with the blueprint con
   assert.equal(AGENT_REGISTRY["fq-extraction"].contract, "fq-answers-json");
   assert.equal(AGENT_REGISTRY["template-slot-fill"].contract, "fills-json");
   assert.equal(AGENT_REGISTRY["messaging-doc-generation"].contract, "section-headings");
+  assert.equal(AGENT_REGISTRY["ask-router"].contract, "route-json");
+  assert.deepEqual(AGENT_REGISTRY["ask-router"].registryDefaults, { min_confidence: 0.6 });
   for (const e of entries.filter((x) => x.kind === "pmm")) {
     assert.equal(e.contract, "markdown", e.key);
     assert.ok(["A", "B", "C"].includes(e.grp ?? ""), e.key);
   }
+});
+
+test("AGENT_REGISTRY insertion order: ask-router sits after competitive-compare, before the PMM groups", () => {
+  const keys = Object.keys(AGENT_REGISTRY);
+  const routerIdx = keys.indexOf("ask-router");
+  assert.equal(routerIdx, keys.indexOf("competitive-compare") + 1);
+  assert.ok(routerIdx < keys.indexOf("voice-of-market"));
+});
+
+// ---------- contract checker: route-json (ask-to-artifact §5.1) ----------
+
+const goodRoute = JSON.stringify({
+  intent: "artifact",
+  confidence: 0.85,
+  asset_type: "one-pager",
+  template_id: "sample-tpl-onepager",
+  product_name: "Masterworks AI",
+  brief: "Leave-behind for a DOT prospect about risk prediction.",
+  reason: "Explicit request for a deliverable.",
+});
+const routeOpts = { validTemplateIds: ["sample-tpl-onepager", "sample-tpl-battlecard"] };
+
+test("checkContract route-json: valid artifact passes, fenced too; valid question passes", () => {
+  assert.deepEqual(checkContract("route-json", goodRoute, routeOpts), { checked: true, ok: true });
+  assert.deepEqual(
+    checkContract("route-json", "```json\n" + goodRoute + "\n```", routeOpts),
+    { checked: true, ok: true }
+  );
+  assert.deepEqual(
+    checkContract(
+      "route-json",
+      JSON.stringify({ intent: "question", confidence: 0.9, reason: "Wants talk tracks." }),
+      routeOpts
+    ),
+    { checked: true, ok: true }
+  );
+});
+
+test("checkContract route-json: invented template_id fails with the fallback-explaining error", () => {
+  const invented = checkContract(
+    "route-json",
+    JSON.stringify({
+      intent: "artifact",
+      confidence: 0.8,
+      asset_type: "one-pager",
+      template_id: "made-up-id",
+      brief: "b",
+      reason: "r",
+    }),
+    routeOpts
+  );
+  assert.equal(invented.checked, true);
+  assert.equal(invented.ok, false);
+  assert.match(invented.error ?? "", /"made-up-id" is not in the catalog/);
+  assert.match(invented.error ?? "", /falls back to the asset type's first approved template/);
+  // Without validTemplateIds the id is only type-checked.
+  assert.equal(
+    checkContract(
+      "route-json",
+      JSON.stringify({ intent: "artifact", confidence: 0.8, asset_type: "one-pager", template_id: "x", brief: "b" })
+    ).ok,
+    true
+  );
+});
+
+test("checkContract route-json: garbage, bad intent, bad confidence, missing fields all fail", () => {
+  assert.equal(checkContract("route-json", "Happy to help! Not JSON at all.").ok, false);
+  assert.equal(
+    checkContract("route-json", JSON.stringify({ intent: "asset", confidence: 0.9 })).ok,
+    false
+  );
+  assert.equal(
+    checkContract("route-json", JSON.stringify({ intent: "question", confidence: "high" })).ok,
+    false
+  );
+  assert.equal(
+    checkContract("route-json", JSON.stringify({ intent: "question", confidence: 1.5 })).ok,
+    false
+  );
+  // artifact intent requires non-empty asset_type and brief
+  assert.equal(
+    checkContract("route-json", JSON.stringify({ intent: "artifact", confidence: 0.9, brief: "b" })).ok,
+    false
+  );
+  assert.equal(
+    checkContract(
+      "route-json",
+      JSON.stringify({ intent: "artifact", confidence: 0.9, asset_type: "faq", brief: "  " })
+    ).ok,
+    false
+  );
+  // template_id present but not a string
+  assert.equal(
+    checkContract(
+      "route-json",
+      JSON.stringify({ intent: "artifact", confidence: 0.9, asset_type: "faq", brief: "b", template_id: 7 })
+    ).ok,
+    false
+  );
 });
