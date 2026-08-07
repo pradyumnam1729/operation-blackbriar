@@ -9,7 +9,6 @@ import { Requests } from "./pages/Requests";
 import { ArtifactLibrary } from "./pages/ArtifactLibrary";
 import { ArtifactEditor } from "./pages/ArtifactEditor";
 import { FeatureCatalog } from "./pages/FeatureCatalog";
-import { WinLoss } from "./pages/WinLoss";
 import { CompetitiveIntel } from "./pages/CompetitiveIntel";
 import { PMMWizard } from "./pages/PMMWizard";
 import { PMMDocDetail } from "./pages/PMMDocDetail";
@@ -35,7 +34,6 @@ function Root() {
         <Route path="/library" element={<ArtifactLibrary />} />
         <Route path="/library/:id" element={<ArtifactEditor />} />
         <Route path="/features" element={<FeatureCatalog />} />
-        <Route path="/winloss" element={<WinLoss />} />
         <Route path="/competitive" element={<CompetitiveIntel />} />
         <Route path="/pmm" element={<Navigate to="/library?tab=questionnaire" replace />} />
         <Route path="/pmm/:id" element={<PMMDocDetail />} />

@@ -51,7 +51,6 @@ interface QuickAction {
 const QUICK: Record<Persona, QuickAction[]> = {
   sales: [
     { icon: "fa-shield-halved", title: "Competitor battlecard", desc: "Strengths, weaknesses, landmines, talk track by competitor.", to: "/library" },
-    { icon: "fa-chart-column", title: "Win / loss by competitor", desc: "See how we're doing against Oracle, Kahua, e-Builder.", to: "/winloss" },
     { icon: "fa-magnifying-glass", title: "Find an asset", desc: "Search finished, approved collateral by product and persona.", to: "/library" },
     { icon: "fa-upload", title: "Request an asset", desc: "Need something that doesn't exist yet? File a request with context.", to: "/requests" },
     { icon: "fa-layer-group", title: "Feature catalog", desc: "What shipped recently, per product, straight from release notes.", to: "/features" },
@@ -66,7 +65,6 @@ const QUICK: Record<Persona, QuickAction[]> = {
     { icon: "fa-bell", title: "Notifications", desc: "Mentions and updates across your requests and assets.", to: "/notifications" },
   ],
   elt: [
-    { icon: "fa-chart-line", title: "Win rate snapshot", desc: "Closed-won / lost trend by product line and competitor.", to: "/winloss" },
     { icon: "fa-layer-group", title: "Roadmap pulse", desc: "What shipped this quarter, by product.", to: "/features" },
     { icon: "fa-box-archive", title: "Asset governance", desc: "Draft / in review / final mix across the repository.", to: "/library" },
     { icon: "fa-upload", title: "Requests pipeline", desc: "What GTM teams are asking for right now.", to: "/requests" },
