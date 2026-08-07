@@ -39,6 +39,40 @@ export async function guardrailContext(): Promise<string> {
   return text;
 }
 
+/** Sections of the "Content frameworks" guardrail file, keyed by `##` heading
+ *  (content type, e.g. "Elevator pitch"). Quick-generate matches its action to
+ *  a section and makes the model follow that framework verbatim. Empty map when
+ *  the file is missing or toggled off — callers fall back to built-in briefs. */
+export async function contentFrameworks(): Promise<Record<string, string>> {
+  const sb = supabase();
+  if (!sb) return {};
+  const { data } = await sb
+    .from("guardrail_files")
+    .select("content_md")
+    .eq("name", "Content frameworks")
+    .eq("active", true)
+    .maybeSingle();
+  if (!data?.content_md) return {};
+  const out: Record<string, string> = {};
+  let key = "";
+  let buf: string[] = [];
+  const flush = () => {
+    if (key !== "" && buf.join("").trim() !== "") out[key] = buf.join("\n").trim();
+  };
+  for (const line of data.content_md.split(/\r?\n/)) {
+    const h = line.match(/^##\s+(.+)$/);
+    if (h) {
+      flush();
+      key = h[1].trim();
+      buf = [];
+    } else if (key !== "") {
+      buf.push(line);
+    }
+  }
+  flush();
+  return out;
+}
+
 /** Parse the Prompt library guardrail into per-audience suggestion chips. */
 export async function promptSuggestions(): Promise<Record<string, string[]>> {
   const sb = supabase();

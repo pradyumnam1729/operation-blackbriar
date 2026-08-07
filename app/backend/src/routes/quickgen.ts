@@ -4,6 +4,7 @@ import { supabase } from "../services/db";
 import { ask } from "../services/claude";
 import { markdownToHtml } from "../services/html";
 import { chunksToContext, retrieveChunks } from "../services/ingestion";
+import { contentFrameworks } from "../services/guardrailFiles";
 
 // Home-dashboard quick generation (hive 2): every persona card generates a
 // ready asset against a picked product + industry (+ content type for
@@ -146,6 +147,16 @@ const ACTIONS: Record<string, ActionBrief> = {
   },
 };
 
+// Maps quick-generate actions to "Content frameworks" guardrail sections
+// (admin-managed answer frameworks, editable in the Guardrails tab). Content
+// creation studio matches by its picked content type instead.
+const FRAMEWORK_BY_ACTION: Record<string, string> = {
+  "Elevator pitch": "Elevator pitch",
+  "Value proposition": "Value prop",
+  "LinkedIn content kit": "LinkedIn post",
+  "Keynote talk-track builder": "Keynote session",
+};
+
 /** Recent features for the picked product line, for launch/keynote/exec cards. */
 async function featureContext(product: string): Promise<string> {
   const sb = supabase();
@@ -214,13 +225,27 @@ quickGenRouter.post("/", async (req, res) => {
       : spec.brief;
 
   try {
-    const [chunks, features] = await Promise.all([
+    const [chunks, features, frameworks] = await Promise.all([
       retrieveChunks(
         `${product}${industryPhrase} ${action} ${competitor ?? ""} ${contentType ?? ""} positioning value proposition proof points customers`,
         10
       ),
       spec.useFeatures ? featureContext(product) : Promise.resolve(""),
+      contentFrameworks(),
     ]);
+
+    // Admin-approved framework for this action (Guardrails tab, "Content
+    // frameworks" file) overrides the built-in brief: same grounding, but the
+    // structure, sequence, and length rules come from the framework.
+    const framework = frameworks[FRAMEWORK_BY_ACTION[action ?? ""] ?? contentType ?? ""] ?? null;
+    const effectiveBrief = framework
+      ? [
+          "Follow the admin-approved content framework below EXACTLY — its structure, narrative sequence, length limits, and rules override the default brief. Where it names the 'Positioning & Messaging document' as the source of truth, use the AURIGO KNOWLEDGE BASE excerpts below plus the brand context as that source. Resolve <Persona>, <Executive Name / Role>, and <Keynote Theme> placeholders sensibly for this product and industry from the knowledge base.",
+          framework
+            .replace(/<Product Name>/g, `Aurigo ${product}`)
+            .replace(/<Industry Vertical>/g, isGeneric ? "public infrastructure" : industry),
+        ].join("\n\n")
+      : brief;
 
     const prompt = [
       `Quick asset generation for a GTM teammate. Product: Aurigo ${product}.${
@@ -228,7 +253,7 @@ quickGenRouter.post("/", async (req, res) => {
           ? " Not industry-specific — write for a general buyer across Aurigo's core verticals."
           : ` Industry: ${industry}.`
       }${contentType ? ` Content type: ${contentType}.` : ""}`,
-      brief,
+      effectiveBrief,
       "Output rules:",
       "- Respond in clean markdown with the section headings named in the brief. No preamble, no closing meta-commentary — the response IS the asset.",
       "- Do NOT include a frontmatter/metadata block (no product/audience/sources header) — this is quick-copy output, not a war-room file.",
