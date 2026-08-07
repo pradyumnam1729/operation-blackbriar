@@ -38,6 +38,9 @@ const ASSET_TYPES: { key: string; label: string; desc: string }[] = [
   { key: "deck", label: "Sales Deck", desc: "Slide outline on the 7-step narrative arc with speaker notes." },
   { key: "faq", label: "FAQ", desc: "Customer-facing questions and direct answers from the objection library." },
   { key: "one-pager", label: "One-Pager", desc: "Executive summary: outcomes, the decision, and proof per claim." },
+  { key: "brochure", label: "Brochure", desc: "Multi-page print story: cover, narrative, capabilities, proof, and CTA." },
+  { key: "battlecard", label: "Battlecard", desc: "Internal objection handling: why we win, counters, and trap-to-set questions." },
+  { key: "banner", label: "Banner", desc: "1200×628 social/display graphic with headline and CTA text." },
 ];
 
 interface FinalAsset {
@@ -56,7 +59,9 @@ const FINAL_TYPE_ICON: Record<string, string> = {
   datasheet: "fa-file-invoice",
   deck: "fa-display",
   faq: "fa-circle-question",
+  brochure: "fa-book-open",
   battlecard: "fa-shield-halved",
+  banner: "fa-image",
   email: "fa-envelope",
   other: "fa-file",
 };
