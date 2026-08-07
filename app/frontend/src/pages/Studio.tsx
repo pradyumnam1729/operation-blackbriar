@@ -11,6 +11,7 @@ import {
   RenderWarning,
   TemplateSummary,
 } from "../lib/api";
+import { useAuth } from "../auth/AuthContext";
 
 // Asset Studio: pick an asset type → pick a template → generate a draft
 // artifact and open it in the editor. Slot-driven templates (Template Library)
@@ -39,8 +40,49 @@ const ASSET_TYPES: { key: string; label: string; desc: string }[] = [
   { key: "one-pager", label: "One-Pager", desc: "Executive summary: outcomes, the decision, and proof per claim." },
 ];
 
+interface FinalAsset {
+  id: string;
+  title: string;
+  asset_type: string;
+  product_name: string | null;
+  persona: string | null;
+  status: string;
+  current_version: number;
+  updated_at: string;
+}
+
+const FINAL_TYPE_ICON: Record<string, string> = {
+  "one-pager": "fa-file-lines",
+  datasheet: "fa-file-invoice",
+  deck: "fa-display",
+  faq: "fa-circle-question",
+  battlecard: "fa-shield-halved",
+  email: "fa-envelope",
+  other: "fa-file",
+};
+
 export function Studio() {
   const navigate = useNavigate();
+  const { me } = useAuth();
+  const admin = me?.role === "admin";
+
+  // Non-admins only see finalized content — generation is PMM-only. Admins
+  // get a Create tab and the same finalized gallery.
+  const [view, setView] = useState<"create" | "finalized">(admin ? "create" : "finalized");
+  const [finals, setFinals] = useState<FinalAsset[]>([]);
+  const [finalsLoading, setFinalsLoading] = useState(false);
+
+  useEffect(() => {
+    if (view !== "finalized") return;
+    setFinalsLoading(true);
+    // Non-admin artifact listing is already final-only server-side; admins
+    // filter explicitly so drafts stay out of the gallery.
+    apiGet<{ artifacts: FinalAsset[] }>(`/api/artifacts${admin ? "?status=final" : ""}`)
+      .then((r) => setFinals(r.artifacts.filter((a) => a.status === "final")))
+      .catch(() => setFinals([]))
+      .finally(() => setFinalsLoading(false));
+  }, [view, admin]);
+
   const [step, setStep] = useState(1);
   const [assetType, setAssetType] = useState("");
   const [templates, setTemplates] = useState<TemplateSummary[]>([]);
@@ -156,13 +198,92 @@ export function Studio() {
     }
   };
 
+  const showCreate = admin && view === "create";
+
   return (
     <div>
-      <h1 className="pagetitle">Asset creation studio</h1>
+      <h1 className="pagetitle">Asset studio</h1>
       <p className="pagesub">
-        Pick a type, a brand template, and a prompt — the draft lands in the library editor.
+        {showCreate
+          ? "Pick a type, a brand template, and a prompt — the draft lands in the library editor."
+          : "Finalized, approved assets — saved as final in the PMM workspace repository."}
       </p>
 
+      {admin && (
+        <div className="tab-row" style={{ margin: "4px 0 16px" }}>
+          <button className={view === "create" ? "active" : ""} onClick={() => setView("create")}>
+            <i className="fa-solid fa-wand-magic-sparkles" style={{ marginRight: 6 }} /> Create
+          </button>
+          <button
+            className={view === "finalized" ? "active" : ""}
+            onClick={() => setView("finalized")}
+          >
+            <i className="fa-solid fa-circle-check" style={{ marginRight: 6 }} /> Finalized assets
+          </button>
+        </div>
+      )}
+
+      {!showCreate ? (
+        <>
+          {finalsLoading ? (
+            <div className="empty-note">Loading finalized assets…</div>
+          ) : finals.length === 0 ? (
+            <div className="empty-note">
+              Nothing finalized yet. Assets appear here once a PMM admin saves them as final in the
+              PMM workspace.
+            </div>
+          ) : (
+            <div className="grid grid-3">
+              {finals.map((a) => (
+                <div
+                  key={a.id}
+                  className="asset-card"
+                  onClick={() => navigate(`/library/${a.id}`)}
+                  style={{
+                    cursor: "pointer",
+                    border: "1px solid var(--border)",
+                    borderRadius: "var(--r-lg)",
+                    padding: 16,
+                    background: "#fff",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 8,
+                    boxShadow: "var(--shadow-1)",
+                  }}
+                >
+                  <div
+                    style={{
+                      height: 70,
+                      borderRadius: "var(--r-sm)",
+                      background: "var(--bg-page)",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      color: "var(--text-muted)",
+                      fontSize: 20,
+                    }}
+                  >
+                    <i className={`fa-solid ${FINAL_TYPE_ICON[a.asset_type] ?? "fa-file"}`} />
+                  </div>
+                  <div className="row-between">
+                    <h4 style={{ margin: 0, fontSize: 13.5, fontWeight: 500 }}>{a.title}</h4>
+                    <span className="pill pill-final">Final</span>
+                  </div>
+                  <div style={{ fontSize: 11.5, color: "var(--text-muted)" }}>
+                    {a.asset_type}
+                    {a.product_name ? ` · ${a.product_name}` : ""}
+                    {a.persona ? ` · ${a.persona}` : ""}
+                  </div>
+                  <div style={{ fontSize: 11.5, color: "var(--text-muted)" }}>
+                    v{a.current_version} · updated {new Date(a.updated_at).toLocaleDateString()}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      ) : (
+        <>
       <div className="step-pills">
         {ASSET_TYPES.map((t) => (
           <button
@@ -452,6 +573,8 @@ export function Studio() {
             )}
           </div>
         </div>
+      )}
+        </>
       )}
     </div>
   );
