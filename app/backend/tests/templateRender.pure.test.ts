@@ -14,6 +14,7 @@ import {
   validateTemplateDefinition,
 } from "../src/services/templateRender";
 import { cleanHtml, htmlToText } from "../src/services/html";
+import { checkForbiddenWords } from "../src/services/guardrails";
 
 const slot = (over: Partial<TemplateSlot> = {}): TemplateSlot => ({
   id: "headline",
@@ -47,6 +48,21 @@ const seedSlots = [...MIGRATION.matchAll(/\$slots\$([\s\S]*?)\$slots\$/g)].map(
   (m) => JSON.parse(m[1]) as TemplateSlot[]
 );
 const SEED_FORMATS: TemplateFormat[] = ["html", "svg", "deck"];
+
+// ---------- second seed wave (parsed straight out of migration 0015) ----------
+
+const MIGRATION_0015 = fs.readFileSync(
+  path.resolve(
+    __dirname, "..", "..", "..", "supabase", "migrations", "0015_template_library_seeds_2.sql"
+  ),
+  "utf-8"
+);
+const seedBodies15 = [...MIGRATION_0015.matchAll(/\$tpl\$([\s\S]*?)\$tpl\$/g)].map((m) => m[1]);
+const seedSlots15 = [...MIGRATION_0015.matchAll(/\$slots\$([\s\S]*?)\$slots\$/g)].map(
+  (m) => JSON.parse(m[1]) as TemplateSlot[]
+);
+// faq (markdown), one-pager (html), brochure (html), battlecard (markdown)
+const SEED_FORMATS_0015: TemplateFormat[] = ["markdown", "html", "html", "markdown"];
 
 function fullFills(slots: TemplateSlot[]): Record<string, string> {
   const fills: Record<string, string> = {};
@@ -85,6 +101,39 @@ test("deck seed assembles six slides inside one HTML shell", () => {
   assert.equal(payload.match(/<section class='slide/g)?.length, 6);
   assert.ok(payload.startsWith("<!doctype html>"));
   assert.ok(payload.includes("<style>"));
+});
+
+test("migration 0015 carries four seed templates (body + slots pairs)", () => {
+  assert.equal(seedBodies15.length, 4);
+  assert.equal(seedSlots15.length, 4);
+});
+
+test("every 0015 seed passes validateTemplateDefinition against the 0009 registry", () => {
+  SEED_FORMATS_0015.forEach((format, i) => {
+    const issues = validateTemplateDefinition(format, seedBodies15[i], seedSlots15[i], KNOWN_SECTIONS);
+    assert.deepEqual(issues, [], `0015 seed ${i + 1} (${format}): ${issues.join(" | ")}`);
+  });
+});
+
+test("renderTemplate leaves zero {{ in output for all four 0015 seeds with full fills", () => {
+  SEED_FORMATS_0015.forEach((format, i) => {
+    const { payload, warnings } = renderTemplate(
+      format, seedBodies15[i], seedSlots15[i], fullFills(seedSlots15[i])
+    );
+    assert.ok(!payload.includes("{{"), `0015 seed ${i + 1} (${format}) still has a placeholder`);
+    assert.deepEqual(warnings, []);
+  });
+});
+
+test("0015 seed bodies and slot text carry zero forbidden words (static copy is guard-clean)", () => {
+  SEED_FORMATS_0015.forEach((format, i) => {
+    const slotText = seedSlots15[i].map((s) => `${s.label} ${s.purpose}`).join("\n");
+    const guard = checkForbiddenWords(`${seedBodies15[i]}\n${slotText}`);
+    assert.deepEqual(
+      guard.violations, [],
+      `0015 seed ${i + 1} (${format}) static copy violates the voice guard`
+    );
+  });
 });
 
 // ---------- validateFills ----------

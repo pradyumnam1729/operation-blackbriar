@@ -26,6 +26,8 @@ const TYPE_FILTERS: { key: string; label: string }[] = [
   { key: "email", label: "Email" },
   { key: "battlecard", label: "Battlecard" },
   { key: "one-pager", label: "One-pager" },
+  { key: "faq", label: "FAQ" },
+  { key: "brochure", label: "Brochure" },
 ];
 
 const FORMAT_ICONS: Record<string, string> = {
