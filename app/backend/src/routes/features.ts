@@ -347,6 +347,11 @@ featuresRouter.post("/build-from-documents", requireAdmin, async (req, res) => {
 
   const { product_id } = (req.body ?? {}) as { product_id?: string };
   if (!product_id) return res.status(400).json({ error: "product_id is required" });
+  // Guards the .or() filter string below: only a validated UUID may ever reach
+  // it, regardless of what upstream checks do or don't run first.
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(product_id)) {
+    return res.status(400).json({ error: "product_id must be a UUID" });
+  }
 
   const { data: product } = await sb
     .from("products")
