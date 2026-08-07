@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { apiGet, apiPost, getProducts, Product } from "../lib/api";
 import { useAuth } from "../auth/AuthContext";
+import { FoundationQuestionnaire } from "./FoundationQuestionnaire";
 
 export type ArtifactStatus = "draft" | "in_review" | "final" | "archived";
 
@@ -49,6 +50,14 @@ export function ArtifactLibrary() {
   const [searchParams] = useSearchParams();
   const admin = me?.role === "admin";
 
+  // Page-level view: the versioned asset repository (all roles) or the
+  // Foundation questionnaire pipeline (admin only). ?tab=questionnaire
+  // deep-links straight to the questionnaire (used by /questionnaire and
+  // /pmm redirects).
+  const [view, setView] = useState<"assets" | "questionnaire">(
+    searchParams.get("tab") === "questionnaire" ? "questionnaire" : "assets"
+  );
+
   const [products, setProducts] = useState<Product[]>([]);
   const [artifacts, setArtifacts] = useState<ArtifactListItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -62,10 +71,15 @@ export function ArtifactLibrary() {
   const [q, setQ] = useState(searchParams.get("q") ?? "");
   const [mine, setMine] = useState(false);
 
-  // Follow-up topbar searches while already on /library update the filter too.
+  // Follow-up topbar searches while already on /library update the filter too
+  // (and land on the assets view, where the search applies).
   useEffect(() => {
     const incoming = searchParams.get("q");
-    if (incoming !== null) setQ(incoming);
+    if (incoming !== null) {
+      setQ(incoming);
+      setView("assets");
+    }
+    if (searchParams.get("tab") === "questionnaire") setView("questionnaire");
   }, [searchParams]);
 
   // create form
@@ -121,22 +135,46 @@ export function ArtifactLibrary() {
     }
   };
 
+  const showQuestionnaire = admin && view === "questionnaire";
+
   return (
     <div>
       <div className="row-between" style={{ marginBottom: 4 }}>
         <div>
           <h1 className="pagetitle">PMM Workspace</h1>
-          <p className="pagesub">Every finished asset, versioned. Non-admins see final only.</p>
+          {!showQuestionnaire && (
+            <p className="pagesub">Every finished asset, versioned. Non-admins see final only.</p>
+          )}
         </div>
-        <button
-          className={showCreate ? "btn" : "btn btn-primary"}
-          onClick={() => setShowCreate((s) => !s)}
-        >
-          <i className={`fa-solid ${showCreate ? "fa-xmark" : "fa-plus"}`} />
-          {showCreate ? "Cancel" : "New artifact"}
-        </button>
+        {!showQuestionnaire && (
+          <button
+            className={showCreate ? "btn" : "btn btn-primary"}
+            onClick={() => setShowCreate((s) => !s)}
+          >
+            <i className={`fa-solid ${showCreate ? "fa-xmark" : "fa-plus"}`} />
+            {showCreate ? "Cancel" : "New artifact"}
+          </button>
+        )}
       </div>
 
+      {admin && (
+        <div className="tab-row" style={{ margin: "10px 0 16px" }}>
+          <button className={view === "assets" ? "active" : ""} onClick={() => setView("assets")}>
+            <i className="fa-solid fa-box-archive" style={{ marginRight: 6 }} /> Asset repository
+          </button>
+          <button
+            className={view === "questionnaire" ? "active" : ""}
+            onClick={() => setView("questionnaire")}
+          >
+            <i className="fa-solid fa-clipboard-question" style={{ marginRight: 6 }} /> Foundation
+            questionnaire
+          </button>
+        </div>
+      )}
+
+      {showQuestionnaire ? (
+        <FoundationQuestionnaire embedded />
+      ) : (
       <>
       {showCreate && (
         <div className="card">
@@ -342,6 +380,7 @@ export function ArtifactLibrary() {
         </div>
       )}
       </>
+      )}
     </div>
   );
 }

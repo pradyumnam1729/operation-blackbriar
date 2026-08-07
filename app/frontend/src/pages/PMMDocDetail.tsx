@@ -84,7 +84,7 @@ export function PMMDocDetail() {
     act(async () => {
       if (!window.confirm("Delete this draft?")) return;
       await apiDelete(`/api/pmm/${id}`);
-      navigate("/library?tab=pmm");
+      navigate("/library?tab=questionnaire");
     });
 
   const copyMarkdown = () =>
@@ -104,7 +104,7 @@ export function PMMDocDetail() {
       <button
         className="btn btn-sm"
         style={{ marginBottom: 16 }}
-        onClick={() => navigate("/library?tab=pmm")}
+        onClick={() => navigate("/library?tab=questionnaire")}
       >
         <i className="fa-solid fa-arrow-left" /> PMM Workspace
       </button>

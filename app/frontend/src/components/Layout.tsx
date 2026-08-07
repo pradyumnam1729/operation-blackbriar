@@ -26,7 +26,6 @@ const ADMIN_NAV: NavItem[] = [
   { to: "/integrations", label: "Connectors", icon: "fa-plug", adminOnly: true },
   { to: "/agents", label: "Agents", icon: "fa-robot", adminOnly: true },
   { to: "/guardrails", label: "Guardrails", icon: "fa-road-barrier", adminOnly: true },
-  { to: "/questionnaire", label: "Foundation questionnaire", icon: "fa-clipboard-question", adminOnly: true },
 ];
 
 const ROLE_LABELS: Record<string, string> = {

@@ -53,7 +53,7 @@ function fmtWhen(iso: string): string {
   return new Date(iso).toLocaleString();
 }
 
-export function FoundationQuestionnaire() {
+export function FoundationQuestionnaire({ embedded = false }: { embedded?: boolean }) {
   const { me } = useAuth();
   const admin = me?.role === "admin";
 
@@ -250,7 +250,7 @@ export function FoundationQuestionnaire() {
   if (!admin) {
     return (
       <div>
-        <h1 className="pagetitle">Foundation questionnaire</h1>
+        {!embedded && <h1 className="pagetitle">Foundation questionnaire</h1>}
         <div className="card">
           <div className="empty-note">
             The Foundation Questionnaire is the PMM admin&rsquo;s workspace. Approved messaging
@@ -328,14 +328,16 @@ export function FoundationQuestionnaire() {
   return (
     <div>
       <div className="row-between" style={{ marginBottom: 4 }}>
-        <h1 className="pagetitle" style={{ margin: 0 }}>
-          Foundation questionnaire
-        </h1>
+        {!embedded && (
+          <h1 className="pagetitle" style={{ margin: 0 }}>
+            Foundation questionnaire
+          </h1>
+        )}
         <select
           aria-label="Product"
           value={productId}
           onChange={(e) => setProductId(e.target.value)}
-          style={{ minWidth: 220 }}
+          style={{ minWidth: 220, ...(embedded ? { marginLeft: "auto" } : {}) }}
         >
           {products.map((p) => (
             <option key={p.id} value={p.id}>

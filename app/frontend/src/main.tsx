@@ -5,7 +5,6 @@ import { AuthProvider, useAuth } from "./auth/AuthContext";
 import { Layout } from "./components/Layout";
 import { Login } from "./pages/Login";
 import { Home } from "./pages/Home";
-import { FoundationQuestionnaire } from "./pages/FoundationQuestionnaire";
 import { Requests } from "./pages/Requests";
 import { ArtifactLibrary } from "./pages/ArtifactLibrary";
 import { ArtifactEditor } from "./pages/ArtifactEditor";
@@ -38,7 +37,7 @@ function Root() {
         <Route path="/features" element={<FeatureCatalog />} />
         <Route path="/winloss" element={<WinLoss />} />
         <Route path="/competitive" element={<CompetitiveIntel />} />
-        <Route path="/pmm" element={<Navigate to="/questionnaire" replace />} />
+        <Route path="/pmm" element={<Navigate to="/library?tab=questionnaire" replace />} />
         <Route path="/pmm/:id" element={<PMMDocDetail />} />
         <Route path="/pmm/:id/edit" element={<PMMWizard />} />
         <Route path="/guardrails" element={<Guardrails />} />
@@ -47,7 +46,7 @@ function Root() {
         <Route path="/uploads" element={<UploadsConsole />} />
         <Route path="/integrations" element={<IntegrationsPage />} />
         <Route path="/agents" element={<Agents />} />
-        <Route path="/questionnaire" element={<FoundationQuestionnaire />} />
+        <Route path="/questionnaire" element={<Navigate to="/library?tab=questionnaire" replace />} />
         <Route path="/notifications" element={<Notifications />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
