@@ -251,7 +251,7 @@ async function downloadToTemp(driveId: string, item: DriveItem): Promise<string>
   return filePath;
 }
 
-const SUPPORTED = [".pdf", ".docx", ".txt", ".md", ".vtt", ".srt", ".csv", ".xlsx", ".xls"];
+const SUPPORTED = [".pdf", ".docx", ".txt", ".md", ".vtt", ".srt", ".csv", ".xlsx", ".xls", ".pptx"];
 
 interface SpIntegrationConfig {
   siteUrl: string;

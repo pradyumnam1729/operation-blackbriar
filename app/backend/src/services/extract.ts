@@ -9,6 +9,56 @@ export interface ExtractResult {
   text: string;
 }
 
+function decodeXmlEntities(s: string): string {
+  return s
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&#(\d+);/g, (_, d) => String.fromCharCode(Number(d)))
+    .replace(/&amp;/g, "&");
+}
+
+/**
+ * Slide deck → heading-structured markdown: each slide a `## Slide N` section
+ * (chunk heading), text runs joined per paragraph, speaker notes appended.
+ * pptx is a zip of XML — no heavy parser needed for text extraction.
+ */
+function pptxToMarkdown(filePath: string): string {
+  const AdmZip = require("adm-zip") as typeof import("adm-zip");
+  const zip = new AdmZip(filePath);
+  const slides = new Map<number, string>();
+  const notes = new Map<number, string>();
+
+  for (const entry of zip.getEntries()) {
+    const slide = entry.entryName.match(/^ppt\/slides\/slide(\d+)\.xml$/);
+    const note = entry.entryName.match(/^ppt\/notesSlides\/notesSlide(\d+)\.xml$/);
+    if (!slide && !note) continue;
+    const xml = entry.getData().toString("utf-8");
+    const paragraphs = [...xml.matchAll(/<a:p\b[\s\S]*?<\/a:p>/g)]
+      .map((p) =>
+        [...p[0].matchAll(/<a:t>([\s\S]*?)<\/a:t>/g)]
+          .map((t) => decodeXmlEntities(t[1]))
+          .join("")
+          .trim()
+      )
+      .filter((p) => p !== "");
+    const text = paragraphs.join("\n");
+    if (slide) slides.set(Number(slide[1]), text);
+    else if (note) notes.set(Number(note[1]), text);
+  }
+
+  const out: string[] = [];
+  for (const idx of [...slides.keys()].sort((a, b) => a - b)) {
+    const body = slides.get(idx)!;
+    if (body.trim() === "") continue;
+    out.push(`## Slide ${idx}\n\n${body}`);
+    const note = notes.get(idx);
+    if (note && note.trim() !== "") out.push(`Speaker notes (slide ${idx}):\n${note}`);
+  }
+  return out.join("\n\n");
+}
+
 /** A cell value, trimmed; multi-line cell content becomes "- " bullets. */
 function cellLines(v: unknown): string[] {
   return String(v ?? "")
@@ -102,7 +152,10 @@ export async function extractText(filePath: string): Promise<ExtractResult> {
     if (ext === ".xlsx" || ext === ".xls") {
       return { status: "done", text: xlsxToMarkdown(filePath) };
     }
-    // .pptx and other binary formats: stored and downloadable, not indexed yet.
+    if (ext === ".pptx") {
+      return { status: "done", text: pptxToMarkdown(filePath) };
+    }
+    // Other binary formats (video, images): stored and downloadable, not indexed.
     return { status: "unsupported", text: "" };
   } catch (err) {
     console.error(`extraction failed for ${filePath}:`, (err as Error).message);

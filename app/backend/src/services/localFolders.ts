@@ -26,7 +26,7 @@ export interface LocalFoldersConfig {
   lastExportResult?: string;
 }
 
-const SUPPORTED = [".pdf", ".docx", ".txt", ".md", ".vtt", ".srt", ".csv", ".xlsx", ".xls"];
+const SUPPORTED = [".pdf", ".docx", ".txt", ".md", ".vtt", ".srt", ".csv", ".xlsx", ".xls", ".pptx"];
 
 /**
  * Per-file document-type detection from the filename. The folder's docType is
