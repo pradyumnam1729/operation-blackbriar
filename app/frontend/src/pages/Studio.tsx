@@ -12,6 +12,7 @@ import {
   TemplateSummary,
 } from "../lib/api";
 import { useAuth } from "../auth/AuthContext";
+import { ReferenceLibrary } from "../components/ReferenceLibrary";
 
 // Asset Studio: pick an asset type → pick a template → generate a draft
 // artifact and open it in the editor. Slot-driven templates (Template Library)
@@ -211,7 +212,7 @@ export function Studio() {
       <p className="pagesub">
         {showCreate
           ? "Pick a type, a brand template, and a prompt — the draft lands in the library editor."
-          : "Finalized, approved assets — saved as final in the PMM workspace repository."}
+          : "Finalized assets — system finals from the PMM workspace plus the curated reference library, viewable and exportable to PDF."}
       </p>
 
       {admin && (
@@ -230,6 +231,7 @@ export function Studio() {
 
       {!showCreate ? (
         <>
+          <div className="section-label">System finals</div>
           {finalsLoading ? (
             <div className="empty-note">Loading finalized assets…</div>
           ) : finals.length === 0 ? (
@@ -286,6 +288,7 @@ export function Studio() {
               ))}
             </div>
           )}
+          <ReferenceLibrary />
         </>
       ) : (
         <>

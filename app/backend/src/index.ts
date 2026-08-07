@@ -25,6 +25,7 @@ import { questionnaireRouter } from "./routes/questionnaire";
 import { messagingDocsRouter } from "./routes/messagingDocs";
 import { templatesRouter } from "./routes/templates";
 import { agentsRouter } from "./routes/agents";
+import { referenceAssetsRouter } from "./routes/referenceAssets";
 import { syncAgentBaselines } from "./services/agents";
 import { WAR_ROOM_DIR } from "./services/warRoom";
 import { dbStatus } from "./services/db";
@@ -62,6 +63,7 @@ app.use("/api/questionnaire", questionnaireRouter);
 app.use("/api/messaging-docs", messagingDocsRouter);
 app.use("/api/templates", templatesRouter);
 app.use("/api/agents", agentsRouter);
+app.use("/api/reference-assets", referenceAssetsRouter);
 
 // Uploaded files (previews/downloads go through routes; this serves raw files to admins via signed paths later)
 app.use("/files", express.static(path.resolve(__dirname, "..", "uploads")));
