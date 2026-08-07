@@ -6,24 +6,27 @@ import { useAuth } from "../auth/AuthContext";
 // card opens the generator — pick product + industry (+ content type for
 // marketing) — and produces a ready-to-review asset from the knowledge base.
 
-type Persona = "sales" | "marketing" | "elt";
+type Persona = "sales" | "marketing" | "elt" | "proposals";
 
 const PERSONA_TO_ROLE: Record<Persona, string> = {
   sales: "sales",
   marketing: "marketing",
   elt: "leadership",
+  proposals: "proposals",
 };
 
 const HOME_SUBS: Record<Persona, string> = {
   sales: "Here's what's relevant to Sales today.",
   marketing: "Here's what's relevant to Marketing today.",
   elt: "A strategic pulse across GTM programs.",
+  proposals: "Here's what's relevant to Proposals today.",
 };
 
 const PLACEHOLDERS: Record<Persona, string> = {
   sales: "Ask for a talk track, a battlecard, or a business case...",
   marketing: "Ask for a video script, a datasheet, or messaging guidance...",
   elt: "Ask for a KPI snapshot, a roadmap pulse, or a governance check...",
+  proposals: "Ask for RFP response language, a compliance answer, or cleared proof points...",
 };
 
 const SUGGESTIONS: Record<Persona, string[]> = {
@@ -41,6 +44,11 @@ const SUGGESTIONS: Record<Persona, string[]> = {
     "Summarize how we win against Oracle Primavera",
     "What shipped across all products recently?",
     "What are the top loss reasons this quarter?",
+  ],
+  proposals: [
+    "Draft a compliant response to a Davis-Bacon documentation requirement",
+    "What proof points are cleared for external use in an RFP for a state DOT?",
+    "Write a boilerplate company & product overview for a Masterworks proposal",
   ],
 };
 
@@ -73,18 +81,38 @@ const GEN_CARDS: Record<Persona, GenCard[]> = {
     { icon: "fa-newspaper", title: "Analyst/press briefing brief", desc: "Feature list, competitive positioning, and cleared proof points, ready before a call." },
     { icon: "fa-shield-halved", title: "Competitive intel", desc: "Strengths, weaknesses, landmines, and talk track by competitor." },
   ],
+  proposals: [
+    { icon: "fa-layer-group", title: "Feature catalog", desc: "See every recent feature by product, straight from release notes." },
+    { icon: "fa-shield-halved", title: "Competitive intel", desc: "Strengths, weaknesses, landmines, and talk track by competitor." },
+  ],
 };
 
 const GEN_PRODUCTS = ["Masterworks", "Masterworks AI", "Primus"];
-const GEN_INDUSTRIES = [
-  "Data centers",
-  "Energy and utilities",
-  "Federal",
-  "Life sciences",
-  "Local government",
-  "Manufacturing",
-  "State and large government",
-];
+
+const GENERIC_VERTICAL = "Generic / All Verticals";
+
+// Each product owns its own vertical list — deliberately not a shared lookup,
+// since Masterworks and Primus sell into different markets.
+const GEN_INDUSTRIES_BY_PRODUCT: Record<string, string[]> = {
+  Masterworks: [
+    GENERIC_VERTICAL,
+    "Transportation (DOT/Transit/Airports)",
+    "Water & Utilities",
+    "Healthcare & Higher Education",
+    "State & Local Government",
+    "Federal Agencies",
+  ],
+  "Masterworks AI": [GENERIC_VERTICAL],
+  Primus: [
+    GENERIC_VERTICAL,
+    "Data Centers",
+    "Energy & Utilities",
+    "Manufacturing",
+    "Life Sciences",
+    "Private Sector",
+  ],
+};
+
 const GEN_CONTENT_TYPES = [
   "Video script",
   "Email campaign",
@@ -93,6 +121,14 @@ const GEN_CONTENT_TYPES = [
   "Webpage copy",
   "Event banner",
 ];
+
+// Competitor picker for the "Competitive intel" card — per product, since
+// Masterworks and Primus compete against different sets. Products with no
+// list here (Masterworks AI) fall back to the model picking automatically.
+const GEN_COMPETITORS_BY_PRODUCT: Record<string, string[]> = {
+  Masterworks: ["Kahua", "e-Builder", "Oracle", "Procore"],
+  Primus: ["Procore", "Oracle Primavera", "Kahua", "Copperleaf", "Ecosys"],
+};
 
 interface GenResult {
   tag: string;
@@ -125,6 +161,7 @@ export function Home() {
   const [genProduct, setGenProduct] = useState("");
   const [genIndustry, setGenIndustry] = useState("");
   const [genType, setGenType] = useState("");
+  const [genCompetitor, setGenCompetitor] = useState("");
   const [genResult, setGenResult] = useState<GenResult | null>(null);
   const [genError, setGenError] = useState("");
   const [loadMsg, setLoadMsg] = useState("");
@@ -133,7 +170,17 @@ export function Home() {
   const resultRef = useRef<HTMLDivElement | null>(null);
 
   const needsContentType = persona === "marketing" && genCard?.title === "Content creation studio";
-  const genReady = genProduct !== "" && genIndustry !== "" && (!needsContentType || genType !== "");
+  // Industry vertical and competitor pickers are both Competitive-intel-only —
+  // every other quick action just needs a product and defaults silently to
+  // "Generic / All Verticals" (set by pickGenProduct).
+  const needsIndustry = genCard?.title === "Competitive intel";
+  const competitorOptions = GEN_COMPETITORS_BY_PRODUCT[genProduct] ?? [];
+  const needsCompetitor = genCard?.title === "Competitive intel" && competitorOptions.length > 0;
+  const genReady =
+    genProduct !== "" &&
+    genIndustry !== "" &&
+    (!needsContentType || genType !== "") &&
+    (!needsCompetitor || genCompetitor !== "");
 
   useEffect(() => {
     apiGet<{ suggestions: Record<string, string[]> }>("/api/guardrails/prompts")
@@ -165,6 +212,7 @@ export function Home() {
     setGenProduct("");
     setGenIndustry("");
     setGenType("");
+    setGenCompetitor("");
     setGenResult(null);
     setGenError("");
     setCopied(false);
@@ -175,15 +223,28 @@ export function Home() {
     setGenCard(null);
   };
 
+  // Picking a product resets the industry to that product's default
+  // ("Generic / All Verticals") and clears the competitor pick, since both
+  // lists are per-product.
+  const pickGenProduct = (p: string) => {
+    setGenProduct(p);
+    setGenIndustry(GEN_INDUSTRIES_BY_PRODUCT[p]?.[0] ?? GENERIC_VERTICAL);
+    setGenCompetitor("");
+  };
+
   const runGeneration = async () => {
     if (!genCard || !genReady) return;
     setGenPhase("loading");
     setGenError("");
     const stages = [
-      `Pulling ${genProduct} context and ${genIndustry} proof points…`,
-      genType !== ""
-        ? `Shaping this as a ${genType.toLowerCase()}…`
-        : "Matching knowledge-base evidence to this request…",
+      `Pulling ${genProduct} context and ${
+        genIndustry === GENERIC_VERTICAL ? "general" : genIndustry
+      } proof points…`,
+      needsCompetitor
+        ? `Building the case against ${genCompetitor}…`
+        : genType !== ""
+          ? `Shaping this as a ${genType.toLowerCase()}…`
+          : "Matching knowledge-base evidence to this request…",
       "Writing the draft in Aurigo voice…",
     ];
     let i = 0;
@@ -199,6 +260,7 @@ export function Home() {
         product: genProduct,
         industry: genIndustry,
         contentType: needsContentType ? genType : undefined,
+        competitor: needsCompetitor ? genCompetitor : undefined,
       });
       setGenResult(r);
       setGenPhase("result");
@@ -251,20 +313,24 @@ export function Home() {
     .join("")
     .toUpperCase();
 
+  const fieldLabel = (label: string) => (
+    <div
+      style={{
+        fontSize: 11.5,
+        textTransform: "uppercase",
+        letterSpacing: ".05em",
+        color: "var(--teal-dark)",
+        fontWeight: 600,
+        marginBottom: 8,
+      }}
+    >
+      {label}
+    </div>
+  );
+
   const pillRow = (label: string, values: string[], picked: string, onPick: (v: string) => void) => (
     <div style={{ marginBottom: 16 }}>
-      <div
-        style={{
-          fontSize: 11.5,
-          textTransform: "uppercase",
-          letterSpacing: ".05em",
-          color: "var(--teal-dark)",
-          fontWeight: 600,
-          marginBottom: 8,
-        }}
-      >
-        {label}
-      </div>
+      {fieldLabel(label)}
       <div className="step-pills">
         {values.map((v) => (
           <button
@@ -280,6 +346,39 @@ export function Home() {
     </div>
   );
 
+  // Per-product industry vertical — a real dropdown, not pills, with
+  // "Generic / All Verticals" as the pre-selected default.
+  const industryDropdown = () => (
+    <div style={{ marginBottom: 16 }}>
+      {fieldLabel("Industry vertical")}
+      <select value={genIndustry} onChange={(e) => setGenIndustry(e.target.value)}>
+        {(GEN_INDUSTRIES_BY_PRODUCT[genProduct] ?? [GENERIC_VERTICAL]).map((v) => (
+          <option key={v} value={v}>
+            {v}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+
+  // Competitor picker — only ever rendered for the "Competitive intel" card
+  // (see needsCompetitor). No other quick action touches this field.
+  const competitorDropdown = () => (
+    <div style={{ marginBottom: 16 }}>
+      {fieldLabel("Competitor")}
+      <select value={genCompetitor} onChange={(e) => setGenCompetitor(e.target.value)}>
+        <option value="" disabled>
+          Select a competitor…
+        </option>
+        {competitorOptions.map((v) => (
+          <option key={v} value={v}>
+            {v}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+
   return (
     <div>
       <h1 className="pagetitle">{greeting}</h1>
@@ -288,7 +387,7 @@ export function Home() {
       <div style={{ marginBottom: 20 }}>
         <div className="persona-label">Who's asking?</div>
         <div className="persona-switch">
-          {(["sales", "marketing", "elt"] as Persona[]).map((p) => (
+          {(["sales", "marketing", "elt", "proposals"] as Persona[]).map((p) => (
             <button
               key={p}
               className={persona === p ? "active" : ""}
@@ -466,16 +565,20 @@ export function Home() {
             {genPhase === "select" && (
               <>
                 <p style={{ color: "var(--text-secondary)", fontSize: 13, margin: "4px 0 20px", lineHeight: 1.5 }}>
-                  Tell us who this is for, and we'll generate it against the right product and
-                  industry context.
+                  {needsIndustry
+                    ? "Tell us who this is for, and we'll generate it against the right product and industry context."
+                    : "Pick a product and we'll generate it against the right context."}
                 </p>
                 {genError && (
                   <div style={{ background: "#FCE8E8", color: "#A32D2D", borderRadius: "var(--r-md)", padding: "10px 14px", fontSize: 13, marginBottom: 14 }}>
                     {genError}
                   </div>
                 )}
-                {pillRow("Product", GEN_PRODUCTS, genProduct, setGenProduct)}
-                {pillRow("Industry", GEN_INDUSTRIES, genIndustry, setGenIndustry)}
+                {pillRow("Product", GEN_PRODUCTS, genProduct, pickGenProduct)}
+                {needsIndustry &&
+                  (GEN_INDUSTRIES_BY_PRODUCT[genProduct]?.length ?? 0) > 1 &&
+                  industryDropdown()}
+                {needsCompetitor && competitorDropdown()}
                 {needsContentType &&
                   pillRow("Content type", GEN_CONTENT_TYPES, genType, setGenType)}
                 <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 6 }}>
@@ -516,11 +619,23 @@ export function Home() {
                   }}
                 >
                   <i className="fa-solid fa-crosshairs" style={{ marginRight: 6 }} />
-                  Generated for <b>{genProduct}</b> · <b>{genIndustry}</b>
+                  Generated for <b>{genProduct}</b>
+                  {needsIndustry && (
+                    <>
+                      {" "}
+                      · <b>{genIndustry}</b>
+                    </>
+                  )}
                   {genType !== "" && (
                     <>
                       {" "}
                       · <b>{genType}</b>
+                    </>
+                  )}
+                  {needsCompetitor && genCompetitor !== "" && (
+                    <>
+                      {" "}
+                      vs. <b>{genCompetitor}</b>
                     </>
                   )}
                 </div>

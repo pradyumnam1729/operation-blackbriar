@@ -14,15 +14,32 @@ export const quickGenRouter = Router();
 quickGenRouter.use(requireAuth);
 
 const PRODUCTS = ["Masterworks", "Masterworks AI", "Primus"];
-const INDUSTRIES = [
-  "Data centers",
-  "Energy and utilities",
-  "Federal",
-  "Life sciences",
-  "Local government",
-  "Manufacturing",
-  "State and large government",
-];
+
+const GENERIC_VERTICAL = "Generic / All Verticals";
+
+// Each product owns its own vertical list — mirrors the frontend picker in
+// Home.tsx. Deliberately not one shared list: Masterworks and Primus sell
+// into different markets.
+const INDUSTRIES_BY_PRODUCT: Record<string, string[]> = {
+  Masterworks: [
+    GENERIC_VERTICAL,
+    "Transportation (DOT/Transit/Airports)",
+    "Water & Utilities",
+    "Healthcare & Higher Education",
+    "State & Local Government",
+    "Federal Agencies",
+  ],
+  "Masterworks AI": [GENERIC_VERTICAL],
+  Primus: [
+    GENERIC_VERTICAL,
+    "Data Centers",
+    "Energy & Utilities",
+    "Manufacturing",
+    "Life Sciences",
+    "Private Sector",
+  ],
+};
+
 const CONTENT_TYPES = [
   "Video script",
   "Email campaign",
@@ -31,6 +48,14 @@ const CONTENT_TYPES = [
   "Webpage copy",
   "Event banner",
 ];
+
+// Competitor picker — only ever used by the "Competitive intel" action.
+// Products with no list here (Masterworks AI) fall back to the model
+// picking the competitor from the knowledge base, as before.
+const COMPETITORS_BY_PRODUCT: Record<string, string[]> = {
+  Masterworks: ["Kahua", "e-Builder", "Oracle", "Procore"],
+  Primus: ["Procore", "Oracle Primavera", "Kahua", "Copperleaf", "Ecosys"],
+};
 
 interface ActionBrief {
   tag: string;
@@ -113,6 +138,12 @@ const ACTIONS: Record<string, ActionBrief> = {
       "Prepare an analyst/press pre-call brief for this product and industry: shipped capabilities (feature list below), competitive positioning in two sentences, and 2-3 proof points cleared for external use from the knowledge base (mark any that still need clearance).",
     useFeatures: true,
   },
+  "Feature catalog": {
+    tag: "Feature catalog",
+    brief:
+      "List every recently shipped feature for this product (from the feature list below), grouped by category, each with a one-line description straight from the release notes. This is a catalog, not a narrative — bulleted list only, no marketing framing. If there are no shipped features on file for this product, say so plainly.",
+    useFeatures: true,
+  },
 };
 
 /** Recent features for the picked product line, for launch/keynote/exec cards. */
@@ -144,34 +175,60 @@ async function featureContext(product: string): Promise<string> {
 }
 
 quickGenRouter.post("/", async (req, res) => {
-  const { action, product, industry, contentType } = (req.body ?? {}) as {
+  const { action, product, industry, contentType, competitor } = (req.body ?? {}) as {
     action?: string;
     product?: string;
     industry?: string;
     contentType?: string;
+    competitor?: string;
   };
 
   const spec = action ? ACTIONS[action] : undefined;
   if (!spec) return res.status(400).json({ error: "Unknown quick-generate action" });
   if (!product || !PRODUCTS.includes(product))
     return res.status(400).json({ error: "Pick a product" });
-  if (!industry || !INDUSTRIES.includes(industry))
-    return res.status(400).json({ error: "Pick an industry" });
+  if (!industry || !(INDUSTRIES_BY_PRODUCT[product] ?? []).includes(industry))
+    return res.status(400).json({ error: "Pick an industry vertical" });
   if (contentType && !CONTENT_TYPES.includes(contentType))
     return res.status(400).json({ error: "Unknown content type" });
+
+  // Competitor is only meaningful for "Competitive intel", and only for
+  // products with a defined list — Masterworks AI has none, so it keeps the
+  // old behavior of letting the model pick from the knowledge base.
+  const competitorList = COMPETITORS_BY_PRODUCT[product] ?? [];
+  if (action === "Competitive intel" && competitorList.length > 0) {
+    if (!competitor || !competitorList.includes(competitor))
+      return res.status(400).json({ error: "Pick a competitor" });
+  } else if (competitor && !competitorList.includes(competitor)) {
+    return res.status(400).json({ error: "Unknown competitor" });
+  }
+
+  const isGeneric = industry === GENERIC_VERTICAL;
+  const industryPhrase = isGeneric ? "" : ` ${industry}`;
+  const brief =
+    action === "Competitive intel" && competitor
+      ? spec.brief.replace(
+          "against the competitor the knowledge base most often positions it against",
+          `against ${competitor} specifically`
+        )
+      : spec.brief;
 
   try {
     const [chunks, features] = await Promise.all([
       retrieveChunks(
-        `${product} ${industry} ${action} ${contentType ?? ""} positioning value proposition proof points customers`,
+        `${product}${industryPhrase} ${action} ${competitor ?? ""} ${contentType ?? ""} positioning value proposition proof points customers`,
         10
       ),
       spec.useFeatures ? featureContext(product) : Promise.resolve(""),
     ]);
 
     const prompt = [
-      `Quick asset generation for a GTM teammate. Product: Aurigo ${product}. Industry: ${industry}.${contentType ? ` Content type: ${contentType}.` : ""}`,
-      spec.brief,
+      `Quick asset generation for a GTM teammate. Product: Aurigo ${product}.${
+        isGeneric
+          ? " Not industry-specific — write for a general buyer across Aurigo's core verticals."
+          : ` Industry: ${industry}.`
+      }${contentType ? ` Content type: ${contentType}.` : ""}`,
+      brief,
       "Output rules:",
       "- Respond in clean markdown with the section headings named in the brief. No preamble, no closing meta-commentary — the response IS the asset.",
       "- Do NOT include a frontmatter/metadata block (no product/audience/sources header) — this is quick-copy output, not a war-room file.",
