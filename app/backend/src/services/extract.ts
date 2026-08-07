@@ -86,9 +86,13 @@ export async function extractText(filePath: string): Promise<ExtractResult> {
       return { status: "done", text: fs.readFileSync(filePath, "utf-8") };
     }
     if (ext === ".pdf") {
-      const pdfParse = require("pdf-parse") as (b: Buffer) => Promise<{ text: string }>;
-      const data = await pdfParse(fs.readFileSync(filePath));
-      return { status: "done", text: data.text };
+      // pdf-parse v2 exports a class, not the v1 function.
+      const { PDFParse } = require("pdf-parse") as {
+        PDFParse: new (o: { data: Buffer }) => { getText: () => Promise<{ text: string }> };
+      };
+      const parser = new PDFParse({ data: fs.readFileSync(filePath) });
+      const result = await parser.getText();
+      return { status: "done", text: result.text };
     }
     if (ext === ".docx") {
       const mammoth = require("mammoth") as { extractRawText: (o: { path: string }) => Promise<{ value: string }> };
