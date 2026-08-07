@@ -12,6 +12,21 @@ messagingDocsRouter.use(requireAuth);
 
 const LIST_COLS = "id, version, status, title, created_at, approved_at, war_room_path, exported_path";
 
+// ---------- 6b. published finals across products ----------
+// GET /api/messaging-docs — every approved P&M document, newest first. Feeds
+// the Asset studio Finalized view: approved messaging docs are finalized
+// deliverables and belong beside system-final artifacts.
+messagingDocsRouter.get("/", async (_req, res) => {
+  const sb = supabase()!;
+  const { data, error } = await sb
+    .from("messaging_docs")
+    .select(`${LIST_COLS}, product_id, products(name)`)
+    .eq("status", "final")
+    .order("approved_at", { ascending: false });
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ docs: data ?? [] });
+});
+
 // ---------- 7. version list per product ----------
 // GET /api/messaging-docs/:productId
 messagingDocsRouter.get("/:productId", async (req, res) => {

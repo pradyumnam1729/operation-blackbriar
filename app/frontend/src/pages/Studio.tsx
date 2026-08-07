@@ -55,6 +55,16 @@ interface FinalAsset {
   updated_at: string;
 }
 
+interface ApprovedMessagingDoc {
+  id: string;
+  version: number;
+  status: string;
+  title: string;
+  approved_at: string | null;
+  war_room_path: string | null;
+  products: { name: string } | null;
+}
+
 const FINAL_TYPE_ICON: Record<string, string> = {
   "one-pager": "fa-file-lines",
   datasheet: "fa-file-invoice",
@@ -78,6 +88,36 @@ export function Studio() {
   const [finals, setFinals] = useState<FinalAsset[]>([]);
   const [finalsLoading, setFinalsLoading] = useState(false);
   const [finalsError, setFinalsError] = useState("");
+  const [approvedDocs, setApprovedDocs] = useState<ApprovedMessagingDoc[]>([]);
+
+  // Approved P&M documents are finalized deliverables too — the questionnaire
+  // pipeline's output, published to the war room on approval.
+  useEffect(() => {
+    if (view !== "finalized") return;
+    apiGet<{ docs: ApprovedMessagingDoc[] }>("/api/messaging-docs")
+      .then((r) => setApprovedDocs(r.docs))
+      .catch(() => setApprovedDocs([]));
+  }, [view]);
+
+  const viewDoc = async (d: ApprovedMessagingDoc) => {
+    setFinalsError("");
+    try {
+      const r = await apiGet<{ doc: { title: string; content_html: string } }>(
+        `/api/messaging-docs/doc/${d.id}`
+      );
+      const html = [
+        '<!doctype html><html><head><meta charset="utf-8">',
+        `<title>${r.doc.title}</title>`,
+        "<style>body{font-family:Roboto,Arial,sans-serif;color:#20282B;max-width:760px;margin:40px auto;padding:0 24px;line-height:1.65}h1{color:#053445}h2{color:#015F74}a{color:#015F74}table{border-collapse:collapse;width:100%}th,td{border:1px solid #E1E6E9;padding:8px 10px;text-align:left}th{background:#F5F7F8}</style>",
+        "</head><body>",
+        r.doc.content_html,
+        "</body></html>",
+      ].join("");
+      window.open(URL.createObjectURL(new Blob([html], { type: "text/html" })), "_blank");
+    } catch (e) {
+      setFinalsError((e as Error).message);
+    }
+  };
 
   // View renders the finalized content in a new tab — the repository editor is
   // reached only through the explicit Edit action.
@@ -253,6 +293,47 @@ export function Studio() {
 
       {!showCreate ? (
         <>
+          {approvedDocs.length > 0 && (
+            <>
+              <div className="section-label">Approved messaging documents</div>
+              <div style={{ overflowX: "auto", marginBottom: 18 }}>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Document</th>
+                      <th>Product</th>
+                      <th>Version</th>
+                      <th>Approved</th>
+                      <th>War room</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {approvedDocs.map((d) => (
+                      <tr key={d.id}>
+                        <td style={{ fontWeight: 500 }}>
+                          <i className="fa-solid fa-file-signature" style={{ color: "var(--teal-dark)", marginRight: 8 }} />
+                          {d.title}
+                        </td>
+                        <td>{d.products?.name ?? "—"}</td>
+                        <td>v{d.version}</td>
+                        <td>{d.approved_at ? new Date(d.approved_at).toLocaleDateString() : "—"}</td>
+                        <td style={{ fontSize: 12, color: "var(--text-muted)", overflowWrap: "anywhere" }}>
+                          {d.war_room_path ?? "—"}
+                        </td>
+                        <td style={{ whiteSpace: "nowrap" }}>
+                          <button className="btn btn-sm" onClick={() => void viewDoc(d)} title="View the published document">
+                            <i className="fa-solid fa-eye" /> View
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+
           <div className="section-label">System finals</div>
           {finalsError && (
             <div style={{ marginBottom: 12, padding: "10px 14px", background: "#FCE8E8", borderRadius: "var(--r-md)", color: "#A32D2D", fontSize: 13 }}>
