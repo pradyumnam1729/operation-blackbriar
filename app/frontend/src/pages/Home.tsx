@@ -157,6 +157,7 @@ const TRACE_LABELS: Record<string, { icon: string; label: string }> = {
   get_product_features: { icon: "fa-layer-group", label: "Pulled feature catalog" },
   get_competitor_sources: { icon: "fa-chess", label: "Fetched competitor sources" },
   list_final_assets: { icon: "fa-box-archive", label: "Checked repository" },
+  invoke_custom_agent: { icon: "fa-plug", label: "Delegated to team agent" },
 };
 
 export function Home() {

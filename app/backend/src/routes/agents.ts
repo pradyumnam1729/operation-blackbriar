@@ -104,7 +104,7 @@ agentsRouter.get("/", async (_req, res) => {
   const { data, error } = await sb
     .from("agents")
     .select(
-      "key, kind, grp, name, description, model, enabled, prompt_override, custom_instructions, updated_at, updated_by, updated_by_profile:profiles!agents_updated_by_fkey(full_name)"
+      "key, kind, grp, name, description, model, enabled, prompt_override, custom_instructions, endpoint_url, updated_at, updated_by, updated_by_profile:profiles!agents_updated_by_fkey(full_name)"
     );
   // Table missing (migration 0013 not run) or empty -> [] and the UI renders
   // the migration note; pipelines keep working on synthetic defaults.
@@ -122,6 +122,7 @@ agentsRouter.get("/", async (_req, res) => {
         enabled: boolean;
         prompt_override: string | null;
         custom_instructions: string;
+        endpoint_url: string | null;
         updated_at: string;
         updated_by_profile: { full_name: string } | null;
       };
@@ -135,6 +136,7 @@ agentsRouter.get("/", async (_req, res) => {
         enabled: row.enabled,
         overridden: row.prompt_override !== null,
         has_custom_instructions: (row.custom_instructions ?? "").trim() !== "",
+        endpoint_url: row.endpoint_url ?? null,
         updated_at: row.updated_at,
         updated_by_name: row.updated_by_profile?.full_name ?? null,
       };

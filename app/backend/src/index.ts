@@ -25,6 +25,7 @@ import { questionnaireRouter } from "./routes/questionnaire";
 import { messagingDocsRouter } from "./routes/messagingDocs";
 import { templatesRouter } from "./routes/templates";
 import { agentsRouter } from "./routes/agents";
+import { customAgentsRouter } from "./routes/customAgents";
 import { referenceAssetsRouter } from "./routes/referenceAssets";
 import { syncAgentBaselines } from "./services/agents";
 import { WAR_ROOM_DIR } from "./services/warRoom";
@@ -62,6 +63,8 @@ app.use("/api/guardrails", guardrailsRouter);
 app.use("/api/questionnaire", questionnaireRouter);
 app.use("/api/messaging-docs", messagingDocsRouter);
 app.use("/api/templates", templatesRouter);
+// Custom-agent routes mount first so the main router's /:key never swallows them.
+app.use("/api/agents/custom", customAgentsRouter);
 app.use("/api/agents", agentsRouter);
 app.use("/api/reference-assets", referenceAssetsRouter);
 

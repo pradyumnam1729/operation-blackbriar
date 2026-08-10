@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { client, MODEL, systemCore } from "./claude";
+import { CustomAgentRow, invokeCustomAgent, listCustomAgents } from "./customAgents";
 import { supabase } from "./db";
 import { chunksToContext, retrieveChunks } from "./ingestion";
 import { loadCorpus } from "./warRoom";
@@ -283,6 +284,53 @@ export async function answerWithTools(
     },
   ];
 
+  // Team-connected custom agents (Agents tab) become a delegation tool: the
+  // model sees each enabled agent's name + description and can hand work to it.
+  const customAgents = (await listCustomAgents()).filter(
+    (a) => a.enabled && a.endpoint_url
+  );
+  const tools: Anthropic.Tool[] = [...TOOLS];
+  if (customAgents.length > 0) {
+    tools.push({
+      name: "invoke_custom_agent",
+      description:
+        "Delegate a sub-task to a team-connected external agent. Available agents:\n" +
+        customAgents.map((a) => `- ${a.key}: ${a.name} — ${a.description}`).join("\n") +
+        "\nUse when a question falls inside one of these agents' described specialties. Treat the response as that team's input, not as verified war-room fact.",
+      input_schema: {
+        type: "object",
+        properties: {
+          agent_key: { type: "string", description: "Key of the agent to invoke" },
+          input: { type: "string", description: "The task or question for the agent" },
+        },
+        required: ["agent_key", "input"],
+      },
+    });
+  }
+
+  const execCustom = async (input: Record<string, unknown>): Promise<ToolOutcome> => {
+    const key = String(input.agent_key ?? "");
+    const agent = customAgents.find((a) => a.key === key);
+    if (!agent) {
+      return {
+        output: `No enabled custom agent with key "${key}". Available: ${customAgents.map((a) => a.key).join(", ")}`,
+        summary: `${key} → unknown agent`,
+      };
+    }
+    try {
+      const r = await invokeCustomAgent(agent as CustomAgentRow, String(input.input ?? ""));
+      return {
+        output: r.output,
+        summary: `${agent.name} → replied in ${(r.latencyMs / 1000).toFixed(1)}s`,
+      };
+    } catch (err) {
+      return {
+        output: `Custom agent ${agent.name} failed: ${(err as Error).message}`,
+        summary: `${agent.name} → failed`,
+      };
+    }
+  };
+
   const trace: TraceStep[] = [];
   const messages: Anthropic.MessageParam[] = [{ role: "user", content: userPrompt }];
 
@@ -292,7 +340,7 @@ export async function answerWithTools(
       max_tokens: 8000,
       thinking: { type: "adaptive" },
       system,
-      tools: TOOLS,
+      tools,
       messages,
     });
 
@@ -318,7 +366,9 @@ export async function answerWithTools(
     messages.push({ role: "assistant", content: response.content });
     const results: Anthropic.ToolResultBlockParam[] = [];
     for (const tu of toolUses) {
-      const outcome = await execTool(tu.name, (tu.input ?? {}) as Record<string, unknown>);
+      const input = (tu.input ?? {}) as Record<string, unknown>;
+      const outcome =
+        tu.name === "invoke_custom_agent" ? await execCustom(input) : await execTool(tu.name, input);
       trace.push({ tool: tu.name, summary: outcome.summary });
       results.push({ type: "tool_result", tool_use_id: tu.id, content: outcome.output });
     }

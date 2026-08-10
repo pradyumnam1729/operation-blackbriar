@@ -431,7 +431,7 @@ export const saveArtifactSlots = (
 
 // ---- Agents registry (admin-only; blueprint app/docs/blueprints/agents-tab.md §2.4) ----
 
-export type AgentKind = "task" | "pmm";
+export type AgentKind = "task" | "pmm" | "custom";
 export type AgentGroup = "A" | "B" | "C";
 export type AgentContract =
   | "fq-answers-json"
@@ -451,6 +451,8 @@ export interface AgentSummary {
   /** prompt_override != null */
   overridden: boolean;
   has_custom_instructions: boolean;
+  /** Custom connected agents only. */
+  endpoint_url?: string | null;
   updated_at: string;
   updated_by_name: string | null;
 }
@@ -522,6 +524,45 @@ export interface TestRunResult {
 }
 
 export const listAgents = () => apiGet<AgentListResponse>("/api/agents");
+
+// ---- Custom connected agents (Agents tab, admin) ----
+
+export interface CustomAgent {
+  id: string;
+  key: string;
+  name: string;
+  description: string;
+  enabled: boolean;
+  endpoint_url: string | null;
+  timeout_ms: number;
+  owner_team: string | null;
+  has_auth_token: boolean;
+  updated_at: string;
+}
+
+export interface CustomAgentInput {
+  name: string;
+  description: string;
+  endpoint_url: string;
+  auth_token?: string;
+  timeout_ms?: number;
+  owner_team?: string;
+}
+
+export const registerCustomAgent = (body: CustomAgentInput) =>
+  apiPost<{ agent: CustomAgent }>("/api/agents/custom", body);
+
+export const updateCustomAgent = (key: string, patch: Partial<CustomAgentInput> & { enabled?: boolean }) =>
+  apiPut<{ agent: CustomAgent }>(`/api/agents/custom/${encodeURIComponent(key)}`, patch);
+
+export const deleteCustomAgent = (key: string) =>
+  apiDelete<{ ok: boolean }>(`/api/agents/custom/${encodeURIComponent(key)}`);
+
+export const invokeCustomAgentTest = (key: string, input?: string) =>
+  apiPost<{ output: string; latency_ms: number }>(
+    `/api/agents/custom/${encodeURIComponent(key)}/invoke`,
+    { input }
+  );
 
 export const getAgent = (key: string) =>
   apiGet<{ agent: AgentDetail; meta: AgentMeta }>(`/api/agents/${encodeURIComponent(key)}`);
