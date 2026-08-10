@@ -8,6 +8,7 @@ import {
   getProducts,
   listTemplates,
   Product,
+  getArtifactRender,
   RenderWarning,
   TemplateSummary,
 } from "../lib/api";
@@ -120,18 +121,36 @@ export function Studio() {
   };
 
   // View renders the finalized content in a new tab — the repository editor is
-  // reached only through the explicit Edit action.
+  // reached only through the explicit Edit action. Template-generated artifacts
+  // open their true laid-out render (artifact_renders payload); the flat digest
+  // is only the fallback for rich-text artifacts.
   const viewFinal = async (a: FinalAsset) => {
     setFinalsError("");
     try {
-      const r = await apiGet<{ contentHtml: string }>(`/api/artifacts/${a.id}`);
+      const r = await apiGet<{ contentHtml: string; hasRender?: boolean }>(`/api/artifacts/${a.id}`);
+      if (r.hasRender) {
+        try {
+          const render = await getArtifactRender(a.id);
+          if (render.format === "html" || render.format === "email" || render.format === "deck") {
+            window.open(URL.createObjectURL(new Blob([render.payload], { type: "text/html" })), "_blank");
+            return;
+          }
+          if (render.format === "svg") {
+            window.open(URL.createObjectURL(new Blob([render.payload], { type: "image/svg+xml" })), "_blank");
+            return;
+          }
+          // markdown and anything else: fall through to the digest shell.
+        } catch {
+          // render fetch failed — fall back to the digest below
+        }
+      }
+      // Digest fallback: it already opens with its own <h1>, so no extra title.
       const html = [
         '<!doctype html><html><head><meta charset="utf-8">',
         `<title>${a.title}</title>`,
         "<style>body{font-family:Roboto,Arial,sans-serif;color:#20282B;max-width:760px;margin:40px auto;padding:0 24px;line-height:1.65}h1{color:#053445}h2{color:#015F74}a{color:#015F74}table{border-collapse:collapse;width:100%}th,td{border:1px solid #E1E6E9;padding:8px 10px;text-align:left}th{background:#F5F7F8}</style>",
         "</head><body>",
-        `<h1>${a.title}</h1>`,
-        r.contentHtml === "" ? "<p>(no rendered content)</p>" : r.contentHtml,
+        r.contentHtml === "" ? `<h1>${a.title}</h1><p>(no rendered content)</p>` : r.contentHtml,
         "</body></html>",
       ].join("");
       window.open(URL.createObjectURL(new Blob([html], { type: "text/html" })), "_blank");
