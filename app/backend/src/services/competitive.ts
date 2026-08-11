@@ -156,7 +156,63 @@ export async function ensureSources(competitor: CompetitorRow): Promise<SourceRo
       console.error(`scrape failed for ${s.url}: ${msg}`);
     }
   }
-  return (sources ?? []).filter((s) => s.enabled !== false && s.status === "ok" && s.content_md);
+  let usable: SourceRow[] = ((sources ?? []) as SourceRow[]).filter(
+    (s) => s.enabled !== false && s.status === "ok" && s.content_md
+  );
+
+  // Fallback discovery: bot-protected official sites (Procore-class) can fail
+  // every initial source. Before giving up, search for alternative pages —
+  // review sites and secondary product pages usually scrape fine.
+  if (usable.length === 0) {
+    const tried = new Set((sources ?? []).map((s) => normalizeUrl(s.url)));
+    const queries = [
+      `${competitor.name} G2 reviews`,
+      `${competitor.name} construction software product overview`,
+      `${competitor.name} platform capabilities`,
+    ];
+    const candidates: string[] = [];
+    for (const q of queries) {
+      try {
+        const hits = await searchWeb(q, 5);
+        for (const h of hits) {
+          const url = normalizeUrl(h.url);
+          if (tried.has(url) || candidates.includes(url)) continue;
+          if (/reddit\.com|wikipedia\.org|linkedin\.com|facebook\.com|youtube\.com/i.test(url)) continue;
+          candidates.push(url);
+        }
+      } catch (err) {
+        console.error(`fallback search failed for ${competitor.name}:`, (err as Error).message);
+      }
+    }
+    for (const url of candidates.slice(0, 4)) {
+      if (usable.length >= 2) break;
+      try {
+        const page = await readUrl(url);
+        const { data: row } = await sb
+          .from("competitor_sources")
+          .upsert(
+            {
+              competitor_id: competitor.id,
+              url,
+              content_md: page.content,
+              content_hash: contentHash(page.content),
+              label: page.title.slice(0, 200),
+              status: "ok",
+              error: null,
+              scraped_at: new Date().toISOString(),
+              discovered_by: "discovery",
+            },
+            { onConflict: "competitor_id,url" }
+          )
+          .select("id, url, label, content_md, status, scraped_at, enabled")
+          .single();
+        if (row) usable = [...usable, row as SourceRow];
+      } catch (err) {
+        console.error(`fallback scrape failed for ${url}:`, (err as Error).message);
+      }
+    }
+  }
+  return usable;
 }
 
 export interface CompareResult {
@@ -568,4 +624,91 @@ export async function buildPositioningMap(
     .single();
   if (error || !row) throw new Error(error?.message ?? "Could not store the positioning map");
   return rowToMap(row as MapRow);
+}
+
+// ---------------------------------------------------------------------------
+// Map history + quarter-over-quarter movement (Phase 1 — the table has stored
+// every build since 0014; these expose it).
+
+export async function getMapHistory(limit = 12): Promise<PositioningMap[]> {
+  const sb = supabase()!;
+  const { data } = await sb
+    .from("positioning_maps")
+    .select(MAP_COLS)
+    .order("created_at", { ascending: false })
+    .limit(Math.min(limit, 24));
+  return ((data ?? []) as MapRow[]).map(rowToMap);
+}
+
+export async function getMapById(id: string): Promise<PositioningMap | null> {
+  const sb = supabase()!;
+  const { data } = await sb.from("positioning_maps").select(MAP_COLS).eq("id", id).maybeSingle();
+  return data ? rowToMap(data as MapRow) : null;
+}
+
+export interface MapMove {
+  name: string;
+  type: "aurigo" | "competitor";
+  fromX: number;
+  fromY: number;
+  toX: number;
+  toY: number;
+  dx: number;
+  dy: number;
+}
+
+export interface MapMovement {
+  fromId: string;
+  toId: string;
+  fromDate: string;
+  toDate: string;
+  xAxis: PositioningAxis;
+  yAxis: PositioningAxis;
+  moves: MapMove[];
+  entered: string[];
+  exited: string[];
+}
+
+export class AxesMismatchError extends Error {
+  constructor() {
+    super(
+      "These two maps use different axes — movement between them is meaningless. Rebuild with pinned axes to get a comparable series."
+    );
+  }
+}
+
+/** Pure movement computation between two stored maps. Refuses cross-axis
+ *  comparison (QA/blueprint: cross-axis movement is meaningless). */
+export function computeMovement(from: PositioningMap, to: PositioningMap): MapMovement {
+  if (from.xAxis.label !== to.xAxis.label || from.yAxis.label !== to.yAxis.label) {
+    throw new AxesMismatchError();
+  }
+  const fromByName = new Map(from.points.map((p) => [p.name, p]));
+  const toByName = new Map(to.points.map((p) => [p.name, p]));
+  const moves: MapMove[] = [];
+  for (const [name, tp] of toByName) {
+    const fp = fromByName.get(name);
+    if (!fp) continue;
+    moves.push({
+      name,
+      type: tp.type,
+      fromX: fp.x,
+      fromY: fp.y,
+      toX: tp.x,
+      toY: tp.y,
+      dx: Math.round((tp.x - fp.x) * 10) / 10,
+      dy: Math.round((tp.y - fp.y) * 10) / 10,
+    });
+  }
+  return {
+    fromId: from.id,
+    toId: to.id,
+    fromDate: from.createdAt,
+    toDate: to.createdAt,
+    xAxis: to.xAxis,
+    yAxis: to.yAxis,
+    moves: moves.sort((a, b) => Math.abs(b.dx) + Math.abs(b.dy) - (Math.abs(a.dx) + Math.abs(a.dy))),
+    entered: [...toByName.keys()].filter((n) => !fromByName.has(n)),
+    exited: [...fromByName.keys()].filter((n) => !toByName.has(n)),
+  };
 }

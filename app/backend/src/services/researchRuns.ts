@@ -381,6 +381,20 @@ async function executeRun(run: RunRow): Promise<void> {
                   severity: verdict.severity,
                   title: verdict.title,
                 });
+                // Phase 3 staleness loop: a notable+ delta marks this
+                // competitor's battlecards stale until a PMM-reviewed
+                // regeneration lands (drafts only — §8.4).
+                if (verdict.severity === "notable" || verdict.severity === "high") {
+                  await sb
+                    .from("battlecard_links")
+                    .update({
+                      stale: true,
+                      stale_reason: verdict.title,
+                      triggering_event_id: ev.id,
+                      updated_at: new Date().toISOString(),
+                    })
+                    .eq("competitor_id", competitor.id);
+                }
               }
             }
           }

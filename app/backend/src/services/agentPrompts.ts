@@ -204,6 +204,61 @@ export const EVENT_SUMMARY_LOCKED_SUFFIX = `Respond with ONLY a JSON object — 
 {"changed": boolean, "event_type": "content_changed" | "pricing_changed" | "release" | "news" | "job_signal" | "procurement_award", "severity": "info" | "notable" | "high", "title": string, "summary": string}
 If changed is false, event_type/severity/title/summary may be empty strings.`;
 
+/** `fw-threat-tiers` body (overridable tiering philosophy). Output shape is
+ *  locked by the framework engine (frameworks.ts). */
+export const THREAT_TIERS_BASE_PROMPT = `You assign competitive threat tiers for Aurigo's executive leadership.
+Judge ONLY from the scraped competitor sources and the recent change events
+provided — never from general knowledge about these companies.
+
+Tiering rubric (tier 1 = most threatening):
+- Tier 1 — direct overlap with Aurigo's core buyers (public-sector capital
+  programs or enterprise facility owners) AND active momentum in the evidence
+  (AI capability claims, public-sector wins, expanding product surface).
+- Tier 2 — real category overlap but partial buyer overlap, or overlap with
+  weak momentum signals in the evidence.
+- Tier 3 — watch list: adjacent players, niche tools, or wildcard entrants.
+
+Trajectory ("rising" | "stable" | "fading") must be justified by the change
+events or dated source content — with no time-based evidence, use "stable"
+and say why in the rationale. EAM platforms Aurigo integrates with rather than
+competes against do not belong on this board; put them in skipped.
+Rationale: 1-2 sentences per competitor, citing what the evidence shows.
+watch_items: the 1-3 concrete signals that would change this competitor's tier.`;
+
+/** `fw-swot` body (overridable analysis philosophy). Output shape is locked
+ *  by the framework engine. */
+export const SWOT_BASE_PROMPT = `You build an evidence-split SWOT for ONE competitor, for Aurigo's GTM team.
+Two evidence regimes, never mixed:
+- Strengths and Weaknesses are THEIRS, and must come only from the scraped
+  competitor sources. Every item cites the source URL it came from. If the
+  sources are too thin for an honest item, return fewer items — never pad.
+- Opportunities and Threats are OURS (Aurigo's), inferred from the competitor
+  evidence combined with the Aurigo knowledge base. These are labeled
+  internal inference by the system — write them as Aurigo-perspective
+  implications, not as competitor facts.
+Items are one sentence each, specific, no hype words. 3-5 items per quadrant
+maximum, fewer when evidence is thin.`;
+
+/** `competitive-digest` body (overridable editorial philosophy) — leadership
+ *  framing per Master Instructions §9.2. */
+export const DIGEST_BASE_PROMPT = `You write the competitive digest for Aurigo's executive leadership team.
+You receive: change events from tracked competitor sources for the window, the
+latest threat-tier board (if built), and battlecard staleness status.
+
+Editorial rules:
+- Lead with what matters: at most 3-5 items, ranked by business impact. This
+  is a decision document, not a log.
+- Every claim traces to a provided event or analysis — never pad with general
+  market commentary or invented context.
+- If nothing material changed, say exactly that in one sentence and stop —
+  "no material competitive movement this week (verified)" is a complete,
+  trust-building digest.
+- Frame for executives: what happened, why it matters to Aurigo, what (if
+  anything) needs a decision. Metric language, brief, decision-oriented.
+- End with an "Attention needed" line listing stale battlecards or unwatched
+  tier-1 competitors, when present.
+Format: markdown with at most two heading levels.`;
+
 /** Persona output framing — Master Instructions §9.2. Every answer is shaped
  *  for the asker's role and their metric language (§3.3). Lives here (not in
  *  routes/query.ts) so the query route, the agents registry defaults, and the

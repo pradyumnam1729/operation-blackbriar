@@ -3,11 +3,23 @@ import { requireAdmin, requireAuth } from "../middleware/auth";
 import { supabase } from "../services/db";
 import { logActivity } from "../services/activity";
 import {
+  AxesMismatchError,
   buildPositioningMap,
   compare,
+  computeMovement,
   ensureSources,
   getLatestPositioningMap,
+  getMapById,
+  getMapHistory,
 } from "../services/competitive";
+import {
+  FRAMEWORK_KEYS,
+  FrameworkKey,
+  buildFramework,
+  getFrameworkHistory,
+  getLatestFramework,
+} from "../services/frameworks";
+import { buildDigest, getDigest, listDigests, saveDigestAsArtifact } from "../services/digest";
 import { AgentError } from "../services/agents";
 import { jinaConfigured } from "../services/jina";
 import { cleanHtml } from "../services/html";
@@ -333,6 +345,197 @@ competitiveRouter.post("/positioning-map/refresh", requireAuth, async (req, res)
   }
 });
 
+// ---------- Phase 1: map history + movement ----------
+
+// GET /api/competitive/positioning-map/history — every stored build (the
+// table has kept them since 0014; this finally exposes the time dimension).
+competitiveRouter.get("/positioning-map/history", requireAuth, async (req, res) => {
+  try {
+    const maps = await getMapHistory(Number(req.query.limit ?? 12) || 12);
+    res.json({ maps });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// GET /api/competitive/positioning-map/movement?fromId=&toId= — per-name
+// drift between two builds. 422 when the axes differ (cross-axis movement is
+// meaningless; rebuild with pinned axes for a comparable series).
+competitiveRouter.get("/positioning-map/movement", requireAuth, async (req, res) => {
+  const { fromId, toId } = req.query as { fromId?: string; toId?: string };
+  if (!fromId || !toId) return res.status(400).json({ error: "fromId and toId are required" });
+  try {
+    const [from, to] = await Promise.all([getMapById(fromId), getMapById(toId)]);
+    if (!from || !to) return res.status(404).json({ error: "Map not found" });
+    res.json({ movement: computeMovement(from, to) });
+  } catch (err) {
+    const status = err instanceof AxesMismatchError ? 422 : 500;
+    res.status(status).json({ error: (err as Error).message });
+  }
+});
+
+// GET /api/competitive/events/summary — window aggregation for the ELT view.
+competitiveRouter.get("/events/summary", requireAuth, async (req, res) => {
+  const sb = supabase()!;
+  const days = Math.min(Number(req.query.days ?? 7) || 7, 90);
+  const since = new Date(Date.now() - days * 24 * 3_600_000).toISOString();
+  const { data, error } = await sb
+    .from("competitor_events")
+    .select("competitor_id, severity, event_type, title, created_at, competitors(name)")
+    .gte("created_at", since)
+    .order("created_at", { ascending: false });
+  if (error) return res.status(500).json({ error: error.message });
+  const rows = data ?? [];
+  const byCompetitor = new Map<string, { competitor: string; info: number; notable: number; high: number }>();
+  for (const e of rows) {
+    const name = (e as unknown as { competitors: { name: string } | null }).competitors?.name ?? "?";
+    if (!byCompetitor.has(name)) byCompetitor.set(name, { competitor: name, info: 0, notable: 0, high: 0 });
+    const bucket = byCompetitor.get(name)!;
+    if (e.severity === "high") bucket.high += 1;
+    else if (e.severity === "notable") bucket.notable += 1;
+    else bucket.info += 1;
+  }
+  res.json({
+    days,
+    total: rows.length,
+    byCompetitor: [...byCompetitor.values()].sort((a, b) => b.high * 100 + b.notable * 10 + b.info - (a.high * 100 + a.notable * 10 + a.info)),
+    top: rows
+      .filter((e) => e.severity !== "info")
+      .slice(0, 5)
+      .map((e) => ({
+        competitor: (e as unknown as { competitors: { name: string } | null }).competitors?.name ?? "?",
+        severity: e.severity,
+        title: e.title,
+        createdAt: e.created_at,
+      })),
+  });
+});
+
+// ---------- Phase 1: ELT digest ----------
+
+competitiveRouter.post("/digest", requireAuth, async (req, res) => {
+  const windowDays = Math.min(Math.max(Number((req.body as { windowDays?: number })?.windowDays ?? 7) || 7, 1), 90);
+  try {
+    const digest = await buildDigest(windowDays, req.user!.id);
+    void logActivity("digest", digest.id, req.user!.id, "digest_built", { windowDays });
+    res.json({ digest });
+  } catch (err) {
+    const status = err instanceof AgentError ? err.status : 502;
+    res.status(status).json({ error: (err as Error).message });
+  }
+});
+
+competitiveRouter.get("/digests", requireAuth, async (req, res) => {
+  try {
+    res.json({ digests: await listDigests(Number(req.query.limit ?? 10) || 10) });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+competitiveRouter.get("/digests/:id", requireAuth, async (req, res) => {
+  const digest = await getDigest(req.params.id);
+  if (!digest) return res.status(404).json({ error: "Digest not found" });
+  res.json({ digest });
+});
+
+competitiveRouter.post("/digests/:id/save-as-artifact", requireAuth, async (req, res) => {
+  try {
+    const artifactId = await saveDigestAsArtifact(req.params.id, req.user!.id);
+    res.json({ artifactId });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// ---------- Phase 2: framework engine ----------
+
+competitiveRouter.get("/frameworks", requireAuth, (_req, res) => {
+  res.json({
+    frameworks: [
+      { key: "threat-tiers", name: "Threat tiers", needsCompetitor: false },
+      { key: "swot", name: "SWOT", needsCompetitor: true },
+      { key: "delta-timeline", name: "Delta timeline", needsCompetitor: false },
+    ],
+  });
+});
+
+competitiveRouter.post("/frameworks/:key/build", requireAuth, async (req, res) => {
+  const key = req.params.key as FrameworkKey;
+  if (!FRAMEWORK_KEYS.includes(key)) return res.status(404).json({ error: "Unknown framework" });
+  const { competitorId, competitorIds } = (req.body ?? {}) as {
+    competitorId?: string;
+    competitorIds?: string[];
+  };
+  try {
+    const analysis = await buildFramework(key, { competitorId, competitorIds }, req.user!.id);
+    void logActivity("framework", analysis.id, req.user!.id, "framework_built", { key });
+    res.json({ analysis });
+  } catch (err) {
+    const status = err instanceof AgentError ? err.status : 502;
+    res.status(status).json({ error: (err as Error).message });
+  }
+});
+
+competitiveRouter.get("/frameworks/:key/latest", requireAuth, async (req, res) => {
+  const key = req.params.key as FrameworkKey;
+  if (!FRAMEWORK_KEYS.includes(key)) return res.status(404).json({ error: "Unknown framework" });
+  try {
+    const analysis = await getLatestFramework(key, {
+      competitorId: typeof req.query.competitorId === "string" ? req.query.competitorId : undefined,
+    });
+    res.json({ analysis });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+competitiveRouter.get("/frameworks/:key/history", requireAuth, async (req, res) => {
+  const key = req.params.key as FrameworkKey;
+  if (!FRAMEWORK_KEYS.includes(key)) return res.status(404).json({ error: "Unknown framework" });
+  try {
+    res.json({ analyses: await getFrameworkHistory(key, Number(req.query.limit ?? 10) || 10) });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// ---------- Phase 1: one-call ELT overview ----------
+
+competitiveRouter.get("/elt-overview", requireAuth, async (_req, res) => {
+  const sb = supabase()!;
+  try {
+    const [{ data: watches }, tiers, { data: staleCards }, digests] = await Promise.all([
+      sb.from("competitor_watches").select("competitor_id, enabled, last_run_at, competitors(name)"),
+      getLatestFramework("threat-tiers"),
+      sb
+        .from("battlecard_links")
+        .select("artifact_id, stale, stale_reason, competitors(name), artifacts(title)")
+        .eq("stale", true),
+      listDigests(1),
+    ]);
+    res.json({
+      tracking: (watches ?? []).length > 0,
+      watches: (watches ?? []).map((w) => ({
+        competitorId: w.competitor_id,
+        competitor: (w as unknown as { competitors: { name: string } | null }).competitors?.name ?? "?",
+        enabled: w.enabled,
+        lastRunAt: w.last_run_at,
+      })),
+      threatBoard: tiers,
+      staleBattlecards: (staleCards ?? []).map((b) => ({
+        artifactId: (b as unknown as { artifact_id: string }).artifact_id,
+        competitor: (b as unknown as { competitors: { name: string } | null }).competitors?.name ?? "?",
+        title: (b as unknown as { artifacts: { title: string } | null }).artifacts?.title ?? null,
+        reason: (b as unknown as { stale_reason: string | null }).stale_reason,
+      })),
+      lastDigest: digests[0] ?? null,
+    });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
 // GET /api/competitive/comparisons — recent history.
 competitiveRouter.get("/comparisons", requireAuth, async (_req, res) => {
   const sb = supabase()!;
@@ -371,12 +574,28 @@ competitiveRouter.get("/comparisons/:id", requireAuth, async (req, res) => {
   });
 });
 
+/** Battlecard HTML from a stored comparison (shared by save + regenerate). */
+function battlecardHtml(
+  title: string,
+  question: string,
+  answerHtml: string,
+  sources: { url: string }[]
+): string {
+  const sourceList = sources.map((s) => `<li><a href="${s.url}">${s.url}</a></li>`).join("");
+  return cleanHtml(
+    `<h1>${title}</h1><p><strong>Question answered:</strong> ${question}</p>${answerHtml}<h2>Competitor sources scraped</h2><ul>${sourceList}</ul><p>Generated ${new Date().toISOString().slice(0, 10)} from live competitive intelligence. Review before promoting to final.</p>`
+  );
+}
+
 // POST /api/competitive/comparisons/:id/battlecard — save as a draft artifact.
+// Phase 3: ONE canonical card per (competitor, product) — a second save
+// appends a new draft version to the existing artifact instead of spawning a
+// duplicate, and clears the staleness flag.
 competitiveRouter.post("/comparisons/:id/battlecard", requireAuth, async (req, res) => {
   const sb = supabase()!;
   const { data: cmp } = await sb
     .from("comparisons")
-    .select("id, question, aurigo_product, answer_html, sources, competitors(name)")
+    .select("id, competitor_id, question, aurigo_product, answer_html, sources, competitors(name)")
     .eq("id", req.params.id)
     .single();
   if (!cmp || !cmp.answer_html) {
@@ -386,12 +605,52 @@ competitiveRouter.post("/comparisons/:id/battlecard", requireAuth, async (req, r
     (cmp as unknown as { competitors: { name: string } | null }).competitors?.name ?? "Competitor";
   const productName = cmp.aurigo_product ? `Aurigo ${cmp.aurigo_product}` : "Aurigo";
   const title = `${productName} vs ${competitorName} — battlecard`;
-  const sourceList = (cmp.sources as { url: string }[])
-    .map((s) => `<li><a href="${s.url}">${s.url}</a></li>`)
-    .join("");
-  const contentHtml = cleanHtml(
-    `<h1>${title}</h1><p><strong>Question answered:</strong> ${cmp.question}</p>${cmp.answer_html}<h2>Competitor sources scraped</h2><ul>${sourceList}</ul><p>Generated ${new Date().toISOString().slice(0, 10)} from live competitive intelligence. Review before promoting to final.</p>`
+  const contentHtml = battlecardHtml(
+    title,
+    cmp.question,
+    cmp.answer_html,
+    (cmp.sources as { url: string }[]) ?? []
   );
+
+  // Existing canonical card for this competitor+product?
+  let link: { artifact_id: string } | null = null;
+  if (cmp.competitor_id) {
+    let q = sb
+      .from("battlecard_links")
+      .select("artifact_id")
+      .eq("competitor_id", cmp.competitor_id)
+      .limit(1);
+    q = cmp.aurigo_product ? q.eq("aurigo_product", cmp.aurigo_product) : q.is("aurigo_product", null);
+    const { data } = await q.maybeSingle();
+    link = data;
+  }
+
+  if (link?.artifact_id) {
+    const { count } = await sb
+      .from("artifact_versions")
+      .select("id", { count: "exact", head: true })
+      .eq("artifact_id", link.artifact_id);
+    await sb.from("artifact_versions").insert({
+      artifact_id: link.artifact_id,
+      version: (count ?? 0) + 1,
+      content_html: contentHtml,
+      note: "Updated from a new Competitive Intel comparison",
+      created_by: req.user!.id,
+    });
+    await sb
+      .from("battlecard_links")
+      .update({
+        question: cmp.question,
+        stale: false,
+        stale_reason: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("artifact_id", link.artifact_id);
+    void logActivity("artifact", link.artifact_id, req.user!.id, "battlecard_updated", {
+      comparison_id: cmp.id,
+    });
+    return res.json({ artifactId: link.artifact_id, updated: true });
+  }
 
   const { data: product } = cmp.aurigo_product
     ? await sb.from("products").select("id").ilike("name", `${cmp.aurigo_product}%`).limit(1).maybeSingle()
@@ -417,8 +676,103 @@ competitiveRouter.post("/comparisons/:id/battlecard", requireAuth, async (req, r
     note: "Generated from Competitive Intel comparison",
     created_by: req.user!.id,
   });
+  if (cmp.competitor_id) {
+    await sb.from("battlecard_links").upsert(
+      {
+        artifact_id: artifact.id,
+        competitor_id: cmp.competitor_id,
+        aurigo_product: cmp.aurigo_product,
+        question: cmp.question,
+      },
+      { onConflict: "artifact_id" }
+    );
+  }
   void logActivity("artifact", artifact.id, req.user!.id, "battlecard_from_comparison", {
     comparison_id: cmp.id,
   });
   res.json({ artifactId: artifact.id });
+});
+
+// GET /api/competitive/battlecards — canonical cards with staleness state.
+competitiveRouter.get("/battlecards", requireAuth, async (_req, res) => {
+  const sb = supabase()!;
+  const { data, error } = await sb
+    .from("battlecard_links")
+    .select(
+      "artifact_id, competitor_id, aurigo_product, question, stale, stale_reason, updated_at, competitors(name), artifacts(title, status)"
+    )
+    .order("updated_at", { ascending: false });
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({
+    battlecards: (data ?? []).map((b) => {
+      const r = b as unknown as {
+        artifact_id: string;
+        competitor_id: string;
+        aurigo_product: string | null;
+        question: string | null;
+        stale: boolean;
+        stale_reason: string | null;
+        updated_at: string;
+        competitors: { name: string } | null;
+        artifacts: { title: string; status: string } | null;
+      };
+      return {
+        artifactId: r.artifact_id,
+        competitorId: r.competitor_id,
+        competitor: r.competitors?.name ?? null,
+        aurigoProduct: r.aurigo_product,
+        title: r.artifacts?.title ?? null,
+        status: r.artifacts?.status ?? null,
+        stale: r.stale,
+        staleReason: r.stale_reason,
+        updatedAt: r.updated_at,
+      };
+    }),
+  });
+});
+
+// POST /api/competitive/battlecards/:artifactId/regenerate — re-run the
+// card's stored question against fresh sources; the result lands as a NEW
+// DRAFT VERSION on the same artifact (final is never mutated — §8.4).
+competitiveRouter.post("/battlecards/:artifactId/regenerate", requireAuth, async (req, res) => {
+  if (!jinaConfigured()) {
+    return res.status(503).json({ error: "JINA_API_KEY is not configured in app/backend/.env" });
+  }
+  const sb = supabase()!;
+  const { data: link } = await sb
+    .from("battlecard_links")
+    .select("artifact_id, competitor_id, aurigo_product, question, competitors(name)")
+    .eq("artifact_id", req.params.artifactId)
+    .maybeSingle();
+  if (!link) return res.status(404).json({ error: "No battlecard link for that artifact" });
+  const question =
+    link.question ?? `Strengths and weaknesses vs Aurigo ${link.aurigo_product ?? ""}`.trim();
+  try {
+    const result = await compare(question, link.competitor_id, link.aurigo_product, req.user!.id);
+    const competitorName =
+      (link as unknown as { competitors: { name: string } | null }).competitors?.name ?? result.competitor;
+    const productName = link.aurigo_product ? `Aurigo ${link.aurigo_product}` : "Aurigo";
+    const title = `${productName} vs ${competitorName} — battlecard`;
+    const contentHtml = battlecardHtml(title, question, result.answerHtml, result.sources);
+    const { count } = await sb
+      .from("artifact_versions")
+      .select("id", { count: "exact", head: true })
+      .eq("artifact_id", link.artifact_id);
+    await sb.from("artifact_versions").insert({
+      artifact_id: link.artifact_id,
+      version: (count ?? 0) + 1,
+      content_html: contentHtml,
+      note: "Regenerated after competitor change (draft — review before promoting)",
+      created_by: req.user!.id,
+    });
+    await sb
+      .from("battlecard_links")
+      .update({ stale: false, stale_reason: null, updated_at: new Date().toISOString() })
+      .eq("artifact_id", link.artifact_id);
+    void logActivity("artifact", link.artifact_id, req.user!.id, "battlecard_regenerated", {});
+    res.json({ artifactId: link.artifact_id });
+  } catch (err) {
+    const status = err instanceof AgentError ? err.status : 502;
+    res.status(status).json({ error: (err as Error).message });
+  }
 });

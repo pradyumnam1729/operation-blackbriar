@@ -7,12 +7,15 @@ import { TemplateSlot, validateFills } from "./templateRender";
 import {
   ASK_ROUTER_BASE_PROMPT,
   COMPETITIVE_BASE_PROMPT,
+  DIGEST_BASE_PROMPT,
   EVENT_SUMMARY_BASE_PROMPT,
   EXTRACTION_BASE_PROMPT,
   MERGE_BASE_PROMPT,
   MESSAGING_DOC_BASE_PROMPT,
   ROLE_FRAMING,
   SLOT_FILL_BASE_PROMPT,
+  SWOT_BASE_PROMPT,
+  THREAT_TIERS_BASE_PROMPT,
 } from "./agentPrompts";
 
 // Agents registry + runtime composition layer (Agents tab blueprint §2.1).
@@ -35,7 +38,8 @@ export type AgentContract =
   | "section-headings"
   | "markdown"
   | "route-json"
-  | "event-json";
+  | "event-json"
+  | "framework-json";
 
 /** One row of the ask-router's template catalog (ask-to-artifact blueprint §4.1).
  *  Defined HERE (not in askRouter.ts) so the dependency stays one-way:
@@ -226,6 +230,42 @@ export const AGENT_REGISTRY: Record<string, AgentRegistryEntry> = {
     defaultsSchema:
       '{"min_confidence": 0.6} — artifact classifications below this confidence are treated as questions. 0 routes every artifact guess; 1 routes none.',
     registryDefaults: { min_confidence: 0.6 },
+  },
+  "fw-threat-tiers": {
+    key: "fw-threat-tiers",
+    kind: "task",
+    name: "Framework: threat tiers",
+    description:
+      "Assigns tier 1/2/3 threat levels with trajectory and watch items, grounded only in scraped sources + recent change events. The result schema is locked by the framework engine; the tiering rubric here is the overridable part.",
+    basePrompt: THREAT_TIERS_BASE_PROMPT,
+    placeholders: [],
+    contract: "framework-json",
+    defaultsSchema: NO_DEFAULTS,
+    registryDefaults: {},
+  },
+  "fw-swot": {
+    key: "fw-swot",
+    kind: "task",
+    name: "Framework: SWOT",
+    description:
+      "Evidence-split SWOT per competitor: S/W from scraped sources only (cited), O/T as labeled Aurigo-side inference. Result schema locked by the framework engine.",
+    basePrompt: SWOT_BASE_PROMPT,
+    placeholders: [],
+    contract: "framework-json",
+    defaultsSchema: NO_DEFAULTS,
+    registryDefaults: {},
+  },
+  "competitive-digest": {
+    key: "competitive-digest",
+    kind: "task",
+    name: "Competitive digest",
+    description:
+      "Writes the ELT competitive digest from window events + threat board + battlecard staleness. Capped at 3-5 items; an explicit no-change statement is a valid digest. Leadership framing per §9.2.",
+    basePrompt: DIGEST_BASE_PROMPT,
+    placeholders: [],
+    contract: "markdown",
+    defaultsSchema: NO_DEFAULTS,
+    registryDefaults: {},
   },
   "voice-of-market": pmmEntry(
     "voice-of-market",
@@ -768,6 +808,19 @@ export function checkContract(
           error:
             'Not a valid event envelope: needs {"changed": boolean} plus event_type/severity/title when changed is true.',
         };
+      }
+      return { checked: true, ok: true };
+    }
+    case "framework-json": {
+      // Deterministic minimum: a JSON object. Per-framework schema validation
+      // runs in frameworks.ts, where the framework key is known.
+      try {
+        const parsed = parseModelJson<unknown>(output);
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+          return { checked: true, ok: false, error: "Output is not a JSON object." };
+        }
+      } catch (err) {
+        return { checked: true, ok: false, error: `Not parseable as JSON: ${(err as Error).message}` };
       }
       return { checked: true, ok: true };
     }

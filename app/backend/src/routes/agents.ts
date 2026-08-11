@@ -38,6 +38,7 @@ import {
   resolveModel,
 } from "../services/agents";
 import { EVENT_SUMMARY_LOCKED_SUFFIX, ROLE_FRAMING } from "../services/agentPrompts";
+import { SWOT_SUFFIX, THREAT_TIERS_SUFFIX } from "../services/frameworks";
 import { buildExtractionSuffix, buildMergeSuffix } from "../services/questionnaire";
 import { buildRouterSuffix } from "../services/askRouter";
 import { buildSlotFillSuffix } from "../services/templateGenerate";
@@ -444,6 +445,33 @@ agentsRouter.post("/:key/test-run", async (req, res) => {
           "Source: https://example.com/kahua-sample (type: official)",
           "=== CHANGED LINES (- removed / + added) ===",
           SAMPLE_SOURCE_DIFF,
+        ].join("\n\n");
+        prompt = composeAgentPrompt(candidate, {}, suffix);
+        break;
+      }
+      case "fw-threat-tiers": {
+        const suffix = [
+          THREAT_TIERS_SUFFIX,
+          `=== COMPETITOR: Kahua (static sample) ===\n${SAMPLE_COMPETITOR_XML}`,
+          "=== RECENT CHANGE EVENTS (last 30 days, from tracked sources) ===\n- 2026-08-06 [notable/release] Kahua: Noa AI assistant page published",
+        ].join("\n\n");
+        prompt = composeAgentPrompt(candidate, {}, suffix);
+        break;
+      }
+      case "fw-swot": {
+        const suffix = [
+          SWOT_SUFFIX,
+          `=== COMPETITOR: Kahua (static sample) ===\n${SAMPLE_COMPETITOR_XML}`,
+        ].join("\n\n");
+        prompt = composeAgentPrompt(candidate, {}, suffix);
+        break;
+      }
+      case "competitive-digest": {
+        const suffix = [
+          "Digest window: 2026-08-04 to 2026-08-11 (7 days).",
+          "=== CHANGE EVENTS IN WINDOW ===\n- 2026-08-06 [notable/release] Kahua (static sample): Noa AI assistant page published — AI assistant added to Enterprise plan.",
+          "=== LATEST THREAT BOARD ===\nNot built yet.",
+          "=== STALE BATTLECARDS ===\n- Kahua (static sample): Noa AI assistant page published",
         ].join("\n\n");
         prompt = composeAgentPrompt(candidate, {}, suffix);
         break;
