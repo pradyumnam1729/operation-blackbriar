@@ -38,7 +38,12 @@ import {
   resolveModel,
 } from "../services/agents";
 import { EVENT_SUMMARY_LOCKED_SUFFIX, ROLE_FRAMING } from "../services/agentPrompts";
-import { SWOT_SUFFIX, THREAT_TIERS_SUFFIX } from "../services/frameworks";
+import {
+  FEATURE_MATRIX_SUFFIX,
+  FIVE_FORCES_SUFFIX,
+  SWOT_SUFFIX,
+  THREAT_TIERS_SUFFIX,
+} from "../services/frameworks";
 import { buildExtractionSuffix, buildMergeSuffix } from "../services/questionnaire";
 import { buildRouterSuffix } from "../services/askRouter";
 import { buildSlotFillSuffix } from "../services/templateGenerate";
@@ -461,6 +466,22 @@ agentsRouter.post("/:key/test-run", async (req, res) => {
       case "fw-swot": {
         const suffix = [
           SWOT_SUFFIX,
+          `=== COMPETITOR: Kahua (static sample) ===\n${SAMPLE_COMPETITOR_XML}`,
+        ].join("\n\n");
+        prompt = composeAgentPrompt(candidate, {}, suffix);
+        break;
+      }
+      case "fw-five-forces": {
+        const suffix = [
+          FIVE_FORCES_SUFFIX,
+          `=== COMPETITOR: Kahua (static sample) ===\n${SAMPLE_COMPETITOR_XML}`,
+        ].join("\n\n");
+        prompt = composeAgentPrompt(candidate, {}, suffix);
+        break;
+      }
+      case "fw-feature-matrix": {
+        const suffix = [
+          FEATURE_MATRIX_SUFFIX,
           `=== COMPETITOR: Kahua (static sample) ===\n${SAMPLE_COMPETITOR_XML}`,
         ].join("\n\n");
         prompt = composeAgentPrompt(candidate, {}, suffix);

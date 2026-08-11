@@ -455,6 +455,8 @@ competitiveRouter.get("/frameworks", requireAuth, (_req, res) => {
     frameworks: [
       { key: "threat-tiers", name: "Threat tiers", needsCompetitor: false },
       { key: "swot", name: "SWOT", needsCompetitor: true },
+      { key: "five-forces", name: "Five Forces", needsCompetitor: false },
+      { key: "feature-matrix", name: "Capability matrix", needsCompetitor: false },
       { key: "delta-timeline", name: "Delta timeline", needsCompetitor: false },
     ],
   });

@@ -2,7 +2,12 @@ import { supabase } from "./db";
 import { ask } from "./claude";
 import { markdownToHtml } from "./html";
 import { chunksToContext, retrieveChunks } from "./ingestion";
-import { parseSwot, parseThreatTiers } from "./competitiveParsing";
+import {
+  parseFeatureMatrix,
+  parseFiveForces,
+  parseSwot,
+  parseThreatTiers,
+} from "./competitiveParsing";
 import {
   assertAgentEnabled,
   composeAgentPrompt,
@@ -20,9 +25,20 @@ export type { SwotItem, ThreatTierEntry } from "./competitiveParsing";
 // (fw-*): the analysis philosophy is overridable, the JSON result schema is
 // locked here in code.
 
-export type FrameworkKey = "threat-tiers" | "swot" | "delta-timeline";
+export type FrameworkKey =
+  | "threat-tiers"
+  | "swot"
+  | "delta-timeline"
+  | "five-forces"
+  | "feature-matrix";
 
-export const FRAMEWORK_KEYS: FrameworkKey[] = ["threat-tiers", "swot", "delta-timeline"];
+export const FRAMEWORK_KEYS: FrameworkKey[] = [
+  "threat-tiers",
+  "swot",
+  "delta-timeline",
+  "five-forces",
+  "feature-matrix",
+];
 
 export interface FrameworkAnalysis {
   id: string;
@@ -163,6 +179,22 @@ const SWOT_SUFFIX = `Respond with ONLY a JSON object — no prose before or afte
 - opportunities/threats: Aurigo-side implications (the system labels these internal inference; no evidence_url needed).
 - summary: 2-3 sentences (markdown). Use "AI-native" as the only AI modifier and write "life cycle" as two words.`;
 
+// ---------- five forces ----------
+
+const FIVE_FORCES_SUFFIX = `Respond with ONLY a JSON object — no prose before or after — shaped exactly:
+{"forces": {"rivalry": F, "buyer_power": F, "supplier_power": F, "new_entrants": F, "substitutes": F}, "summary": string}
+where F = {"intensity": "low" | "medium" | "high", "factors": [{"text": string, "basis": "scraped" | "internal" | "inference", "evidence_url": string when basis is "scraped"}]}
+- 2-5 factors per force, fewer when the evidence is thin.
+- summary: 3-5 sentences (markdown) on what the structure means for Aurigo's strategy. Use "AI-native" as the only AI modifier and write "life cycle" as two words.`;
+
+// ---------- feature matrix ----------
+
+const FEATURE_MATRIX_SUFFIX = `Respond with ONLY a JSON object — no prose before or after — shaped exactly:
+{"rows": [{"capability": string, "aurigo": {"status": S, "note": string}, "competitors": {"<competitor name exactly as given>": {"status": S, "note": string, "evidence_url": string when status is "confirmed" or "partial"}}}], "summary": string}
+where S = "confirmed" | "partial" | "not_confirmed" | "absent_from_sources"
+- 8-15 rows. Competitor keys must match the names given in the evidence blocks exactly.
+- summary: 2-4 sentences (markdown) on where the honest gaps and honest wins are. Use "AI-native" as the only AI modifier and write "life cycle" as two words.`;
+
 // ---------- delta timeline (no model call) ----------
 
 async function buildDeltaTimeline(): Promise<{
@@ -275,6 +307,97 @@ export async function buildFramework(
     );
   }
 
+  if (key === "five-forces") {
+    const cfg = await getAgentConfig("fw-five-forces");
+    assertAgentEnabled(cfg);
+    const { withEvidence, skipped } = await assembleCompetitorEvidence(
+      params.competitorIds ?? null,
+      6_000
+    );
+    if (withEvidence.length === 0) {
+      throw new Error("No competitor has scraped sources yet — track competitors first.");
+    }
+    const chunks = await retrieveChunks(
+      "market positioning buyers procurement competitors capital program facility owners",
+      8
+    );
+    const allowedUrls = new Set(withEvidence.flatMap((c) => c.urls));
+    const suffix = [
+      FIVE_FORCES_SUFFIX,
+      withEvidence
+        .map((c) => `=== COMPETITOR: ${c.name}${c.category ? ` (${c.category})` : ""} ===\n${c.context}`)
+        .join("\n\n"),
+      chunks.length > 0
+        ? `=== AURIGO KNOWLEDGE BASE (for "internal" factors) ===\n${chunksToContext(chunks)}`
+        : "",
+    ]
+      .filter((s) => s !== "")
+      .join("\n\n");
+    const raw = await ask(composeAgentPrompt(cfg, {}, suffix), {
+      maxTokens: 4000,
+      model: resolveModel(cfg),
+    });
+    const parsed = parseFiveForces(raw, allowedUrls);
+    if (!parsed) throw new Error("The model did not return a usable Five Forces analysis. Try again.");
+    return store(
+      key,
+      params.competitorIds ? { competitorIds: params.competitorIds } : {},
+      { forces: parsed.forces },
+      parsed.summary,
+      withEvidence.map((c) => ({ competitor: c.name })),
+      skipped,
+      userId
+    );
+  }
+
+  if (key === "feature-matrix") {
+    const cfg = await getAgentConfig("fw-feature-matrix");
+    assertAgentEnabled(cfg);
+    const { withEvidence, skipped } = await assembleCompetitorEvidence(
+      params.competitorIds ?? null,
+      10_000
+    );
+    // Readability cap: 4 competitor columns; the picker scopes beyond that.
+    const scoped = withEvidence.slice(0, 4);
+    if (scoped.length === 0) {
+      throw new Error("No competitor has scraped sources yet — track competitors first.");
+    }
+    const chunks = await retrieveChunks(
+      "capabilities features planning delivery maintenance compliance AI capital program",
+      10
+    );
+    const suffix = [
+      FEATURE_MATRIX_SUFFIX,
+      scoped
+        .map((c) => `=== COMPETITOR: ${c.name}${c.category ? ` (${c.category})` : ""} ===\n${c.context}`)
+        .join("\n\n"),
+      chunks.length > 0
+        ? `=== AURIGO KNOWLEDGE BASE (ground truth for the Aurigo column) ===\n${chunksToContext(chunks)}`
+        : "",
+    ]
+      .filter((s) => s !== "")
+      .join("\n\n");
+    const raw = await ask(composeAgentPrompt(cfg, {}, suffix), {
+      maxTokens: 6000,
+      model: resolveModel(cfg),
+    });
+    const parsed = parseFeatureMatrix(
+      raw,
+      new Set(scoped.map((c) => c.name)),
+      new Set(scoped.flatMap((c) => c.urls))
+    );
+    if (!parsed) throw new Error("The model did not return a usable capability matrix. Try again.");
+    return store(
+      key,
+      { competitors: scoped.map((c) => c.name) },
+      { rows: parsed.rows },
+      parsed.summary,
+      [...scoped.map((c) => ({ competitor: c.name })), ...chunks.map((k) => ({ title: k.title, docType: k.doc_type }))],
+      dedupeSkipped([skipped, withEvidence.slice(4).map((c) => ({ name: c.name, reason: "column cap (4) — scope with the competitor picker" }))]),
+      userId
+    );
+  }
+
   // SWOT — one competitor per analysis.
   if (!params.competitorId) throw new Error("Pick a competitor for the SWOT.");
   const cfg = await getAgentConfig("fw-swot");
@@ -352,4 +475,4 @@ export async function getFrameworkHistory(key: FrameworkKey, limit = 10): Promis
   return ((data ?? []) as AnalysisRow[]).map(rowToAnalysis);
 }
 
-export { THREAT_TIERS_SUFFIX, SWOT_SUFFIX };
+export { THREAT_TIERS_SUFFIX, SWOT_SUFFIX, FIVE_FORCES_SUFFIX, FEATURE_MATRIX_SUFFIX };

@@ -234,9 +234,9 @@ test("agentFileDescription drops the identity prefix, keeps one sentence, surviv
 
 // ---------- registry shape ----------
 
-test("AGENT_REGISTRY holds exactly 11 task + 14 pmm agents with the blueprint contracts", () => {
+test("AGENT_REGISTRY holds exactly 13 task + 14 pmm agents with the blueprint contracts", () => {
   const entries = Object.values(AGENT_REGISTRY);
-  assert.equal(entries.filter((e) => e.kind === "task").length, 11);
+  assert.equal(entries.filter((e) => e.kind === "task").length, 13);
   assert.equal(entries.filter((e) => e.kind === "pmm").length, 14);
   // Task base prompts are canonical code constants (ask-war-room's is the
   // documented empty special case — its body is the per-role framing).
@@ -251,6 +251,8 @@ test("AGENT_REGISTRY holds exactly 11 task + 14 pmm agents with the blueprint co
   assert.equal(AGENT_REGISTRY["competitive-event-summary"].contract, "event-json");
   assert.equal(AGENT_REGISTRY["fw-threat-tiers"].contract, "framework-json");
   assert.equal(AGENT_REGISTRY["fw-swot"].contract, "framework-json");
+  assert.equal(AGENT_REGISTRY["fw-five-forces"].contract, "framework-json");
+  assert.equal(AGENT_REGISTRY["fw-feature-matrix"].contract, "framework-json");
   assert.equal(AGENT_REGISTRY["competitive-digest"].contract, "markdown");
   assert.deepEqual(AGENT_REGISTRY["ask-router"].registryDefaults, { min_confidence: 0.6 });
   for (const e of entries.filter((x) => x.kind === "pmm")) {

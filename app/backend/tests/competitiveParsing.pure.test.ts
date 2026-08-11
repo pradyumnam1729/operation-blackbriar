@@ -115,3 +115,87 @@ test("computeMovement refuses different axes — including swapped low/high ends
   const flippedEnds = mapAt("m3", [], true); // same label, swapped low/high → sign-flipped drift
   assert.throws(() => computeMovement(a, flippedEnds), AxesMismatchError);
 });
+
+// ---------- five forces: basis demotion ----------
+
+import { parseFeatureMatrix, parseFiveForces } from "../src/services/competitiveParsing";
+
+const force = (over: Record<string, unknown> = {}) => ({
+  intensity: "medium",
+  factors: [{ text: "factor", basis: "inference" }],
+  ...over,
+});
+
+test("parseFiveForces demotes 'scraped' factors with missing or fabricated citations to inference", () => {
+  const raw = JSON.stringify({
+    forces: {
+      rivalry: {
+        intensity: "high",
+        factors: [
+          { text: "Kahua expanding AI surface", basis: "scraped", evidence_url: "https://kahua.com/product" },
+          { text: "Fabricated", basis: "scraped", evidence_url: "https://kahua.com/nope" },
+          { text: "Uncited scraped claim", basis: "scraped" },
+        ],
+      },
+      buyer_power: force(),
+      supplier_power: force(),
+      new_entrants: force(),
+      substitutes: force(),
+    },
+    summary: "ok",
+  });
+  const parsed = parseFiveForces(raw, ALLOWED);
+  assert.ok(parsed);
+  const rivalry = parsed!.forces.rivalry;
+  assert.equal(rivalry.factors[0].basis, "scraped");
+  assert.equal(rivalry.factors[1].basis, "inference"); // fabricated URL demoted
+  assert.equal(rivalry.factors[1].evidence_url, null);
+  assert.equal(rivalry.factors[2].basis, "inference"); // uncited demoted
+});
+
+test("parseFiveForces rejects missing forces, bad intensity, and empty factor lists", () => {
+  assert.equal(parseFiveForces(JSON.stringify({ forces: { rivalry: force() } }), ALLOWED), null);
+  const badIntensity = JSON.stringify({
+    forces: { rivalry: force({ intensity: "extreme" }), buyer_power: force(), supplier_power: force(), new_entrants: force(), substitutes: force() },
+  });
+  assert.equal(parseFiveForces(badIntensity, ALLOWED), null);
+  assert.equal(parseFiveForces("prose", ALLOWED), null);
+});
+
+// ---------- feature matrix: citation + name discipline ----------
+
+test("parseFeatureMatrix demotes uncited positive cells and drops hallucinated competitors", () => {
+  const raw = JSON.stringify({
+    rows: [
+      {
+        capability: "Capital planning",
+        aurigo: { status: "confirmed", note: "core module" },
+        competitors: {
+          Kahua: { status: "confirmed", note: "cost mgmt", evidence_url: "https://kahua.com/product" },
+          Procore: { status: "confirmed", note: "no citation" }, // demoted
+          MadeUpCo: { status: "confirmed", note: "hallucinated", evidence_url: "https://kahua.com/product" }, // dropped
+        },
+      },
+      {
+        capability: "Maintenance management",
+        aurigo: { status: "confirmed", note: "" },
+        competitors: { Kahua: { status: "absent_from_sources", note: "" } },
+      },
+    ],
+    summary: "ok",
+  });
+  const parsed = parseFeatureMatrix(raw, new Set(["Kahua", "Procore"]), ALLOWED);
+  assert.ok(parsed);
+  assert.equal(parsed!.rows[0].competitors.Kahua.status, "confirmed");
+  assert.equal(parsed!.rows[0].competitors.Procore.status, "not_confirmed"); // uncited positive → demoted
+  assert.equal("MadeUpCo" in parsed!.rows[0].competitors, false);
+  assert.equal(parsed!.rows[1].competitors.Kahua.status, "absent_from_sources");
+});
+
+test("parseFeatureMatrix rejects rows without capabilities or valid competitors", () => {
+  assert.equal(parseFeatureMatrix(JSON.stringify({ rows: [] }), new Set(["Kahua"]), ALLOWED), null);
+  const onlyHallucinated = JSON.stringify({
+    rows: [{ capability: "x", aurigo: { status: "confirmed", note: "" }, competitors: { Nope: { status: "confirmed" } } }],
+  });
+  assert.equal(parseFeatureMatrix(onlyHallucinated, new Set(["Kahua"]), ALLOWED), null);
+});

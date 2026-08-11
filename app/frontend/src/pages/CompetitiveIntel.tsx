@@ -130,6 +130,164 @@ const TIER_STYLE: Record<number, { label: string; pill: string }> = {
 
 const TRAJECTORY_ARROW: Record<string, string> = { rising: "↑ rising", stable: "→ stable", fading: "↓ fading" };
 
+// Overview dashboard: four uniform cards in a 2×2 grid. Every card is the same
+// fixed height; the header row stays pinned and long content scrolls inside
+// the body area instead of stretching the card.
+const DASH_CARD: CSSProperties = { height: 400, display: "flex", flexDirection: "column", marginBottom: 0, minHeight: 0 };
+const DASH_HEAD: CSSProperties = { marginBottom: 10, flexShrink: 0 };
+const DASH_BODY: CSSProperties = { flex: 1, overflowY: "auto", minHeight: 0 };
+
+// ---------- Five Forces (frameworks tab) ----------
+type ForceBasis = "scraped" | "internal" | "inference";
+interface ForceFactor {
+  text: string;
+  basis: ForceBasis;
+  evidence_url: string | null;
+}
+interface ForceT {
+  intensity: "low" | "medium" | "high";
+  factors: ForceFactor[];
+}
+interface FiveForcesResult {
+  forces: {
+    rivalry: ForceT;
+    buyer_power: ForceT;
+    supplier_power: ForceT;
+    new_entrants: ForceT;
+    substitutes: ForceT;
+  };
+}
+
+const INTENSITY_PILL: Record<string, string> = { high: "pill-lost", medium: "pill-pending", low: "pill-review" };
+
+// Small provenance chip on each force factor: scraped links to its evidence,
+// inference is visibly muted so analyst judgment never reads as fact.
+function BasisChip({ basis, url }: { basis: ForceBasis; url: string | null }) {
+  const base: CSSProperties = {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 4,
+    fontSize: 10,
+    fontWeight: 500,
+    borderRadius: "var(--r-pill)",
+    padding: "1px 7px",
+    verticalAlign: "1px",
+  };
+  if (basis === "scraped") {
+    const chip = (
+      <span style={{ ...base, background: "#E1F0F2", color: "var(--teal-dark)" }}>
+        scraped
+        {url && <i className="fa-solid fa-arrow-up-right-from-square" style={{ fontSize: 8 }} />}
+      </span>
+    );
+    return url ? (
+      <a href={url} target="_blank" rel="noopener noreferrer">
+        {chip}
+      </a>
+    ) : (
+      chip
+    );
+  }
+  if (basis === "inference") {
+    return (
+      <span style={{ ...base, background: "var(--grey-2)", color: "var(--text-muted)" }} title="analyst judgment — not confirmed in evidence">
+        inference
+      </span>
+    );
+  }
+  return <span style={{ ...base, background: "#E4F4EE", color: "#0E6B4E" }}>internal</span>;
+}
+
+function ForceCard({
+  title,
+  force,
+  emphasized = false,
+  style,
+}: {
+  title: string;
+  force: ForceT | undefined;
+  emphasized?: boolean;
+  style?: CSSProperties;
+}) {
+  if (!force) return null;
+  return (
+    <div
+      style={{
+        border: "1px solid var(--border)",
+        borderTop: emphasized ? "3px solid var(--teal-dark)" : "1px solid var(--border)",
+        borderRadius: "var(--r-md)",
+        padding: "12px 14px",
+        background: "var(--bg-card)",
+        ...style,
+      }}
+    >
+      <div className="row-between" style={{ marginBottom: 8 }}>
+        <span style={{ fontWeight: 600, fontSize: 13.5 }}>{title}</span>
+        <span className={`pill ${INTENSITY_PILL[force.intensity] ?? "pill-review"}`}>{force.intensity}</span>
+      </div>
+      {force.factors.map((f, i) => (
+        <div key={i} style={{ fontSize: 12.5, marginBottom: 6, lineHeight: 1.45 }}>
+          • {f.text} <BasisChip basis={f.basis} url={f.evidence_url} />
+        </div>
+      ))}
+      {force.factors.length === 0 && (
+        <div style={{ fontSize: 12, color: "var(--text-muted)" }}>Evidence too thin for honest factors.</div>
+      )}
+    </div>
+  );
+}
+
+// ---------- Capability matrix (frameworks tab) ----------
+type MatrixStatus = "confirmed" | "partial" | "not_confirmed" | "absent_from_sources";
+interface MatrixCellT {
+  status: MatrixStatus;
+  note: string | null;
+  evidence_url?: string | null;
+}
+interface MatrixRowT {
+  capability: string;
+  aurigo: { status: MatrixStatus; note: string | null };
+  competitors: Record<string, MatrixCellT>;
+}
+
+// Status glyph + note. The two "unknown" states are deliberately distinct:
+// "?" = we could not confirm it; "—" = their sources never mention it, which
+// is NOT the same claim as "they don't have it".
+function MatrixCellView({ cell }: { cell: MatrixCellT | undefined }) {
+  if (!cell) {
+    return (
+      <span style={{ color: "var(--text-muted)" }} title="no data returned for this cell">
+        —
+      </span>
+    );
+  }
+  const glyph =
+    cell.status === "confirmed" ? (
+      <i className="fa-solid fa-circle-check" style={{ color: "var(--teal-dark)" }} title="confirmed in sources" />
+    ) : cell.status === "partial" ? (
+      <i className="fa-solid fa-circle-half-stroke" style={{ color: "#8A5A0B" }} title="partial coverage in sources" />
+    ) : cell.status === "not_confirmed" ? (
+      <span style={{ color: "var(--text-muted)", fontWeight: 600 }} title="not confirmed in available sources">
+        ?
+      </span>
+    ) : (
+      <span style={{ color: "var(--text-muted)" }} title="absent from their sources — NOT the same as they don't have it">
+        —
+      </span>
+    );
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5 }}>
+      {glyph}
+      {cell.note && <span style={{ color: "var(--text-secondary)" }}>{cell.note}</span>}
+      {cell.evidence_url && (
+        <a href={cell.evidence_url} target="_blank" rel="noopener noreferrer" title="Open the source">
+          <i className="fa-solid fa-arrow-up-right-from-square" style={{ fontSize: 9 }} />
+        </a>
+      )}
+    </span>
+  );
+}
+
 // One card style for a threat-board entry, shared by the Overview threat board
 // and the Frameworks threat-tiers view (same data, same rendering).
 function ThreatTile({
@@ -388,7 +546,7 @@ export function CompetitiveIntel() {
   const [overview, setOverview] = useState<OverviewT | null>(null);
   const [eventsSummary, setEventsSummary] = useState<EventsSummaryT | null>(null);
   const [overviewBusy, setOverviewBusy] = useState("");
-  const [fwKey, setFwKey] = useState<"threat-tiers" | "swot" | "delta-timeline">("threat-tiers");
+  const [fwKey, setFwKey] = useState<"threat-tiers" | "swot" | "delta-timeline" | "five-forces" | "feature-matrix">("threat-tiers");
   const [fwAnalysis, setFwAnalysis] = useState<Analysis | null>(null);
   const [fwBusy, setFwBusy] = useState(false);
   const [fwError, setFwError] = useState("");
@@ -879,12 +1037,12 @@ export function CompetitiveIntel() {
         </button>
       </div>
 
-      {/* ---------- overview (ELT) tab ---------- */}
+      {/* ---------- overview (ELT) tab: uniform 2×2 dashboard ---------- */}
       {tab === "overview" && (
-        <>
+        <div className="grid grid-2" style={{ alignItems: "stretch", marginBottom: 18 }}>
           {/* threat board */}
-          <div className="card">
-            <div className="row-between" style={{ marginBottom: 10 }}>
+          <div className="card" style={DASH_CARD}>
+            <div className="row-between" style={DASH_HEAD}>
               <h3 style={{ margin: 0, fontSize: 15, fontWeight: 500 }}>
                 <i className="fa-solid fa-shield-halved" style={{ color: "var(--teal-dark)", marginRight: 8 }} />
                 Threat board
@@ -898,27 +1056,34 @@ export function CompetitiveIntel() {
                 <i className="fa-solid fa-arrows-rotate" /> Rebuild in Frameworks
               </button>
             </div>
-            {overview?.threatBoard ? (
-              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                {((overview.threatBoard.result as { entries: ThreatEntry[] })?.entries ?? []).map((t) => (
-                  <ThreatTile key={t.competitor} entry={t} style={{ minWidth: 200, flex: "1 1 200px", maxWidth: 300 }} />
-                ))}
-              </div>
-            ) : (
-              <div className="empty-note">No threat board yet — build one in the Frameworks tab (needs tracked competitors with scraped sources).</div>
-            )}
-            {overview?.threatBoard?.summaryHtml && (
-              <div className="prose" style={{ border: "none", boxShadow: "none", padding: 0, marginTop: 12 }} dangerouslySetInnerHTML={{ __html: overview.threatBoard.summaryHtml }} />
-            )}
+            <div style={DASH_BODY}>
+              {overview?.threatBoard ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {((overview.threatBoard.result as { entries: ThreatEntry[] })?.entries ?? []).map((t) => (
+                    <ThreatTile key={t.competitor} entry={t} />
+                  ))}
+                </div>
+              ) : (
+                <div className="empty-note">No threat board yet — build one in the Frameworks tab (needs tracked competitors with scraped sources).</div>
+              )}
+              {overview?.threatBoard?.summaryHtml && (
+                <div className="prose" style={{ border: "none", boxShadow: "none", padding: 0, marginTop: 12 }} dangerouslySetInnerHTML={{ __html: overview.threatBoard.summaryHtml }} />
+              )}
+            </div>
           </div>
 
-          {/* deltas this week + tracking state */}
-          <div className="grid grid-2" style={{ alignItems: "start", marginBottom: 18 }}>
-            <div className="card" style={{ marginBottom: 0 }}>
-              <h3 style={{ margin: "0 0 10px", fontSize: 15, fontWeight: 500 }}>
+          {/* deltas this week */}
+          <div className="card" style={DASH_CARD}>
+            <div className="row-between" style={DASH_HEAD}>
+              <h3 style={{ margin: 0, fontSize: 15, fontWeight: 500 }}>
                 <i className="fa-solid fa-wave-square" style={{ color: "var(--teal-dark)", marginRight: 8 }} />
                 Deltas — last 7 days
               </h3>
+              <button className="btn btn-sm" onClick={() => setTab("deltas")}>
+                Open the delta feed
+              </button>
+            </div>
+            <div style={DASH_BODY}>
               {eventsSummary && eventsSummary.total > 0 ? (
                 <>
                   {eventsSummary.byCompetitor.map((c) => (
@@ -938,9 +1103,6 @@ export function CompetitiveIntel() {
                       ))}
                     </div>
                   )}
-                  <button className="btn btn-sm" style={{ marginTop: 8 }} onClick={() => setTab("deltas")}>
-                    Open the delta feed
-                  </button>
                 </>
               ) : (
                 <div className="empty-note">
@@ -949,12 +1111,17 @@ export function CompetitiveIntel() {
                 </div>
               )}
             </div>
+          </div>
 
-            <div className="card" style={{ marginBottom: 0 }}>
-              <h3 style={{ margin: "0 0 10px", fontSize: 15, fontWeight: 500 }}>
+          {/* battlecard readiness */}
+          <div className="card" style={DASH_CARD}>
+            <div className="row-between" style={DASH_HEAD}>
+              <h3 style={{ margin: 0, fontSize: 15, fontWeight: 500 }}>
                 <i className="fa-solid fa-file-shield" style={{ color: "var(--teal-dark)", marginRight: 8 }} />
                 Battlecard readiness
               </h3>
+            </div>
+            <div style={DASH_BODY}>
               {overview && overview.staleBattlecards.length > 0 ? (
                 overview.staleBattlecards.map((b) => (
                   <div key={b.artifactId} style={{ display: "flex", gap: 8, alignItems: "center", padding: "6px 0", borderBottom: "1px solid var(--border)" }}>
@@ -983,8 +1150,8 @@ export function CompetitiveIntel() {
           </div>
 
           {/* digest */}
-          <div className="card">
-            <div className="row-between" style={{ marginBottom: 10 }}>
+          <div className="card" style={DASH_CARD}>
+            <div className="row-between" style={DASH_HEAD}>
               <h3 style={{ margin: 0, fontSize: 15, fontWeight: 500 }}>
                 <i className="fa-solid fa-newspaper" style={{ color: "var(--teal-dark)", marginRight: 8 }} />
                 Competitive digest
@@ -1000,18 +1167,20 @@ export function CompetitiveIntel() {
                 )}
               </div>
             </div>
-            {overview?.lastDigest ? (
-              <>
-                <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "0 0 8px" }}>
-                  {overview.lastDigest.windowStart.slice(0, 10)} → {overview.lastDigest.windowEnd.slice(0, 10)} · built {new Date(overview.lastDigest.createdAt).toLocaleString()}
-                </p>
-                <div className="prose" style={{ border: "none", boxShadow: "none", padding: 0 }} dangerouslySetInnerHTML={{ __html: overview.lastDigest.contentHtml }} />
-              </>
-            ) : (
-              <div className="empty-note">No digest yet. Build one — an explicit "nothing material changed" is a valid digest.</div>
-            )}
+            <div style={DASH_BODY}>
+              {overview?.lastDigest ? (
+                <>
+                  <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "0 0 8px" }}>
+                    {overview.lastDigest.windowStart.slice(0, 10)} → {overview.lastDigest.windowEnd.slice(0, 10)} · built {new Date(overview.lastDigest.createdAt).toLocaleString()}
+                  </p>
+                  <div className="prose" style={{ border: "none", boxShadow: "none", padding: 0 }} dangerouslySetInnerHTML={{ __html: overview.lastDigest.contentHtml }} />
+                </>
+              ) : (
+                <div className="empty-note">No digest yet. Build one — an explicit "nothing material changed" is a valid digest.</div>
+              )}
+            </div>
           </div>
-        </>
+        </div>
       )}
 
       {tab === "compare" && (
@@ -1310,6 +1479,8 @@ export function CompetitiveIntel() {
                 ["threat-tiers", "Threat tiers"],
                 ["swot", "SWOT"],
                 ["delta-timeline", "Delta timeline"],
+                ["five-forces", "Five Forces"],
+                ["feature-matrix", "Capability matrix"],
               ] as const).map(([k, label]) => (
                 <button key={k} type="button" className={`step-pill ${fwKey === k ? "active" : ""}`} onClick={() => { setFwKey(k); setFwAnalysis(null); setFwError(""); }}>
                   {label}
@@ -1427,6 +1598,102 @@ export function CompetitiveIntel() {
               )}
             </>
           )}
+
+          {!fwBusy && fwAnalysis && fwKey === "five-forces" && (() => {
+            const forces = (fwAnalysis.result as FiveForcesResult | null)?.forces;
+            return (
+              <>
+                {forces ? (
+                  // Classic five-box arrangement: New entrants above, Supplier
+                  // and Buyer power flanking, Rivalry emphasized in the center,
+                  // Substitutes below.
+                  <div
+                    style={{
+                      display: "grid",
+                      gap: 12,
+                      gridTemplateColumns: "1fr 1.15fr 1fr",
+                      gridTemplateAreas: '". entrants ." "supplier rivalry buyer" ". substitutes ."',
+                      alignItems: "stretch",
+                    }}
+                  >
+                    <ForceCard title="Threat of new entrants" force={forces.new_entrants} style={{ gridArea: "entrants" }} />
+                    <ForceCard title="Supplier power" force={forces.supplier_power} style={{ gridArea: "supplier" }} />
+                    <ForceCard title="Competitive rivalry" force={forces.rivalry} emphasized style={{ gridArea: "rivalry" }} />
+                    <ForceCard title="Buyer power" force={forces.buyer_power} style={{ gridArea: "buyer" }} />
+                    <ForceCard title="Threat of substitutes" force={forces.substitutes} style={{ gridArea: "substitutes" }} />
+                  </div>
+                ) : (
+                  <div className="empty-note">The stored analysis has no forces payload — rebuild it.</div>
+                )}
+                {fwAnalysis.summaryHtml && (
+                  <div className="prose" style={{ border: "none", boxShadow: "none", padding: 0, marginTop: 12 }} dangerouslySetInnerHTML={{ __html: fwAnalysis.summaryHtml }} />
+                )}
+                {fwAnalysis.skipped.length > 0 && (
+                  <p style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 8 }}>
+                    Not included (insufficient evidence): {fwAnalysis.skipped.map((s) => s.name).join(", ")}
+                  </p>
+                )}
+              </>
+            );
+          })()}
+
+          {!fwBusy && fwAnalysis && fwKey === "feature-matrix" && (() => {
+            const rows = (fwAnalysis.result as { rows?: MatrixRowT[] } | null)?.rows ?? [];
+            // Column set = union of competitor names across rows, first-seen order.
+            const competitorNames: string[] = [];
+            for (const r of rows) {
+              for (const name of Object.keys(r.competitors ?? {})) {
+                if (!competitorNames.includes(name)) competitorNames.push(name);
+              }
+            }
+            const thSticky: CSSProperties = { position: "sticky", top: 0, background: "var(--bg-card)", zIndex: 1 };
+            return (
+              <>
+                {rows.length > 0 ? (
+                  <div style={{ overflow: "auto", maxHeight: 520, border: "1px solid var(--border)", borderRadius: "var(--r-md)" }}>
+                    <table>
+                      <thead>
+                        <tr>
+                          <th style={thSticky}>Capability</th>
+                          <th style={{ ...thSticky, background: "#E9F4F5", borderTop: "3px solid var(--teal-dark)", color: "var(--teal-dark)" }}>
+                            Aurigo
+                          </th>
+                          {competitorNames.map((n) => (
+                            <th key={n} style={thSticky}>{n}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rows.map((r) => (
+                          <tr key={r.capability}>
+                            <td style={{ fontWeight: 500, fontSize: 12.5 }}>{r.capability}</td>
+                            <td style={{ background: "#F2FAFB" }}>
+                              <MatrixCellView cell={{ ...r.aurigo, evidence_url: null }} />
+                            </td>
+                            {competitorNames.map((n) => (
+                              <td key={n}>
+                                <MatrixCellView cell={r.competitors?.[n]} />
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="empty-note">The stored analysis has no capability rows — rebuild it.</div>
+                )}
+                {fwAnalysis.summaryHtml && (
+                  <div className="prose" style={{ border: "none", boxShadow: "none", padding: 0, marginTop: 12 }} dangerouslySetInnerHTML={{ __html: fwAnalysis.summaryHtml }} />
+                )}
+                {fwAnalysis.skipped.length > 0 && (
+                  <p style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 8 }}>
+                    Not included (insufficient evidence): {fwAnalysis.skipped.map((s) => s.name).join(", ")}
+                  </p>
+                )}
+              </>
+            );
+          })()}
 
           {!fwBusy && !fwAnalysis && !fwError && (
             <div className="empty-note">

@@ -239,6 +239,53 @@ Two evidence regimes, never mixed:
 Items are one sentence each, specific, no hype words. 3-5 items per quadrant
 maximum, fewer when evidence is thin.`;
 
+/** `fw-five-forces` body (overridable analysis philosophy). Output shape is
+ *  locked by the framework engine. */
+export const FIVE_FORCES_BASE_PROMPT = `You build a Porter's Five Forces analysis of Aurigo's market — capital
+program management software for public-sector owners (Masterworks/Essentials)
+and facility owners (Primus) — for executive leadership.
+
+Evidence honesty is the whole game here. Every factor carries a basis label:
+- "scraped": directly supported by the competitor sources provided — cite the URL.
+- "internal": grounded in the Aurigo knowledge base provided.
+- "inference": analyst judgment about market structure that the provided
+  evidence cannot directly confirm. Inference is allowed and useful — Five
+  Forces is partly a structural argument — but it must be labeled, never
+  dressed up as fact.
+
+Force-specific guidance:
+- Rivalry: judge from the actual competitor set in evidence, their overlap
+  with Aurigo's buyers, and their momentum signals.
+- Buyer power: public owners procure via RFP with published awards — high
+  transparency, long cycles, strong process power. Ground in evidence where
+  possible.
+- Supplier power: for SaaS this is cloud/AI-model/talent supply — mostly
+  inference; label it so.
+- New entrants: watch-list players and AI-native startups appearing in the
+  evidence; barriers (compliance depth, references, procurement vehicles).
+- Substitutes: the status quo is the biggest one — spreadsheets, legacy ERP,
+  in-house tools. Doing nothing wins most often in this market.
+Intensity (low/medium/high) per force, 2-5 factors each, fewer when honest.`;
+
+/** `fw-feature-matrix` body (overridable analysis philosophy). Output shape
+ *  is locked by the framework engine. */
+export const FEATURE_MATRIX_BASE_PROMPT = `You build a capability comparison matrix: Aurigo vs the competitors in
+evidence, for GTM and proposal teams.
+
+Rules of the matrix:
+- Choose 8-15 capability rows that the EVIDENCE can actually speak to —
+  capability areas in buyer language (e.g. "Capital planning & prioritization",
+  "Federal compliance tracking", "AI grounded in program data"), never
+  marketing feature names.
+- Competitor cells: "confirmed" or "partial" ONLY when the scraped sources
+  state it — cite the URL. When their sources do not mention the capability,
+  the cell is "absent_from_sources" — which means exactly that, NOT "they
+  don't have it". When sources are ambiguous, "not_confirmed".
+- Aurigo cells: ground in the Aurigo knowledge base; same statuses.
+- Notes: one short clause per cell, factual, no hype.
+- Never pad rows to make Aurigo look better — a matrix that shows honest
+  gaps is what makes the confirmed rows credible.`;
+
 /** `competitive-digest` body (overridable editorial philosophy) — leadership
  *  framing per Master Instructions §9.2. */
 export const DIGEST_BASE_PROMPT = `You write the competitive digest for Aurigo's executive leadership team.
