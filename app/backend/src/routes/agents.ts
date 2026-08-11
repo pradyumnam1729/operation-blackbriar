@@ -26,6 +26,7 @@ import {
   SAMPLE_SECTION_XML,
   SAMPLE_SLOTS,
   SAMPLE_SLOT_FILL_VARS,
+  SAMPLE_SOURCE_DIFF,
   SAMPLE_TRANSCRIPT_XML,
   assertAgentEnabled,
   bustAgentCache,
@@ -36,7 +37,7 @@ import {
   isAllowedModel,
   resolveModel,
 } from "../services/agents";
-import { ROLE_FRAMING } from "../services/agentPrompts";
+import { EVENT_SUMMARY_LOCKED_SUFFIX, ROLE_FRAMING } from "../services/agentPrompts";
 import { buildExtractionSuffix, buildMergeSuffix } from "../services/questionnaire";
 import { buildRouterSuffix } from "../services/askRouter";
 import { buildSlotFillSuffix } from "../services/templateGenerate";
@@ -430,6 +431,19 @@ agentsRouter.post("/:key/test-run", async (req, res) => {
           "=== SCRAPED COMPETITOR SOURCES ===",
           SAMPLE_COMPETITOR_XML,
           `=== QUESTION (from a GTM teammate) ===\nCompetitor: Kahua (static sample)\n${question}`,
+        ].join("\n\n");
+        prompt = composeAgentPrompt(candidate, {}, suffix);
+        break;
+      }
+      case "competitive-event-summary": {
+        // Static sample diff — no scraping, no DB. Expected: changed true,
+        // event_type "release"/"pricing_changed", severity notable or high.
+        const suffix = [
+          EVENT_SUMMARY_LOCKED_SUFFIX,
+          "Competitor: Kahua (static sample)",
+          "Source: https://example.com/kahua-sample (type: official)",
+          "=== CHANGED LINES (- removed / + added) ===",
+          SAMPLE_SOURCE_DIFF,
         ].join("\n\n");
         prompt = composeAgentPrompt(candidate, {}, suffix);
         break;

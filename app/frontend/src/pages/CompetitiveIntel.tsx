@@ -41,6 +41,44 @@ interface HistoryRow {
   createdAt: string;
 }
 
+interface WatchRow {
+  competitor_id: string;
+  enabled: boolean;
+  cadence_hours: number;
+  last_run_at: string | null;
+  next_run_at: string | null;
+}
+
+interface RunRow {
+  id: string;
+  competitor_id: string | null;
+  kind: string;
+  status: string;
+  progress: {
+    phase?: string;
+    discovered?: number;
+    scraped?: number;
+    changed?: number;
+    events_emitted?: number;
+    budget_exhausted?: boolean;
+  };
+  error: string | null;
+  created_at: string;
+}
+
+interface EventRow {
+  id: string;
+  competitor_id: string;
+  competitor: string | null;
+  event_type: string;
+  severity: "info" | "notable" | "high";
+  title: string;
+  summary_md: string | null;
+  diff_excerpt: string | null;
+  acknowledged_at: string | null;
+  created_at: string;
+}
+
 const SUGGESTIONS = [
   "Top 3 features vs Kahua for a state DOT deal",
   "How does Procore's AI compare to ours for facility owners?",
@@ -264,7 +302,12 @@ export function CompetitiveIntel() {
   const [showAdd, setShowAdd] = useState(false);
   const [addForm, setAddForm] = useState({ name: "", website: "", category: "", aurigoProduct: "" });
   const [sourceUrlFor, setSourceUrlFor] = useState<{ id: string; url: string } | null>(null);
-  const [tab, setTab] = useState<"compare" | "map">("compare");
+  const [tab, setTab] = useState<"compare" | "map" | "deltas">("compare");
+  const [watches, setWatches] = useState<Record<string, WatchRow>>({});
+  const [liveRuns, setLiveRuns] = useState<Record<string, RunRow>>({});
+  const [events, setEvents] = useState<EventRow[]>([]);
+  const [severityFilter, setSeverityFilter] = useState<"" | "info" | "notable" | "high">("");
+  const [openEvent, setOpenEvent] = useState("");
   const [posMap, setPosMap] = useState<PositioningMap | null>(null);
   const [mapBusy, setMapBusy] = useState(false);
   const [mapError, setMapError] = useState("");
@@ -293,6 +336,22 @@ export function CompetitiveIntel() {
     return AXIS_PRESETS.find((a) => a.label === preset);
   };
 
+  const loadWatchState = useCallback(async () => {
+    try {
+      const w = await apiGet<{ watches: WatchRow[] }>("/api/competitive/watches");
+      setWatches(Object.fromEntries(w.watches.map((x) => [x.competitor_id, x])));
+      const ev = await apiGet<{ events: EventRow[] }>("/api/competitive/events?limit=50");
+      setEvents(ev.events);
+      // Resume polling any runs still in flight (e.g. after a page refresh).
+      const runs = await apiGet<{ runs: RunRow[] }>("/api/competitive/runs?limit=10");
+      const live = runs.runs.filter((r) => r.status === "queued" || r.status === "running");
+      setLiveRuns(Object.fromEntries(live.map((r) => [r.id, r])));
+    } catch {
+      // Watch tables may not exist yet (migration 0019 not applied) — the rest
+      // of the page keeps working; tracking UI just stays inert.
+    }
+  }, []);
+
   const load = useCallback(async () => {
     try {
       const r = await apiGet<{ jinaConfigured: boolean; competitors: Competitor[] }>(
@@ -302,6 +361,7 @@ export function CompetitiveIntel() {
       setJinaOk(r.jinaConfigured);
       const h = await apiGet<{ comparisons: HistoryRow[] }>("/api/competitive/comparisons");
       setHistory(h.comparisons);
+      void loadWatchState();
       const m = await apiGet<{ map: PositioningMap | null }>("/api/competitive/positioning-map");
       setPosMap(m.map);
       // Restore the last build's parameters into the controls, once.
@@ -324,11 +384,93 @@ export function CompetitiveIntel() {
     } catch (e) {
       setError((e as Error).message);
     }
-  }, []);
+  }, [loadWatchState]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Poll live research runs every 3s; when one finishes, refresh the page data
+  // so new sources and delta events appear. In-flight guard prevents overlap
+  // when the API is slow; a transient fetch failure keeps the run in the map
+  // (runs are never deleted server-side, so polling can safely continue).
+  const pollBusy = useRef(false);
+  useEffect(() => {
+    const ids = Object.keys(liveRuns);
+    if (ids.length === 0) return;
+    const t = setInterval(async () => {
+      if (pollBusy.current) return;
+      pollBusy.current = true;
+      try {
+        for (const id of ids) {
+          try {
+            const { run } = await apiGet<{ run: RunRow }>(`/api/competitive/runs/${id}`);
+            if (run.status === "queued" || run.status === "running") {
+              setLiveRuns((m) => ({ ...m, [id]: run }));
+            } else {
+              setLiveRuns((m) => {
+                const next = { ...m };
+                delete next[id];
+                return next;
+              });
+              if (run.status === "failed" && run.error) setError(`Research run failed: ${run.error}`);
+              void load();
+            }
+          } catch {
+            // transient — keep polling this run
+          }
+        }
+      } finally {
+        pollBusy.current = false;
+      }
+    }, 3_000);
+    return () => clearInterval(t);
+  }, [liveRuns, load]);
+
+  const track = async (c: Competitor) => {
+    setBusyRow(c.id);
+    setError("");
+    try {
+      const r = await apiPost<{ runId: string; kind: string }>(
+        `/api/competitive/competitors/${c.id}/track`
+      );
+      setInfo(
+        r.kind === "bootstrap"
+          ? `Tracking ${c.name} — running the first research sweep (typed sources, scrape, change detection)…`
+          : `Tracking ${c.name} — refreshing its sources…`
+      );
+      const { run } = await apiGet<{ run: RunRow }>(`/api/competitive/runs/${r.runId}`);
+      setLiveRuns((m) => ({ ...m, [run.id]: run }));
+      await loadWatchState();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusyRow("");
+    }
+  };
+
+  const untrack = async (c: Competitor) => {
+    setBusyRow(c.id);
+    try {
+      await apiDelete(`/api/competitive/competitors/${c.id}/track`);
+      await loadWatchState();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusyRow("");
+    }
+  };
+
+  const ackEvent = async (id: string) => {
+    try {
+      await apiPost(`/api/competitive/events/${id}/ack`);
+      setEvents((list) =>
+        list.map((e) => (e.id === id ? { ...e, acknowledged_at: new Date().toISOString() } : e))
+      );
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
 
   const runCompare = async (q?: string) => {
     const text = (q ?? question).trim();
@@ -516,6 +658,14 @@ export function CompetitiveIntel() {
         <button className={tab === "map" ? "active" : ""} onClick={() => setTab("map")}>
           <i className="fa-solid fa-map-location-dot" style={{ marginRight: 6 }} /> Positioning map
         </button>
+        <button className={tab === "deltas" ? "active" : ""} onClick={() => setTab("deltas")}>
+          <i className="fa-solid fa-wave-square" style={{ marginRight: 6 }} /> Deltas
+          {events.filter((e) => !e.acknowledged_at).length > 0 && (
+            <span className="pill pill-pending" style={{ marginLeft: 6 }}>
+              {events.filter((e) => !e.acknowledged_at).length}
+            </span>
+          )}
+        </button>
       </div>
 
       {tab === "compare" && (
@@ -667,6 +817,7 @@ export function CompetitiveIntel() {
                 <th>Category</th>
                 <th>Compared vs</th>
                 <th>Sources</th>
+                <th>Watch</th>
                 <th></th>
               </tr>
             </thead>
@@ -675,6 +826,10 @@ export function CompetitiveIntel() {
                 const okSources = c.sources.filter((s) => s.status === "ok");
                 const newest = okSources.map((s) => s.scraped_at).sort().reverse()[0] ?? null;
                 const age = staleDays(newest);
+                const watch = watches[c.id];
+                const liveRun = Object.values(liveRuns).find(
+                  (r) => r.competitor_id === c.id && (r.status === "queued" || r.status === "running")
+                );
                 return (
                   <tr key={c.id}>
                     <td style={{ fontWeight: 500 }}>
@@ -699,6 +854,38 @@ export function CompetitiveIntel() {
                         </>
                       ) : (
                         <span className="pill pill-pending">none yet</span>
+                      )}
+                    </td>
+                    <td style={{ whiteSpace: "nowrap", fontSize: 12.5 }}>
+                      {liveRun ? (
+                        <span className="pill pill-pending" title={`${liveRun.kind} run in progress`}>
+                          <i className="fa-solid fa-spinner fa-spin" style={{ marginRight: 5 }} />
+                          {liveRun.status === "queued"
+                            ? "queued"
+                            : liveRun.progress.phase ?? "running"}
+                          {typeof liveRun.progress.scraped === "number" &&
+                            liveRun.progress.scraped > 0 &&
+                            ` · ${liveRun.progress.scraped} scraped`}
+                        </span>
+                      ) : watch?.enabled ? (
+                        <>
+                          <span className="pill pill-live" title={watch.last_run_at ? `Last run ${new Date(watch.last_run_at).toLocaleString()}` : "No run finished yet"}>
+                            <i className="fa-solid fa-satellite-dish" style={{ marginRight: 5 }} />
+                            watching
+                          </span>{" "}
+                          <button className="btn btn-sm" onClick={() => void untrack(c)} disabled={busyRow === c.id} title="Pause the background watch">
+                            <i className="fa-solid fa-pause" />
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          className="btn btn-sm"
+                          onClick={() => void track(c)}
+                          disabled={busyRow === c.id || !jinaOk}
+                          title="Start background research: typed sources, weekly re-scrape, change detection"
+                        >
+                          <i className="fa-solid fa-satellite-dish" /> Track
+                        </button>
                       )}
                     </td>
                     <td style={{ whiteSpace: "nowrap" }}>
@@ -766,6 +953,99 @@ export function CompetitiveIntel() {
         </div>
       )}
       </>
+      )}
+
+      {/* ---------- deltas tab ---------- */}
+      {tab === "deltas" && (
+        <div className="card">
+          <div className="row-between" style={{ marginBottom: 10 }}>
+            <h3 style={{ margin: 0, fontSize: 15, fontWeight: 500 }}>
+              <i className="fa-solid fa-wave-square" style={{ color: "var(--teal-dark)", marginRight: 8 }} />
+              Competitor deltas
+            </h3>
+            <div className="step-pills" style={{ margin: 0 }}>
+              {(["", "high", "notable", "info"] as const).map((s) => (
+                <button
+                  key={s || "all"}
+                  type="button"
+                  className={`step-pill ${severityFilter === s ? "active" : ""}`}
+                  onClick={() => setSeverityFilter(s)}
+                >
+                  {s === "" ? "All" : s}
+                </button>
+              ))}
+            </div>
+          </div>
+          <p style={{ fontSize: 12.5, color: "var(--text-secondary)", margin: "0 0 12px" }}>
+            Changes detected on tracked competitors&apos; sources. Every event is grounded in a
+            scraped diff — the summary judges only the changed lines, never the full page. Track a
+            competitor in the registry to start the background watch.
+          </p>
+          {events.filter((e) => severityFilter === "" || e.severity === severityFilter).length === 0 && (
+            <div className="empty-note">
+              No changes detected yet. Events land here when a tracked competitor&apos;s sources
+              change — a quiet feed after runs have completed means nothing material moved.
+            </div>
+          )}
+          {events
+            .filter((e) => severityFilter === "" || e.severity === severityFilter)
+            .map((e) => (
+              <div key={e.id} style={{ padding: "10px 6px", borderBottom: "1px solid var(--border)" }}>
+                <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                  <span
+                    className={`pill ${
+                      e.severity === "high" ? "pill-lost" : e.severity === "notable" ? "pill-pending" : "pill-review"
+                    }`}
+                  >
+                    {e.severity}
+                  </span>
+                  <span className="pill pill-final">{e.event_type.replace(/_/g, " ")}</span>
+                  <span style={{ fontWeight: 500 }}>{e.competitor ?? "?"}</span>
+                  <span style={{ flex: 1, fontSize: 13 }}>{e.title}</span>
+                  <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                    {new Date(e.created_at).toLocaleString()}
+                  </span>
+                  {(e.summary_md || e.diff_excerpt) && (
+                    <button className="btn btn-sm" onClick={() => setOpenEvent(openEvent === e.id ? "" : e.id)}>
+                      <i className={`fa-solid ${openEvent === e.id ? "fa-chevron-up" : "fa-chevron-down"}`} />
+                    </button>
+                  )}
+                  {!e.acknowledged_at ? (
+                    <button className="btn btn-sm" onClick={() => void ackEvent(e.id)} title="Mark as read">
+                      <i className="fa-solid fa-check" /> Ack
+                    </button>
+                  ) : (
+                    <span style={{ fontSize: 11.5, color: "var(--text-muted)" }}>
+                      <i className="fa-solid fa-check" /> read
+                    </span>
+                  )}
+                </div>
+                {openEvent === e.id && (
+                  <div style={{ marginTop: 8, paddingLeft: 4 }}>
+                    {e.summary_md && (
+                      <p style={{ fontSize: 13, margin: "0 0 8px", whiteSpace: "pre-wrap" }}>{e.summary_md}</p>
+                    )}
+                    {e.diff_excerpt && (
+                      <pre
+                        style={{
+                          fontSize: 11.5,
+                          background: "var(--bg-page)",
+                          borderRadius: "var(--r-md)",
+                          padding: "10px 12px",
+                          overflowX: "auto",
+                          whiteSpace: "pre-wrap",
+                          maxHeight: 260,
+                          overflowY: "auto",
+                        }}
+                      >
+                        {e.diff_excerpt}
+                      </pre>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
+        </div>
       )}
 
       {/* ---------- positioning map tab ---------- */}

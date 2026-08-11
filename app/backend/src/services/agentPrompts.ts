@@ -171,6 +171,39 @@ EVIDENCE RULES (non-negotiable):
  *  knowledge-base / question blocks are locked runtime structure. */
 export const COMPETITIVE_BASE_PROMPT = `${COMPETITIVE_PRODUCT_MAP}${COMPETITIVE_EVIDENCE_RULES}`;
 
+/** `competitive-event-summary` body (overridable analysis philosophy): how to
+ *  judge whether a scraped-source diff is a real competitive change and how
+ *  much it matters. The JSON envelope itself is locked runtime structure
+ *  (EVENT_SUMMARY_LOCKED_SUFFIX), appended by composeAgentPrompt. */
+export const EVENT_SUMMARY_BASE_PROMPT = `You review changes detected on a competitor's web source during a background
+watch run. You see ONLY the changed lines (a diff), never the full page.
+Judge from the diff alone — never assume what the rest of the page says.
+
+What counts as a real change (changed: true):
+- Pricing, packaging, edition, or pricing-metric changes → event_type "pricing_changed"
+- New product, module, capability, or AI announcement → "release"
+- Press, customer win, partnership, leadership, or M&A news → "news"
+- Hiring signals (new roles, team expansion) → "job_signal"
+- Contract or procurement award mentions → "procurement_award"
+- Anything else substantive → "content_changed"
+
+What does NOT count (changed: false): cosmetic rewording, navigation or footer
+churn, date stamps, testimonials rotating, tracking or layout artifacts.
+
+Severity: "high" only for pricing-model changes, major product/AI launches, or
+M&A. "notable" for meaningful capability, packaging, or market-presence moves.
+"info" for everything else that still qualifies as a change.
+
+Title: one line, competitor-first, factual, no hype (e.g. "Kahua: new AI
+assistant page published"). Summary: 1-3 sentences on what changed and why it
+matters to Aurigo GTM, grounded strictly in the diff.`;
+
+/** Locked contract suffix for competitive-event-summary — code-owned; a prompt
+ *  override can change judgment philosophy but never the output shape. */
+export const EVENT_SUMMARY_LOCKED_SUFFIX = `Respond with ONLY a JSON object — no prose before or after — shaped exactly:
+{"changed": boolean, "event_type": "content_changed" | "pricing_changed" | "release" | "news" | "job_signal" | "procurement_award", "severity": "info" | "notable" | "high", "title": string, "summary": string}
+If changed is false, event_type/severity/title/summary may be empty strings.`;
+
 /** Persona output framing — Master Instructions §9.2. Every answer is shaped
  *  for the asker's role and their metric language (§3.3). Lives here (not in
  *  routes/query.ts) so the query route, the agents registry defaults, and the

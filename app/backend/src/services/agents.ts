@@ -7,6 +7,7 @@ import { TemplateSlot, validateFills } from "./templateRender";
 import {
   ASK_ROUTER_BASE_PROMPT,
   COMPETITIVE_BASE_PROMPT,
+  EVENT_SUMMARY_BASE_PROMPT,
   EXTRACTION_BASE_PROMPT,
   MERGE_BASE_PROMPT,
   MESSAGING_DOC_BASE_PROMPT,
@@ -33,7 +34,8 @@ export type AgentContract =
   | "fills-json"
   | "section-headings"
   | "markdown"
-  | "route-json";
+  | "route-json"
+  | "event-json";
 
 /** One row of the ask-router's template catalog (ask-to-artifact blueprint §4.1).
  *  Defined HERE (not in askRouter.ts) so the dependency stays one-way:
@@ -197,6 +199,18 @@ export const AGENT_REGISTRY: Record<string, AgentRegistryEntry> = {
     basePrompt: COMPETITIVE_BASE_PROMPT,
     placeholders: [],
     contract: "markdown",
+    defaultsSchema: NO_DEFAULTS,
+    registryDefaults: {},
+  },
+  "competitive-event-summary": {
+    key: "competitive-event-summary",
+    kind: "task",
+    name: "Competitive change summarizer",
+    description:
+      "Classifies scraped-source diffs from competitor watch runs into delta-feed events (type, severity, title, summary). Judges the diff only — it never sees the full page. Disabled = raw content-changed events with no model summary; the watch pipeline is never blocked.",
+    basePrompt: EVENT_SUMMARY_BASE_PROMPT,
+    placeholders: [], // competitor, source, and diff all ride in the locked suffix
+    contract: "event-json",
     defaultsSchema: NO_DEFAULTS,
     registryDefaults: {},
   },
@@ -560,6 +574,50 @@ export async function syncAgentBaselines(): Promise<void> {
   bustAgentCache();
 }
 
+// ---------- event envelope (competitive-event-summary contract) ----------
+
+export const EVENT_TYPES = [
+  "content_changed",
+  "pricing_changed",
+  "release",
+  "news",
+  "job_signal",
+  "procurement_award",
+] as const;
+export const EVENT_SEVERITIES = ["info", "notable", "high"] as const;
+
+export interface EventEnvelope {
+  changed: boolean;
+  event_type?: string;
+  severity?: string;
+  title?: string;
+  summary?: string;
+}
+
+/** Defensive parse of the event-summary JSON envelope. Returns null on any
+ *  shape violation — callers degrade to a raw content_changed event, never
+ *  block the watch pipeline. */
+export function parseEventEnvelope(raw: string): EventEnvelope | null {
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = parseModelJson<Record<string, unknown>>(raw);
+  } catch {
+    return null;
+  }
+  if (typeof parsed.changed !== "boolean") return null;
+  if (!parsed.changed) return { changed: false };
+  if (!EVENT_TYPES.includes(parsed.event_type as (typeof EVENT_TYPES)[number])) return null;
+  if (!EVENT_SEVERITIES.includes(parsed.severity as (typeof EVENT_SEVERITIES)[number])) return null;
+  if (typeof parsed.title !== "string" || parsed.title.trim() === "") return null;
+  return {
+    changed: true,
+    event_type: parsed.event_type as string,
+    severity: parsed.severity as string,
+    title: parsed.title.trim(),
+    summary: typeof parsed.summary === "string" ? parsed.summary : undefined,
+  };
+}
+
 // ---------- test-run contract checks (§2.3) ----------
 
 export interface ContractCheckResult {
@@ -698,6 +756,18 @@ export function checkContract(
             };
           }
         }
+      }
+      return { checked: true, ok: true };
+    }
+    case "event-json": {
+      const parsed = parseEventEnvelope(output);
+      if (!parsed) {
+        return {
+          checked: true,
+          ok: false,
+          error:
+            'Not a valid event envelope: needs {"changed": boolean} plus event_type/severity/title when changed is true.',
+        };
       }
       return { checked: true, ok: true };
     }
@@ -885,6 +955,13 @@ export const SAMPLE_ROUTER_CANDIDATES: RouterCandidate[] = [
   { id: "sample-tpl-faq", name: "Masterworks AI — Sales FAQ", asset_type: "faq",
     product_line: "Masterworks", audience: null, persona: null, funnel_stage: null },
 ];
+
+/** Static sample diff for competitive-event-summary test runs — no scraping,
+ *  no DB. Expected result: changed true, event_type "release" or
+ *  "pricing_changed", severity "notable"+. */
+export const SAMPLE_SOURCE_DIFF = `- Kahua helps owners manage cost, documents, and processes on one platform.
++ Kahua helps owners manage cost, documents, and processes on one platform, now with Noa, Kahua's AI assistant for program insights.
++ Noa is included in the Enterprise plan and available as an add-on for Standard plans.`;
 
 export const SAMPLE_COMPETITOR_XML = `<competitor_source url="https://example.com/kahua-sample" title="Kahua — Program Management (static sample)" scraped="2026-08-06">
 Kahua describes itself as a construction program management platform for owners and program managers. The sample page lists capabilities for cost management, document management, and process automation, a partner ecosystem, and configurable apps built on its platform. It cites deployments with public and private owners and highlights integrations with common ERP and design tools. Pricing is not published on the page. This block is a built-in static sample used only for Agents-tab test runs — no scraping happens here, and claims should be treated as illustrative, not current competitor fact.

@@ -1,9 +1,9 @@
-import crypto from "crypto";
 import { supabase } from "./db";
 import { ask } from "./claude";
 import { markdownToHtml } from "./html";
 import { chunksToContext, retrieveChunks } from "./ingestion";
 import { readUrl, searchWeb } from "./jina";
+import { contentHash } from "./researchRuns";
 import {
   assertAgentEnabled,
   composeAgentPrompt,
@@ -94,6 +94,7 @@ interface SourceRow {
   content_md: string | null;
   status: string;
   scraped_at: string | null;
+  enabled?: boolean;
 }
 
 /** Make sure the competitor has scraped, fresh sources. Returns usable sources. */
@@ -101,7 +102,7 @@ export async function ensureSources(competitor: CompetitorRow): Promise<SourceRo
   const sb = supabase()!;
   let { data: sources } = await sb
     .from("competitor_sources")
-    .select("id, url, label, content_md, status, scraped_at")
+    .select("id, url, label, content_md, status, scraped_at, enabled")
     .eq("competitor_id", competitor.id);
 
   if (!sources || sources.length === 0) {
@@ -110,19 +111,20 @@ export async function ensureSources(competitor: CompetitorRow): Promise<SourceRo
       await sb
         .from("competitor_sources")
         .upsert(
-          { competitor_id: competitor.id, url, status: "pending" },
+          { competitor_id: competitor.id, url, status: "pending", discovered_by: "discovery" },
           { onConflict: "competitor_id,url" }
         );
     }
     const re = await sb
       .from("competitor_sources")
-      .select("id, url, label, content_md, status, scraped_at")
+      .select("id, url, label, content_md, status, scraped_at, enabled")
       .eq("competitor_id", competitor.id);
     sources = re.data;
   }
 
   const staleCutoff = Date.now() - STALE_DAYS * 24 * 3600 * 1000;
   for (const s of sources ?? []) {
+    if (s.enabled === false) continue; // admin-disabled sources are never scraped
     const needsScrape =
       s.status !== "ok" ||
       !s.content_md ||
@@ -131,7 +133,7 @@ export async function ensureSources(competitor: CompetitorRow): Promise<SourceRo
     if (!needsScrape) continue;
     try {
       const page = await readUrl(s.url);
-      const hash = crypto.createHash("sha256").update(page.content).digest("hex");
+      const hash = contentHash(page.content); // shared helper — see researchRuns.ts (QA SF-1)
       await sb
         .from("competitor_sources")
         .update({
@@ -154,7 +156,7 @@ export async function ensureSources(competitor: CompetitorRow): Promise<SourceRo
       console.error(`scrape failed for ${s.url}: ${msg}`);
     }
   }
-  return (sources ?? []).filter((s) => s.status === "ok" && s.content_md);
+  return (sources ?? []).filter((s) => s.enabled !== false && s.status === "ok" && s.content_md);
 }
 
 export interface CompareResult {
