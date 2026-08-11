@@ -95,10 +95,10 @@ export function ArtifactEditor() {
   const [converting, setConverting] = useState(false);
   const [convertError, setConvertError] = useState<string | null>(null);
 
-  // Render-backed artifacts (slot-fill datasheets etc.): the document editor is
-  // the default surface — every artifact edits like the deck — with the
-  // template-slot surface one tab away.
-  const [renderSurface, setRenderSurface] = useState<"editor" | "slots">("editor");
+  // Render-backed artifacts (slot-fill datasheets etc.): the styled template
+  // render + slot editing is the default surface (the template must stay
+  // visible); the free-form editor + AI chat is one tab away.
+  const [renderSurface, setRenderSurface] = useState<"editor" | "slots">("slots");
 
   // History + comments are compact, collapsed-by-default panels (they were
   // crowding the working surface).
@@ -285,35 +285,52 @@ export function ArtifactEditor() {
         <>
           <div className="tab-row" style={{ margin: "0 0 16px" }}>
             <button
-              className={renderSurface === "editor" ? "active" : ""}
-              onClick={() => setRenderSurface("editor")}
-            >
-              <i className="fa-solid fa-pen-to-square" style={{ marginRight: 6 }} /> Editor
-            </button>
-            <button
               className={renderSurface === "slots" ? "active" : ""}
               onClick={() => setRenderSurface("slots")}
             >
               <i className="fa-solid fa-table-cells-large" style={{ marginRight: 6 }} /> Template
-              slots &amp; render
+              &amp; slots
+            </button>
+            <button
+              className={renderSurface === "editor" ? "active" : ""}
+              onClick={() => setRenderSurface("editor")}
+            >
+              <i className="fa-solid fa-wand-magic-sparkles" style={{ marginRight: 6 }} /> Free-form
+              editor &amp; AI chat
             </button>
           </div>
 
           {renderSurface === "editor" ? (
-            canEdit ? (
-              <DocEditor
-                artifactId={artifact.id}
-                contentHtml={html}
-                currentVersion={artifact.current_version}
-                onRefresh={load}
-              />
-            ) : (
+            <>
               <div
-                className="prose"
-                style={{ marginBottom: 18 }}
-                dangerouslySetInnerHTML={{ __html: html }}
-              />
-            )
+                style={{
+                  marginBottom: 14,
+                  padding: "10px 14px",
+                  background: "#E1F0F2",
+                  borderRadius: "var(--r-md)",
+                  color: "var(--teal-dark)",
+                  fontSize: 12.5,
+                }}
+              >
+                <i className="fa-solid fa-circle-info" style={{ marginRight: 6 }} />
+                Free-form edits version the document text. The styled template render stays on the
+                Template &amp; slots tab — slot edits there re-render it.
+              </div>
+              {canEdit ? (
+                <DocEditor
+                  artifactId={artifact.id}
+                  contentHtml={html}
+                  currentVersion={artifact.current_version}
+                  onRefresh={load}
+                />
+              ) : (
+                <div
+                  className="prose"
+                  style={{ marginBottom: 18 }}
+                  dangerouslySetInnerHTML={{ __html: html }}
+                />
+              )}
+            </>
           ) : (
           <>
           {render.warnings.length > 0 && (
