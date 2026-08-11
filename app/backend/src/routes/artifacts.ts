@@ -6,6 +6,16 @@ import { logActivity } from "../services/activity";
 import { diffVersionsHtml } from "../services/versionDiff";
 import { checkForbiddenWords } from "../services/guardrails";
 import { TemplateGenError, reRenderWithFills } from "../services/templateGenerate";
+import { DeckDoc, deckToText, slidesToHtml, validateDeckDoc } from "../services/deck";
+import { buildDeckPptx } from "../services/deckPptx";
+import { markdownToHtml } from "../services/html";
+import { ask } from "../services/claude";
+import {
+  ChatTurn,
+  DeckAiParseError,
+  chatEditSlides,
+  htmlToSlides,
+} from "../services/deckAi";
 
 // Artifact Library: versioned rich-content assets. All content is sanitized
 // HTML — markdown never crosses this boundary. Non-admin roles (sales,
@@ -181,7 +191,7 @@ artifactsRouter.get("/:id", requireAuth, async (req, res) => {
 
   const { data: current } = await sb
     .from("artifact_versions")
-    .select("content_html")
+    .select("content_html, slides_json")
     .eq("artifact_id", artifact.id)
     .eq("version", artifact.current_version)
     .maybeSingle();
@@ -198,6 +208,8 @@ artifactsRouter.get("/:id", requireAuth, async (req, res) => {
     versions: versions ?? [],
     contentHtml: current?.content_html ?? "",
     hasRender: (renderCount ?? 0) > 0,
+    // Deck Studio (deck-studio.md §4.1): current version's structured slides.
+    slides: (current?.slides_json as DeckDoc | null) ?? null,
   });
 });
 
@@ -274,17 +286,20 @@ artifactsRouter.get("/:id/versions/:v", requireAuth, async (req, res) => {
 
   const { data, error } = await sb
     .from("artifact_versions")
-    .select("version, content_html, note, created_at")
+    .select("version, content_html, slides_json, note, created_at")
     .eq("artifact_id", artifact.id)
     .eq("version", v)
     .maybeSingle();
   if (error) return res.status(500).json({ error: error.message });
   if (!data) return res.status(404).json({ error: `Version ${v} not found` });
-  res.json({ version: data });
+  const { slides_json, ...rest } = data as { slides_json: DeckDoc | null } & Record<string, unknown>;
+  res.json({ version: { ...rest, slides: slides_json ?? null } });
 });
 
 // ---------- save new version ----------
-// POST /api/artifacts/:id/versions { content_html, note? }
+// POST /api/artifacts/:id/versions — exactly one of { content_html } | { slides }
+// (deck-studio.md §4.2). Deck saves derive content_html server-side; the guard
+// result rides the response but never blocks a draft save (§0.1-5).
 artifactsRouter.post("/:id/versions", requireAuth, async (req, res) => {
   const sb = supabase()!;
   const artifact = await fetchArtifact(req.params.id);
@@ -293,16 +308,51 @@ artifactsRouter.post("/:id/versions", requireAuth, async (req, res) => {
     return res.status(403).json({ error: "Only the creator or a PMM admin can edit this artifact" });
   }
 
-  const { content_html, note } = req.body as { content_html?: string; note?: string };
-  if (content_html === undefined) return res.status(400).json({ error: "content_html is required" });
+  const { content_html, slides, note } = req.body as {
+    content_html?: string;
+    slides?: unknown;
+    note?: string;
+  };
+  if ((content_html === undefined) === (slides === undefined)) {
+    return res.status(400).json({ error: "Provide exactly one of content_html or slides" });
+  }
 
-  const html = cleanHtml(content_html);
+  let html: string;
+  let slidesJson: DeckDoc | null = null;
+  let guardText: string;
+  if (slides !== undefined) {
+    // Slides are a deck-only structure, and template slot-fill artifacts keep
+    // their render surface — never both worlds on one artifact (§0.1-8).
+    if (artifact.asset_type !== "deck") {
+      return res.status(409).json({ error: "Only deck artifacts accept structured slides" });
+    }
+    const { count: renderCount } = await sb
+      .from("artifact_renders")
+      .select("id", { count: "exact", head: true })
+      .eq("artifact_id", artifact.id);
+    if ((renderCount ?? 0) > 0) {
+      return res
+        .status(409)
+        .json({ error: "Template-generated decks keep their slot-fill surface — slides are not accepted here" });
+    }
+    const result = validateDeckDoc(slides);
+    if ("issues" in result) {
+      return res.status(400).json({ error: "Invalid slides", issues: result.issues });
+    }
+    slidesJson = result.deck;
+    html = slidesToHtml(result.deck); // client HTML is never trusted for decks
+    guardText = deckToText(result.deck);
+  } else {
+    html = cleanHtml(content_html!);
+    guardText = htmlToText(html);
+  }
+
   const newVersion = artifact.current_version + 1;
-
   const { error: vErr } = await sb.from("artifact_versions").insert({
     artifact_id: artifact.id,
     version: newVersion,
     content_html: html,
+    slides_json: slidesJson,
     note: note?.trim() || null,
     created_by: req.user!.id,
   });
@@ -318,7 +368,7 @@ artifactsRouter.post("/:id/versions", requireAuth, async (req, res) => {
     version: newVersion,
     note: note ?? null,
   });
-  res.status(201).json({ version: newVersion });
+  res.status(201).json({ version: newVersion, guard: checkForbiddenWords(guardText) });
 });
 
 // ---------- diff two versions ----------
@@ -367,7 +417,7 @@ artifactsRouter.post("/:id/rollback", requireAuth, async (req, res) => {
 
   const { data: target, error: tErr } = await sb
     .from("artifact_versions")
-    .select("content_html")
+    .select("content_html, slides_json")
     .eq("artifact_id", artifact.id)
     .eq("version", to)
     .maybeSingle();
@@ -375,10 +425,13 @@ artifactsRouter.post("/:id/rollback", requireAuth, async (req, res) => {
   if (!target) return res.status(404).json({ error: `Version ${to} not found` });
 
   const newVersion = artifact.current_version + 1;
+  // slides_json rides along (deck-studio.md §4.7) — otherwise rolling back a
+  // deck silently strips its structure and kills .pptx export.
   const { error: vErr } = await sb.from("artifact_versions").insert({
     artifact_id: artifact.id,
     version: newVersion,
     content_html: target.content_html,
+    slides_json: target.slides_json ?? null,
     note: `Rolled back to v${to}`,
     created_by: req.user!.id,
   });
@@ -413,6 +466,252 @@ artifactsRouter.post("/:id/rollback", requireAuth, async (req, res) => {
     newVersion,
   });
   res.status(201).json({ version: newVersion });
+});
+
+// ---------- .pptx export (deck-studio.md §4.3) ----------
+// GET /api/artifacts/:id/export.pptx?version= — canRead; finals exportable by every role.
+artifactsRouter.get("/:id/export.pptx", requireAuth, async (req, res) => {
+  const sb = supabase()!;
+  const artifact = await fetchArtifact(req.params.id);
+  if (!artifact) return res.status(404).json({ error: "Artifact not found" });
+  if (!canRead(req.user!.id, isAdmin(req), artifact)) {
+    return res.status(403).json({ error: "Not authorized to view this artifact" });
+  }
+
+  let version = artifact.current_version;
+  if (req.query.version !== undefined) {
+    const v = Number(req.query.version);
+    if (!Number.isInteger(v) || v < 1) return res.status(400).json({ error: "Invalid version number" });
+    version = v;
+  }
+
+  const { data: row, error: rowErr } = await sb
+    .from("artifact_versions")
+    .select("slides_json")
+    .eq("artifact_id", artifact.id)
+    .eq("version", version)
+    .maybeSingle();
+  if (rowErr) return res.status(500).json({ error: rowErr.message });
+  if (!row) return res.status(404).json({ error: `Version ${version} not found` });
+  const deck = (row.slides_json as DeckDoc | null) ?? null;
+  if (!deck) {
+    return res
+      .status(409)
+      .json({ error: "This deck has no structured slides yet — convert it to slides first." });
+  }
+
+  try {
+    const buffer = await buildDeckPptx(deck, artifact.title, flatten(artifact).product_name);
+    const kebab = artifact.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "deck";
+    void logActivity("artifact", artifact.id, req.user!.id, "exported_pptx", { version });
+    res
+      .status(200)
+      .setHeader(
+        "Content-Type",
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+      )
+      .setHeader("Content-Disposition", `attachment; filename="${kebab}-v${version}.pptx"`)
+      .send(buffer);
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// ---------- conversational AI editing (deck-studio.md §4.4) ----------
+// POST /api/artifacts/:id/chat-edit { message, scope?, history? }
+artifactsRouter.post("/:id/chat-edit", requireAuth, async (req, res) => {
+  const sb = supabase()!;
+  const artifact = await fetchArtifact(req.params.id);
+  if (!artifact) return res.status(404).json({ error: "Artifact not found" });
+  if (!canEdit(req.user!.id, isAdmin(req), artifact)) {
+    return res.status(403).json({ error: "Only the creator or a PMM admin can edit this artifact" });
+  }
+
+  const { message, scope, history } = req.body as {
+    message?: string;
+    scope?: string;
+    history?: ChatTurn[];
+  };
+  if (!message || message.trim() === "") {
+    return res.status(400).json({ error: "message is required" });
+  }
+  const turns: ChatTurn[] = Array.isArray(history)
+    ? history
+        .filter((t) => t && (t.role === "user" || t.role === "assistant") && typeof t.text === "string")
+        .slice(-6)
+    : [];
+
+  // Template slot-fill artifacts are edited through their render surface —
+  // chat-edit would mint versions disconnected from the render payload.
+  const { count: chatRenderCount } = await sb
+    .from("artifact_renders")
+    .select("id", { count: "exact", head: true })
+    .eq("artifact_id", artifact.id);
+  if ((chatRenderCount ?? 0) > 0) {
+    return res
+      .status(409)
+      .json({ error: "Template-generated artifacts are edited through their slot-fill surface" });
+  }
+
+  const { data: current } = await sb
+    .from("artifact_versions")
+    .select("content_html, slides_json")
+    .eq("artifact_id", artifact.id)
+    .eq("version", artifact.current_version)
+    .maybeSingle();
+  const currentDeck = (current?.slides_json as DeckDoc | null) ?? null;
+
+  try {
+    let newHtml: string;
+    let newSlides: DeckDoc | null = null;
+    let summary: string;
+    let guardText: string;
+
+    if (currentDeck) {
+      const requestedScope = scope?.trim() || "all";
+      if (requestedScope !== "all" && !currentDeck.slides.some((s) => s.id === requestedScope)) {
+        return res
+          .status(404)
+          .json({ error: `Slide '${requestedScope}' not found in the current version` });
+      }
+      const r = await chatEditSlides(currentDeck, message.trim(), requestedScope, turns);
+      newSlides = r.deck;
+      summary = r.summary;
+      newHtml = slidesToHtml(r.deck);
+      guardText = deckToText(r.deck);
+    } else {
+      // Document branch: full revised document in markdown, SUMMARY: first line.
+      const historyBlock =
+        turns.length > 0
+          ? `Recent conversation (context only):\n${turns
+              .map((t) => `${t.role === "user" ? "User" : "You"}: ${t.text}`)
+              .join("\n")}\n\n`
+          : "";
+      const raw = await ask(
+        [
+          "You are editing a document. Apply the user's instruction to the FULL document and return the complete revised document in clean markdown.",
+          "First line of your reply MUST be: SUMMARY: <one line, ≤120 chars, imperative past tense>. Everything after that line is the document.",
+          "Never invent customer names, quotes, or numbers that are not already in the document.",
+          historyBlock,
+          `=== CURRENT DOCUMENT (HTML) ===\n${current?.content_html ?? ""}`,
+          `=== USER INSTRUCTION ===\n${message.trim()}`,
+        ].join("\n\n"),
+        { maxTokens: 8000 }
+      );
+      const summaryMatch = raw.match(/^\s*SUMMARY:\s*(.+)$/m);
+      summary = summaryMatch ? summaryMatch[1].trim().slice(0, 120) : "AI edit";
+      const body = summaryMatch ? raw.slice(raw.indexOf(summaryMatch[0]) + summaryMatch[0].length) : raw;
+      newHtml = markdownToHtml(body.trim());
+      guardText = htmlToText(newHtml);
+    }
+
+    const newVersion = artifact.current_version + 1;
+    const { error: vErr } = await sb.from("artifact_versions").insert({
+      artifact_id: artifact.id,
+      version: newVersion,
+      content_html: newHtml,
+      slides_json: newSlides,
+      note: `AI: ${summary}`,
+      created_by: req.user!.id,
+    });
+    if (vErr) return res.status(500).json({ error: vErr.message });
+    const { error: uErr } = await sb
+      .from("artifacts")
+      .update({ current_version: newVersion, updated_at: new Date().toISOString() })
+      .eq("id", artifact.id);
+    if (uErr) return res.status(500).json({ error: uErr.message });
+
+    void logActivity("artifact", artifact.id, req.user!.id, "chat_edited", {
+      version: newVersion,
+      summary,
+    });
+    res.status(201).json({
+      version: newVersion,
+      summary,
+      guard: checkForbiddenWords(guardText),
+      slides: newSlides,
+      contentHtml: newHtml,
+    });
+  } catch (err) {
+    if (err instanceof DeckAiParseError) {
+      return res.status(422).json({
+        error: "The AI reply could not be parsed into valid slides — no changes were saved.",
+        issues: err.issues,
+      });
+    }
+    res.status(502).json({ error: (err as Error).message });
+  }
+});
+
+// ---------- legacy deck conversion (deck-studio.md §4.6) ----------
+// POST /api/artifacts/:id/convert-to-slides
+artifactsRouter.post("/:id/convert-to-slides", requireAuth, async (req, res) => {
+  const sb = supabase()!;
+  const artifact = await fetchArtifact(req.params.id);
+  if (!artifact) return res.status(404).json({ error: "Artifact not found" });
+  if (!canEdit(req.user!.id, isAdmin(req), artifact)) {
+    return res.status(403).json({ error: "Only the creator or a PMM admin can edit this artifact" });
+  }
+  if (artifact.asset_type !== "deck") {
+    return res.status(409).json({ error: "Only deck artifacts can be converted to slides" });
+  }
+
+  const { data: current } = await sb
+    .from("artifact_versions")
+    .select("content_html, slides_json")
+    .eq("artifact_id", artifact.id)
+    .eq("version", artifact.current_version)
+    .maybeSingle();
+  if (current?.slides_json) {
+    return res.status(409).json({ error: "This deck already has structured slides" });
+  }
+  const { count: renderCount } = await sb
+    .from("artifact_renders")
+    .select("id", { count: "exact", head: true })
+    .eq("artifact_id", artifact.id);
+  if ((renderCount ?? 0) > 0) {
+    return res
+      .status(409)
+      .json({ error: "Template-generated decks keep their slot-fill surface — conversion is for legacy decks only" });
+  }
+
+  try {
+    const { deck, summary } = await htmlToSlides(current?.content_html ?? "", artifact.title);
+    const newVersion = artifact.current_version + 1;
+    const { error: vErr } = await sb.from("artifact_versions").insert({
+      artifact_id: artifact.id,
+      version: newVersion,
+      content_html: slidesToHtml(deck),
+      slides_json: deck,
+      note: "Converted to structured slides (AI)",
+      created_by: req.user!.id,
+    });
+    if (vErr) return res.status(500).json({ error: vErr.message });
+    const { error: uErr } = await sb
+      .from("artifacts")
+      .update({ current_version: newVersion, updated_at: new Date().toISOString() })
+      .eq("id", artifact.id);
+    if (uErr) return res.status(500).json({ error: uErr.message });
+
+    void logActivity("artifact", artifact.id, req.user!.id, "converted_to_slides", {
+      version: newVersion,
+      slides: deck.slides.length,
+    });
+    res.status(201).json({
+      version: newVersion,
+      slides: deck,
+      guard: checkForbiddenWords(deckToText(deck)),
+      summary,
+    });
+  } catch (err) {
+    if (err instanceof DeckAiParseError) {
+      return res.status(422).json({
+        error: "The AI could not produce valid slides from this document — nothing was changed.",
+        issues: err.issues,
+      });
+    }
+    res.status(502).json({ error: (err as Error).message });
+  }
 });
 
 // ---------- status transitions (admin only, guardrail-gated into final) ----------

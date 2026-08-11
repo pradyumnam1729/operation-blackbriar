@@ -1,0 +1,421 @@
+/* Deck Studio — slide canvas (blueprint app/docs/blueprints/deck-studio.md §5, §6).
+   The stage is a fixed 1280×720 design surface (13.333in × 7.5in at 96dpi) scaled
+   by its wrappers; per-layout styles mirror the §6.2 pptx masters exactly.
+   Colors are §6.1 theme constants only. Sharp corners everywhere on the canvas —
+   border-radius: 0 is brand law (Aurigo Brand Standards). */
+
+/* ---------- workspace frame ---------- */
+.deck-workspace {
+  display: grid;
+  gap: 16px;
+  align-items: start;
+}
+
+/* ---------- 16:9 canvas wrapper (aspect-ratio CSS; stage scales to fit) ---------- */
+.deck-canvas-wrap {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  position: relative;
+  overflow: hidden;
+  background: #ffffff;
+  border: 1px solid var(--border-strong);
+  border-radius: 0;
+  box-shadow: var(--shadow-1);
+}
+.deck-canvas-wrap .deck-stage-holder {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: top left;
+}
+
+/* ---------- the slide stage ---------- */
+.deck-stage {
+  width: 1280px;
+  height: 720px;
+  background: #ffffff;
+  color: #383838; /* charcoal — body text on light */
+  font-family: "Roboto", Calibri, Arial, sans-serif;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  text-align: left;
+}
+/* Sharp edges, not rounded corners — on the canvas this is non-negotiable. */
+.deck-stage,
+.deck-stage * {
+  border-radius: 0 !important;
+}
+
+/* ---------- shared slide elements ---------- */
+.ds-kicker {
+  font-size: 17px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 4px;
+  color: #46b2be; /* tealLight — kickers/marks on dark only, never body text */
+}
+.ds-accent-bar {
+  width: 86px;
+  height: 7px;
+  background: #ee3135; /* red — accent bar only */
+  flex-shrink: 0;
+}
+.ds-wordmark {
+  position: absolute;
+  bottom: 42px;
+  right: 86px;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 5px;
+  color: #015f74;
+  pointer-events: none;
+}
+.ds-wordmark.on-dark {
+  color: #46b2be;
+}
+
+/* ---------- layout: title (dark teal full bleed) ---------- */
+.deck-stage.layout-title {
+  background: #015f74;
+  padding: 211px 86px 0;
+}
+.layout-title .ds-heading {
+  font-size: 48px;
+  font-weight: 700;
+  line-height: 1.15;
+  color: #ffffff;
+  margin-top: 20px;
+  max-width: 1104px;
+  width: 100%;
+}
+.layout-title .ds-subtitle {
+  font-size: 21px;
+  line-height: 1.5;
+  color: #eaedf0;
+  margin-top: 36px;
+  max-width: 920px;
+  width: 100%;
+}
+
+/* ---------- layout: agenda ---------- */
+.deck-stage.layout-agenda {
+  background: #ffffff;
+  padding: 106px 86px 0;
+}
+.layout-agenda .ds-heading {
+  font-size: 37px;
+  font-weight: 700;
+  color: #015f74;
+  margin-top: 18px;
+  max-width: 1104px;
+  width: 100%;
+}
+.ds-agenda-list {
+  list-style: none;
+  margin: 44px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  max-width: 1104px;
+  width: 100%;
+}
+.ds-agenda-item {
+  display: flex;
+  gap: 18px;
+  font-size: 21px;
+  line-height: 1.5;
+  color: #383838;
+}
+.ds-agenda-num {
+  font-weight: 700;
+  color: #015f74;
+  flex-shrink: 0;
+  min-width: 34px;
+}
+.ds-agenda-item .ds-textwrap {
+  flex: 1;
+}
+
+/* ---------- layout: section (darkest teal full bleed) ---------- */
+.deck-stage.layout-section {
+  background: #053445;
+  padding: 0 86px;
+  justify-content: center;
+}
+.layout-section .ds-heading {
+  font-size: 43px;
+  font-weight: 700;
+  line-height: 1.2;
+  color: #ffffff;
+  max-width: 1056px;
+  width: 100%;
+}
+.layout-section .ds-subtitle {
+  font-size: 20px;
+  line-height: 1.5;
+  color: #46b2be;
+  margin-top: 26px;
+  max-width: 920px;
+  width: 100%;
+}
+
+/* ---------- layout: content-bullets (the workhorse) ---------- */
+.deck-stage.layout-content-bullets {
+  background: #ffffff;
+  padding: 106px 86px 0;
+}
+.layout-content-bullets .ds-heading {
+  font-size: 35px;
+  font-weight: 700;
+  color: #015f74;
+  margin-top: 18px;
+  max-width: 1104px;
+  width: 100%;
+}
+.ds-bullets {
+  list-style: none;
+  margin: 42px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  max-width: 1104px;
+  width: 100%;
+}
+.ds-bullet {
+  display: flex;
+  gap: 16px;
+  font-size: 20px;
+  line-height: 1.4;
+  color: #383838;
+}
+.ds-bullet::before {
+  content: "\2013"; /* – bullet char, per the pptx master */
+  color: #015f74;
+  font-weight: 500;
+  flex-shrink: 0;
+}
+.ds-bullet .ds-textwrap {
+  flex: 1;
+}
+
+/* ---------- layout: two-column (mist cards, teal top rule) ---------- */
+.deck-stage.layout-two-column {
+  background: #ffffff;
+  padding: 106px 86px 0;
+}
+.layout-two-column .ds-heading {
+  font-size: 35px;
+  font-weight: 700;
+  color: #015f74;
+  margin-top: 18px;
+  max-width: 1104px;
+  width: 100%;
+}
+.ds-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 38px;
+  margin-top: 44px;
+  width: 100%;
+  max-width: 1104px;
+  align-items: stretch;
+}
+.ds-column {
+  background: #eaedf0; /* mist */
+  border-top: 6px solid #015f74;
+  padding: 28px 30px 30px;
+  min-height: 350px;
+}
+.ds-column-heading {
+  font-size: 21px;
+  font-weight: 700;
+  color: #015f74;
+}
+.ds-column-items {
+  list-style: none;
+  margin: 20px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.ds-column-item {
+  display: flex;
+  gap: 12px;
+  font-size: 17px;
+  line-height: 1.45;
+  color: #383838;
+}
+.ds-column-item::before {
+  content: "\2013";
+  color: #015f74;
+  flex-shrink: 0;
+}
+.ds-column-item .ds-textwrap {
+  flex: 1;
+}
+
+/* ---------- layout: quote (proof, dark teal) ---------- */
+.deck-stage.layout-quote {
+  background: #015f74;
+  padding: 0 160px;
+  justify-content: center;
+}
+.layout-quote .ds-quote-text {
+  font-size: 29px;
+  font-style: italic;
+  line-height: 1.5;
+  color: #ffffff;
+  margin-top: 28px;
+  max-width: 960px;
+  width: 100%;
+}
+.layout-quote .ds-attribution {
+  display: flex;
+  gap: 8px;
+  font-size: 17px;
+  color: #46b2be;
+  margin-top: 32px;
+  max-width: 960px;
+  width: 100%;
+}
+
+/* ---------- layout: closing (CTA, darkest teal) ---------- */
+.deck-stage.layout-closing {
+  background: #053445;
+  padding: 0 86px;
+  justify-content: center;
+}
+.layout-closing .ds-heading {
+  font-size: 43px;
+  font-weight: 700;
+  line-height: 1.2;
+  color: #ffffff;
+  margin-top: 20px;
+  max-width: 1056px;
+  width: 100%;
+}
+.layout-closing .ds-subtitle {
+  font-size: 21px;
+  line-height: 1.5;
+  color: #eaedf0;
+  margin-top: 30px;
+  max-width: 920px;
+  width: 100%;
+}
+.layout-closing .ds-wordmark {
+  left: 0;
+  right: 0;
+  bottom: 48px;
+  text-align: center;
+  font-size: 21px;
+}
+
+/* ---------- click-to-edit text primitive ---------- */
+.ds-textwrap {
+  position: relative;
+  min-width: 0;
+}
+.ds-edit {
+  outline: none;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  min-height: 1em;
+}
+.ds-edit[contenteditable="true"] {
+  cursor: text;
+}
+.ds-edit[contenteditable="true"]:hover {
+  box-shadow: 0 0 0 1px rgba(70, 178, 190, 0.5);
+}
+.ds-edit[contenteditable="true"]:focus {
+  box-shadow: 0 0 0 2px #46b2be;
+}
+.ds-edit:empty::before {
+  content: attr(data-placeholder);
+  color: currentColor;
+  opacity: 0.45;
+}
+.ds-charcount {
+  position: absolute;
+  right: 0;
+  bottom: -26px;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0;
+  font-style: normal;
+  background: #053445;
+  color: #ffffff;
+  padding: 2px 8px;
+  z-index: 6;
+  white-space: nowrap;
+}
+.ds-charcount.over {
+  background: #ee3135;
+}
+
+/* ---------- thumbnail rail (scaled stage via transform: scale) ---------- */
+.deck-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 640px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 2px;
+}
+.deck-thumb {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border: 1px solid var(--border-strong);
+  border-radius: 0;
+  background: #ffffff;
+  padding: 0;
+  cursor: pointer;
+  overflow: hidden;
+  display: block;
+  flex-shrink: 0;
+}
+.deck-thumb:hover {
+  border-color: #46b2be;
+}
+.deck-thumb.active {
+  outline: 2px solid #015f74;
+  outline-offset: 1px;
+  border-color: #015f74;
+}
+.deck-thumb .deck-thumb-scale {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform: scale(0.1266); /* ≈162 / 1280 — rail column is 168px minus padding + borders */
+  transform-origin: top left;
+  pointer-events: none;
+}
+.deck-thumb-num {
+  position: absolute;
+  left: 5px;
+  bottom: 4px;
+  font-size: 10px;
+  font-weight: 500;
+  color: #ffffff;
+  background: rgba(5, 52, 69, 0.75);
+  padding: 1px 6px;
+  line-height: 1.4;
+}
+.deck-thumb-dot {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--yellow);
+  border: 1px solid #8a5a0b;
+}

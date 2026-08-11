@@ -9,7 +9,8 @@
     "migrate": "tsx scripts/apply-migration.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "seed:users": "tsx scripts/seed-users.ts"
+    "seed:users": "tsx scripts/seed-users.ts",
+    "extract:theme": "tsx scripts/extract-deck-theme.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.115.0",
@@ -24,6 +25,7 @@
     "marked": "^18.0.9",
     "multer": "^2.2.0",
     "pdf-parse": "^2.4.5",
+    "pptxgenjs": "^4.0.1",
     "sanitize-html": "^2.17.6",
     "xlsx": "^0.18.5"
   },

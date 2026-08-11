@@ -5,6 +5,8 @@ import { ask } from "../services/claude";
 import { markdownToHtml } from "../services/html";
 import { checkForbiddenWords, GuardrailResult } from "../services/guardrails";
 import { logActivity } from "../services/activity";
+import { DeckDoc, deckToText, scaffoldDeck, slidesToHtml } from "../services/deck";
+import { DeckAiParseError, generateDeckSlides } from "../services/deckAi";
 
 // Asset Studio backend: template gallery (mock Canva previews until the
 // canva_live flag + OAuth land), prompt library, and template+prompt-driven
@@ -95,32 +97,70 @@ studioRouter.post("/generate", requireAuth, async (req, res) => {
     if (!product) return res.status(404).json({ error: "Product not found" });
   }
 
-  let html: string;
+  let html = "";
+  let slides: DeckDoc | null = null;
   let guard: GuardrailResult = { ok: true, violations: [] };
   let degraded = false;
 
-  try {
-    const userPrompt = [
-      `Asset type: ${template.asset_type}. Template: "${template.name}".`,
-      product
-        ? `Product context: ${product.name} (${product.line ?? ""} line, ${product.module ?? ""} module). Ground every claim in this product's context.`
-        : "Product context: Aurigo portfolio (no single product selected).",
-      `Working title: ${title.trim()}`,
-      `Task: ${prompt.body}`,
-      extra_brief && extra_brief.trim() !== "" ? `Additional brief from the requester: ${extra_brief.trim()}` : "",
-      "Return only the finished content in Markdown with proper headings — no preamble, no meta-commentary.",
-    ]
-      .filter((l) => l !== "")
-      .join("\n\n");
-    const md = await ask(userPrompt, { maxTokens: 8000 });
-    guard = checkForbiddenWords(md);
-    html = markdownToHtml(md);
-  } catch (err) {
-    // No API credits / model unavailable: create a starter scaffold instead.
-    console.error("studio generate degraded:", (err as Error).message);
-    degraded = true;
-    guard = { ok: true, violations: [] };
-    html = markdownToHtml(scaffoldMarkdown(title.trim(), template.asset_type, product?.name ?? null));
+  const productContext = product
+    ? `Product context: ${product.name} (${product.line ?? ""} line, ${product.module ?? ""} module). Ground every claim in this product's context.`
+    : "Product context: Aurigo portfolio (no single product selected).";
+
+  if (template.asset_type === "deck") {
+    // Deck branch (deck-studio.md §4.5): structured slides on the 7-step arc.
+    try {
+      slides = await generateDeckSlides({
+        title: title.trim(),
+        assetPrompt: prompt.body,
+        productContext,
+        extraBrief: extra_brief?.trim() || undefined,
+      });
+      html = slidesToHtml(slides);
+      guard = checkForbiddenWords(deckToText(slides));
+    } catch (err) {
+      if (err instanceof DeckAiParseError) {
+        // JSON shape failure after repair: fall back to the markdown path —
+        // never fail a whole generation over parse shape (convertible later).
+        console.error("studio deck slides parse failed, falling back to markdown:", err.issues.join("; "));
+        slides = null;
+      } else {
+        // AI unavailable → deterministic scaffold deck, still opens in the canvas.
+        console.error("studio deck generate degraded:", (err as Error).message);
+        degraded = true;
+        slides = scaffoldDeck(title.trim(), product?.name ?? null);
+        html = slidesToHtml(slides);
+        guard = { ok: true, violations: [] };
+      }
+    }
+  }
+
+  if (!degraded && slides === null) {
+    try {
+      const userPrompt = [
+        `Asset type: ${template.asset_type}. Template: "${template.name}".`,
+        productContext,
+        `Working title: ${title.trim()}`,
+        `Task: ${prompt.body}`,
+        extra_brief && extra_brief.trim() !== "" ? `Additional brief from the requester: ${extra_brief.trim()}` : "",
+        "Return only the finished content in Markdown with proper headings — no preamble, no meta-commentary.",
+      ]
+        .filter((l) => l !== "")
+        .join("\n\n");
+      const md = await ask(userPrompt, { maxTokens: 8000 });
+      guard = checkForbiddenWords(md);
+      html = markdownToHtml(md);
+    } catch (err) {
+      // No API credits / model unavailable: create a starter scaffold instead.
+      console.error("studio generate degraded:", (err as Error).message);
+      degraded = true;
+      guard = { ok: true, violations: [] };
+      if (template.asset_type === "deck") {
+        slides = scaffoldDeck(title.trim(), product?.name ?? null);
+        html = slidesToHtml(slides);
+      } else {
+        html = markdownToHtml(scaffoldMarkdown(title.trim(), template.asset_type, product?.name ?? null));
+      }
+    }
   }
 
   const { data: artifact, error: artErr } = await sb
@@ -143,6 +183,7 @@ studioRouter.post("/generate", requireAuth, async (req, res) => {
     artifact_id: artifact.id,
     version: 1,
     content_html: html,
+    slides_json: slides,
     note: degraded ? "Scaffold created (AI unavailable)" : `Generated in Studio via "${prompt.name}"`,
     created_by: user.id,
   });

@@ -581,3 +581,183 @@ export const revertAgent = (key: string) =>
 /** Runs a CANDIDATE config (never persisted). 400 missing sample input; 409 disabled; 502 model failure. */
 export const testRunAgent = (key: string, body: AgentTestRunBody) =>
   apiPost<TestRunResult>(`/api/agents/${encodeURIComponent(key)}/test-run`, body);
+
+// ---- Deck Studio + Document Editor v2 (blueprint app/docs/blueprints/deck-studio.md §1.1, §4, §5.4) ----
+
+export type SlideLayout =
+  | "title"            // deck opener: kicker + title + subtitle, dark teal full bleed
+  | "agenda"           // numbered items
+  | "section"          // section separator, darkest teal full bleed
+  | "content-bullets"  // headline + bullets (the workhorse)
+  | "two-column"       // headline + two headed card columns
+  | "quote"            // proof/quote slide, dark teal
+  | "closing";         // CTA slide, darkest teal, wordmark
+
+export interface SlideColumn {
+  heading: string;
+  items: string[];
+}
+
+export interface SlideQuote {
+  text: string;
+  attribution: string;
+}
+
+export interface DeckSlide {
+  id: string;                            // stable within the deck ("s1", "s2", …)
+  layout: SlideLayout;
+  title: string;                         // plain text, ≤200 chars
+  subtitle?: string;                     // title | section | closing; ≤300
+  body?: string[];                       // agenda | content-bullets; ≤20 items, each ≤500
+  columns?: [SlideColumn, SlideColumn];  // two-column only
+  quote?: SlideQuote;                    // quote only
+  notes?: string;                        // speaker notes, ≤2000; ships in the .pptx
+}
+
+export interface DeckDoc {
+  schema: 1;
+  theme: "aurigo-2026";
+  slides: DeckSlide[]; // 1–40
+}
+
+/** §1.1 hard server caps — the UI shows soft counters from 80% of these. */
+// Mirrors CAPS in app/backend/src/services/deck.ts — keep byte-identical so
+// the soft counters warn before the server's hard 400s.
+export const DECK_CAPS = {
+  slides: 40,
+  title: 200,
+  subtitle: 300,
+  bulletsPerSlide: 20,
+  bullet: 500,
+  columnHeading: 120,
+  columnItem: 300,
+  quoteText: 600,
+  quoteAttribution: 200,
+  notes: 2000,
+} as const;
+
+/** Guard result riding save/chat responses — informational on drafts, the
+ *  admin-only finalize gate is the enforcement point (§0.1-5). */
+export interface GuardCheck {
+  ok: boolean;
+  violations: string[];
+}
+
+export type ArtifactStatus = "draft" | "in_review" | "final" | "archived";
+
+export interface ArtifactDetail {
+  id: string;
+  title: string;
+  asset_type: string;
+  product_id: string | null;
+  product_name: string | null;
+  persona: string | null;
+  status: ArtifactStatus;
+  current_version: number;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ArtifactVersionMeta {
+  id: string;
+  version: number;
+  note: string | null;
+  created_by: string | null;
+  created_at: string;
+}
+
+export interface ArtifactDetailResponse {
+  artifact: ArtifactDetail;
+  versions: ArtifactVersionMeta[];
+  contentHtml: string;
+  /** True for template-generated artifacts — an artifact_renders row exists. */
+  hasRender?: boolean;
+  /** Current version's structured slides; null for documents and legacy decks (§4.1). */
+  slides?: DeckDoc | null;
+}
+
+export const getArtifactDetail = (id: string) =>
+  apiGet<ArtifactDetailResponse>(`/api/artifacts/${id}`);
+
+export interface ChatTurn {
+  role: "user" | "assistant";
+  text: string;
+}
+
+export interface ChatEditResponse {
+  version: number;
+  summary: string;
+  guard: GuardCheck;
+  slides: DeckDoc | null; // null for document artifacts
+  contentHtml: string;
+}
+
+/** Conversational edit — a new version on success (§4.4). 422 = unparseable AI
+ *  reply (issues in body, nothing saved); 502 = AI unavailable, content untouched. */
+export const chatEditArtifact = (
+  id: string,
+  body: { message: string; scope?: string; history?: ChatTurn[] }
+) => apiPost<ChatEditResponse>(`/api/artifacts/${id}/chat-edit`, body);
+
+export interface ConvertToSlidesResponse {
+  version: number;
+  slides: DeckDoc;
+  guard: GuardCheck;
+  summary: string;
+}
+
+/** Legacy HTML-only decks → structured slides (§4.6). 409 = not convertible. */
+export const convertToSlides = (id: string) =>
+  apiPost<ConvertToSlidesResponse>(`/api/artifacts/${id}/convert-to-slides`);
+
+export interface SaveVersionResponse {
+  version: number;
+  guard?: GuardCheck;
+}
+
+/** Dual-mode save (§4.2): exactly one of `slides` | `content_html`. 400 with
+ *  `issues` for invalid slides. Guard never blocks a draft save. */
+export const saveArtifactVersion = (
+  id: string,
+  body: { slides: DeckDoc; note?: string } | { content_html: string; note?: string }
+) => apiPost<SaveVersionResponse>(`/api/artifacts/${id}/versions`, body);
+
+/** Authed binary fetch — !ok throws ApiError from the JSON error body (§5.4). */
+export async function apiGetBlob(path: string): Promise<Blob> {
+  const res = await fetch(path, { headers: await authHeaders() });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    throw new ApiError(
+      res.status,
+      typeof body.error === "string" ? body.error : res.statusText,
+      body
+    );
+  }
+  return res.blob();
+}
+
+/** Downloads the deck as a real .pptx (bearer header rides the fetch — the
+ *  token cannot ride an <a href>). ApiError(409) = no structured slides yet. */
+export async function downloadArtifactPptx(
+  id: string,
+  title: string,
+  version?: number
+): Promise<void> {
+  const blob = await apiGetBlob(
+    `/api/artifacts/${id}/export.pptx${version === undefined ? "" : `?version=${version}`}`
+  );
+  const slug =
+    title
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "deck";
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${slug}${version === undefined ? "" : `-v${version}`}.pptx`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}

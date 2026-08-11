@@ -20,6 +20,7 @@ import { IntegrationsPage } from "./pages/IntegrationsPage";
 import { Agents } from "./pages/Agents";
 import { Notifications } from "./pages/Notifications";
 import "./styles/brand.css";
+import "./styles/deck.css";
 
 function Root() {
   const { loading, me } = useAuth();

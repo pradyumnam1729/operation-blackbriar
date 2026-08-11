@@ -1,52 +1,34 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import type { Editor } from "@tiptap/react";
 import {
   apiDelete,
-  apiGet,
   apiPost,
+  ArtifactDetail,
   ArtifactRender,
+  ArtifactStatus,
+  ArtifactVersionMeta,
+  convertToSlides,
+  DeckDoc,
+  getArtifactDetail,
   getArtifactRender,
   getTemplate,
   TemplateDetail,
 } from "../lib/api";
 import { useAuth } from "../auth/AuthContext";
-import { RichEditor } from "../components/RichEditor";
 import { Comments } from "../components/Comments";
 import { TemplatePreview } from "../components/TemplatePreview";
 import { SlotFillPanel } from "../components/SlotFillPanel";
+import { DeckWorkspace } from "../components/deck/DeckWorkspace";
+import { DocEditor } from "../components/DocEditor";
+import { VersionHistoryPanel } from "../components/VersionHistoryPanel";
 
-type ArtifactStatus = "draft" | "in_review" | "final" | "archived";
-
-interface ArtifactDetail {
-  id: string;
-  title: string;
-  asset_type: string;
-  product_id: string | null;
-  product_name: string | null;
-  persona: string | null;
-  status: ArtifactStatus;
-  current_version: number;
-  created_by: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-interface VersionMeta {
-  id: string;
-  version: number;
-  note: string | null;
-  created_by: string | null;
-  created_at: string;
-}
-
-interface DetailResponse {
-  artifact: ArtifactDetail;
-  versions: VersionMeta[];
-  contentHtml: string;
-  /** True for template-generated artifacts — an artifact_renders row exists. */
-  hasRender?: boolean;
-}
+// Artifact editor shell + dispatcher (blueprint deck-studio.md §5.1). Keeps the
+// header, admin status transitions (422 finalize violations), delete, version
+// history, and Comments; the content surface dispatches by precedence:
+//   1. structured slides       → DeckWorkspace (read-only viewer for non-editors)
+//   2. template render         → SlotFillPanel + TemplatePreview (byte-identical)
+//   3. legacy HTML-only deck   → DocEditor + "Convert to slides" banner
+//   4. everything else         → DocEditor (canEdit) or read-only prose
 
 const STATUS_LABELS: Record<ArtifactStatus, string> = {
   draft: "Draft",
@@ -77,14 +59,6 @@ const TRANSITIONS: Record<ArtifactStatus, { to: ArtifactStatus; label: string }[
   archived: [{ to: "draft", label: "Restore to draft" }],
 };
 
-const AI_ACTIONS: { action: string; label: string; icon: string }[] = [
-  { action: "rewrite", label: "Rewrite", icon: "fa-wand-magic-sparkles" },
-  { action: "shorten", label: "Shorten", icon: "fa-minimize" },
-  { action: "expand", label: "Expand", icon: "fa-maximize" },
-  { action: "voice-fix", label: "Fix voice", icon: "fa-spell-check" },
-  { action: "formalize", label: "Executive tone", icon: "fa-user-tie" },
-];
-
 // Red-tinted error strip (422 banned-words and other failures).
 const errStrip: React.CSSProperties = {
   marginTop: 12,
@@ -103,50 +77,35 @@ export function ArtifactEditor() {
   const admin = me?.role === "admin";
 
   const [artifact, setArtifact] = useState<ArtifactDetail | null>(null);
-  const [versions, setVersions] = useState<VersionMeta[]>([]);
+  const [versions, setVersions] = useState<ArtifactVersionMeta[]>([]);
   const [html, setHtml] = useState("");
+  const [slides, setSlides] = useState<DeckDoc | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   // Template-generated artifacts: raw render + the template's slot definitions.
   const [render, setRender] = useState<ArtifactRender | null>(null);
   const [renderTpl, setRenderTpl] = useState<TemplateDetail | null>(null);
-  const [viewRender, setViewRender] = useState<ArtifactRender | null>(null);
-
-  const editorRef = useRef<Editor | null>(null);
-
-  // AI
-  const [aiBusy, setAiBusy] = useState<string | null>(null);
-  const [aiError, setAiError] = useState<string | null>(null);
-  const [instruction, setInstruction] = useState("");
-
-  // save
-  const [saveNote, setSaveNote] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
-  const [savedMsg, setSavedMsg] = useState<string | null>(null);
-
-  // versions panel
-  const [viewVersion, setViewVersion] = useState<{ version: number; content_html: string; note: string | null } | null>(null);
-  const [compareFrom, setCompareFrom] = useState<number | "">("");
-  const [compareTo, setCompareTo] = useState<number | "">("");
-  const [diffHtml, setDiffHtml] = useState<string | null>(null);
-  const [panelError, setPanelError] = useState<string | null>(null);
 
   // status
   const [statusError, setStatusError] = useState<string | null>(null);
   const [statusBusy, setStatusBusy] = useState(false);
 
+  // legacy deck → structured slides conversion (§4.6)
+  const [converting, setConverting] = useState(false);
+  const [convertError, setConvertError] = useState<string | null>(null);
+
   const load = useCallback(async () => {
     if (!id) return;
     try {
-      const data = await apiGet<DetailResponse>(`/api/artifacts/${id}`);
+      const data = await getArtifactDetail(id);
       setArtifact(data.artifact);
       setVersions(data.versions);
       setHtml(data.contentHtml);
+      setSlides(data.slides ?? null);
       setLoadError(null);
       if (data.hasRender) {
-        // Template-generated: mount the render surface instead of RichEditor.
+        // Template-generated: mount the render surface instead of the editor.
         try {
           const r = await getArtifactRender(id);
           setRender(r);
@@ -181,109 +140,6 @@ export function ArtifactEditor() {
 
   const canEdit = !!artifact && !!me && (admin || artifact.created_by === me.id);
 
-  // ---------- AI actions ----------
-  const runAi = async (payload: { action?: string; instruction?: string }, busyLabel: string) => {
-    const editor = editorRef.current;
-    setAiError(null);
-    setAiBusy(busyLabel);
-    const hasSelection = !!editor && !editor.state.selection.empty;
-    const selectionText = hasSelection
-      ? editor!.state.doc.textBetween(editor!.state.selection.from, editor!.state.selection.to, " ")
-      : "";
-    const text = selectionText.trim() !== "" ? selectionText : editor?.getHTML() ?? html;
-    try {
-      const r = await apiPost<{ html: string }>("/api/ai/edit", { ...payload, text });
-      if (selectionText.trim() !== "" && editor) {
-        // Replace only the selected passage; the rest of the doc is untouched.
-        editor.chain().focus().deleteSelection().insertContent(r.html).run();
-      } else if (editor) {
-        editor.commands.setContent(r.html, { emitUpdate: true });
-      } else {
-        setHtml(r.html);
-      }
-    } catch (e) {
-      // AI unavailable (e.g. no API credits) — surface the error, keep content.
-      setAiError((e as Error).message);
-    } finally {
-      setAiBusy(null);
-    }
-  };
-
-  // ---------- save version ----------
-  const saveVersion = async () => {
-    if (!id) return;
-    setSaving(true);
-    setSaveError(null);
-    setSavedMsg(null);
-    try {
-      const r = await apiPost<{ version: number }>(`/api/artifacts/${id}/versions`, {
-        content_html: editorRef.current?.getHTML() ?? html,
-        note: saveNote.trim() || undefined,
-      });
-      setSaveNote("");
-      setSavedMsg(`Saved as version ${r.version}`);
-      await load();
-    } catch (e) {
-      setSaveError((e as Error).message);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  // ---------- version panel ----------
-  const openVersion = async (v: number) => {
-    if (!id) return;
-    setPanelError(null);
-    setDiffHtml(null);
-    setViewRender(null);
-    try {
-      const r = await apiGet<{ version: { version: number; content_html: string; note: string | null } }>(
-        `/api/artifacts/${id}/versions/${v}`
-      );
-      setViewVersion(r.version);
-      if (render) {
-        // Template-generated: also show that version's rendered payload.
-        try {
-          setViewRender(await getArtifactRender(id, v));
-        } catch {
-          setViewRender(null);
-        }
-      }
-    } catch (e) {
-      setPanelError((e as Error).message);
-    }
-  };
-
-  const runCompare = async () => {
-    if (!id || compareFrom === "" || compareTo === "") return;
-    setPanelError(null);
-    setViewVersion(null);
-    setViewRender(null);
-    try {
-      const r = await apiGet<{ diffHtml: string }>(
-        `/api/artifacts/${id}/diff?from=${compareFrom}&to=${compareTo}`
-      );
-      setDiffHtml(r.diffHtml);
-    } catch (e) {
-      setPanelError((e as Error).message);
-    }
-  };
-
-  const rollback = async (v: number) => {
-    if (!id) return;
-    if (!window.confirm(`Roll back to version ${v}? Its content is copied forward as a new version — nothing is deleted.`)) return;
-    setPanelError(null);
-    try {
-      await apiPost(`/api/artifacts/${id}/rollback`, { to: v });
-      setViewVersion(null);
-      setDiffHtml(null);
-      setViewRender(null);
-      await load();
-    } catch (e) {
-      setPanelError((e as Error).message);
-    }
-  };
-
   // ---------- status (admin) ----------
   const setStatus = async (to: ArtifactStatus) => {
     if (!id) return;
@@ -310,6 +166,22 @@ export function ArtifactEditor() {
     }
   };
 
+  // ---------- legacy deck conversion ----------
+  const runConvert = async () => {
+    if (!id) return;
+    setConverting(true);
+    setConvertError(null);
+    try {
+      await convertToSlides(id);
+      await load(); // slides now present → the canvas mounts
+    } catch (e) {
+      // 422/502 — content unchanged, the banner stays (§4.6).
+      setConvertError((e as Error).message);
+    } finally {
+      setConverting(false);
+    }
+  };
+
   // ---------- render ----------
   if (loading) {
     return <div className="empty-note">Loading artifact…</div>;
@@ -326,6 +198,8 @@ export function ArtifactEditor() {
       </div>
     );
   }
+
+  const legacyDeck = slides === null && render === null && artifact.asset_type === "deck";
 
   return (
     <div>
@@ -384,7 +258,19 @@ export function ArtifactEditor() {
         </div>
       )}
 
-      {render !== null ? (
+      {slides !== null ? (
+        /* 1. Structured slides → the deck workspace (read-only for non-editors). */
+        <DeckWorkspace
+          artifactId={artifact.id}
+          title={artifact.title}
+          productName={artifact.product_name}
+          currentVersion={artifact.current_version}
+          canEdit={canEdit}
+          slides={slides}
+          onRefresh={load}
+        />
+      ) : render !== null ? (
+        /* 2. Template-generated: the render surface — byte-identical behavior. */
         <>
           {render.warnings.length > 0 && (
             <div
@@ -474,88 +360,50 @@ export function ArtifactEditor() {
           </div>
         </>
       ) : canEdit ? (
+        /* 3 + 4. Document editor v2; legacy decks get the convert banner first. */
         <>
-          <div className="card">
-            <div className="chip-row" style={{ marginTop: 0, alignItems: "center" }}>
-              <span style={{ fontSize: 12.5, fontWeight: 500, color: "var(--text-secondary)", marginRight: 4 }}>
-                AI actions
+          {legacyDeck && (
+            <div
+              style={{
+                marginBottom: 18,
+                padding: "12px 16px",
+                background: "#E1F0F2",
+                borderRadius: "var(--r-md)",
+                color: "var(--teal-dark)",
+                fontSize: 13,
+                fontWeight: 500,
+                display: "flex",
+                alignItems: "center",
+                gap: 12,
+                flexWrap: "wrap",
+              }}
+            >
+              <span style={{ flex: 1 }}>
+                <i className="fa-regular fa-file-powerpoint" style={{ marginRight: 8 }} />
+                This deck predates structured slides. Convert it to edit slide-by-slide and export
+                a branded .pptx.
               </span>
-              {AI_ACTIONS.map((a) => (
-                <button
-                  key={a.action}
-                  className="sugg-chip"
-                  disabled={aiBusy !== null}
-                  onClick={() => runAi({ action: a.action }, a.label)}
-                >
-                  <i className={`fa-solid ${a.icon}`} style={{ marginRight: 6 }} />
-                  {aiBusy === a.label ? "Working…" : a.label}
-                </button>
-              ))}
-            </div>
-            <div className="chat-input-row" style={{ marginTop: 14 }}>
-              <i className="fa-solid fa-wand-magic-sparkles" style={{ color: "var(--teal-light)", fontSize: 15 }} />
-              <input
-                value={instruction}
-                onChange={(e) => setInstruction(e.target.value)}
-                placeholder="Or give the AI a specific instruction, e.g. “add a proof point section”"
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && instruction.trim() && !aiBusy) {
-                    runAi({ instruction: instruction.trim() }, "Instruction");
-                  }
-                }}
-              />
-              <button
-                type="button"
-                className="chat-send"
-                title="Apply"
-                disabled={aiBusy !== null || instruction.trim() === ""}
-                onClick={() => runAi({ instruction: instruction.trim() }, "Instruction")}
-              >
-                {aiBusy === "Instruction" ? (
+              <button className="btn btn-sm" disabled={converting} onClick={() => void runConvert()}>
+                {converting ? (
                   <i className="fa-solid fa-spinner fa-spin" />
                 ) : (
-                  <i className="fa-solid fa-arrow-up" />
+                  <i className="fa-solid fa-table-columns" />
                 )}
+                {converting ? "Converting…" : "Convert to slides"}
               </button>
             </div>
-            <p className="empty-note" style={{ padding: "8px 0 0", margin: 0 }}>
-              Select text to act on a passage; with nothing selected the whole document is used.
-            </p>
-            {aiError && <div style={errStrip}>AI edit failed: {aiError} — your content is unchanged.</div>}
-          </div>
-
-          <div className="card">
-            <RichEditor
-              valueHtml={html}
-              onChange={setHtml}
-              onEditor={(e) => {
-                editorRef.current = e;
-              }}
-            />
-            <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
-              <input
-                value={saveNote}
-                onChange={(e) => setSaveNote(e.target.value)}
-                placeholder="Version note (optional), e.g. “added proof point”"
-              />
-              <button
-                className="btn btn-primary"
-                style={{ whiteSpace: "nowrap" }}
-                disabled={saving}
-                onClick={saveVersion}
-              >
-                <i className="fa-solid fa-floppy-disk" />
-                {saving ? "Saving…" : `Save version ${artifact.current_version + 1}`}
-              </button>
+          )}
+          {convertError !== null && (
+            <div style={{ ...errStrip, marginTop: 0, marginBottom: 18 }} role="alert">
+              {convertError} — your content is unchanged.
             </div>
-            {saveError && <div style={errStrip}>{saveError}</div>}
-            {savedMsg && (
-              <p style={{ margin: "10px 0 0", color: "var(--teal-dark)", fontWeight: 500, fontSize: 13 }}>
-                <i className="fa-solid fa-circle-check" style={{ marginRight: 6 }} />
-                {savedMsg}
-              </p>
-            )}
-          </div>
+          )}
+          <DocEditor
+            artifactId={artifact.id}
+            contentHtml={html}
+            currentVersion={artifact.current_version}
+            onRefresh={load}
+          />
         </>
       ) : (
         <div
@@ -565,131 +413,16 @@ export function ArtifactEditor() {
         />
       )}
 
-      {/* ---------- version history ---------- */}
-      <div className="card">
-        <div className="row-between" style={{ marginBottom: 12 }}>
-          <h3 style={{ margin: 0, fontSize: 14, fontWeight: 500 }}>
-            <i className="fa-solid fa-clock-rotate-left" style={{ marginRight: 8, color: "var(--teal-dark)" }} />
-            Version history
-          </h3>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
-            <span style={{ fontSize: 12.5, fontWeight: 500, color: "var(--text-secondary)" }}>Compare</span>
-            <select
-              style={{ width: "auto" }}
-              value={compareFrom}
-              onChange={(e) => setCompareFrom(e.target.value === "" ? "" : Number(e.target.value))}
-            >
-              <option value="">from…</option>
-              {versions.map((v) => (
-                <option key={v.id} value={v.version}>
-                  v{v.version}
-                </option>
-              ))}
-            </select>
-            <span style={{ color: "var(--text-muted)" }}>&rarr;</span>
-            <select
-              style={{ width: "auto" }}
-              value={compareTo}
-              onChange={(e) => setCompareTo(e.target.value === "" ? "" : Number(e.target.value))}
-            >
-              <option value="">to…</option>
-              {versions.map((v) => (
-                <option key={v.id} value={v.version}>
-                  v{v.version}
-                </option>
-              ))}
-            </select>
-            <button
-              className="btn btn-sm"
-              disabled={compareFrom === "" || compareTo === "" || compareFrom === compareTo}
-              title={
-                compareFrom === "" || compareTo === ""
-                  ? "Pick two versions to compare"
-                  : compareFrom === compareTo
-                    ? "Pick two different versions"
-                    : "Compare the selected versions"
-              }
-              onClick={runCompare}
-            >
-              <i className="fa-solid fa-code-compare" /> Compare
-            </button>
-            {(diffHtml !== null || viewVersion !== null) && (
-              <button
-                className="btn btn-sm"
-                onClick={() => {
-                  setDiffHtml(null);
-                  setViewVersion(null);
-                  setViewRender(null);
-                }}
-              >
-                <i className="fa-solid fa-xmark" /> Close preview
-              </button>
-            )}
-          </div>
-        </div>
-
-        {panelError && <div style={{ ...errStrip, marginTop: 0, marginBottom: 12 }}>{panelError}</div>}
-
-        {diffHtml !== null && (
-          <div style={{ marginBottom: 16 }}>
-            <p style={{ margin: "0 0 8px", fontWeight: 500, fontSize: 13 }}>
-              Changes v{compareFrom} &rarr; v{compareTo}
-            </p>
-            <div className="prose" dangerouslySetInnerHTML={{ __html: diffHtml }} />
-          </div>
-        )}
-
-        {viewVersion !== null && (
-          <div style={{ marginBottom: 16 }}>
-            <p style={{ margin: "0 0 8px", fontWeight: 500, fontSize: 13 }}>
-              Version {viewVersion.version} (read-only)
-              {viewVersion.note ? ` — ${viewVersion.note}` : ""}
-            </p>
-            {viewRender !== null ? (
-              <TemplatePreview
-                format={viewRender.format}
-                payload={viewRender.payload}
-                title={`${artifact.title}-v${viewVersion.version}`}
-              />
-            ) : (
-              <div className="prose" dangerouslySetInnerHTML={{ __html: viewVersion.content_html }} />
-            )}
-          </div>
-        )}
-
-        {versions.map((v) => (
-          <div
-            key={v.id}
-            style={{
-              border: "1px solid var(--border)",
-              borderRadius: "var(--r-md)",
-              padding: "10px 14px",
-              marginBottom: 8,
-            }}
-          >
-            <div className="row-between">
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <b style={{ fontSize: 13, color: "var(--teal-dark)" }}>v{v.version}</b>
-                {v.version === artifact.current_version && <span className="pill pill-live">Current</span>}
-                <span style={{ fontSize: 12.5, color: "var(--text-secondary)" }}>{v.note ?? "—"}</span>
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, whiteSpace: "nowrap" }}>
-                <span style={{ fontSize: 11.5, color: "var(--text-muted)" }}>
-                  {new Date(v.created_at).toLocaleString()}
-                </span>
-                <button className="btn btn-sm" onClick={() => openVersion(v.version)}>
-                  <i className="fa-solid fa-eye" /> View
-                </button>
-                {canEdit && v.version !== artifact.current_version && (
-                  <button className="btn btn-sm" onClick={() => rollback(v.version)}>
-                    <i className="fa-solid fa-rotate-left" /> Rollback
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
+      <VersionHistoryPanel
+        artifactId={artifact.id}
+        artifactTitle={artifact.title}
+        currentVersion={artifact.current_version}
+        versions={versions}
+        canEdit={canEdit}
+        isRenderArtifact={render !== null}
+        productName={artifact.product_name}
+        onChanged={load}
+      />
 
       <Comments entityType="artifact" entityId={artifact.id} />
     </div>

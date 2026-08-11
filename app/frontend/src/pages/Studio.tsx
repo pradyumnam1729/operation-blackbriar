@@ -184,6 +184,9 @@ export function Studio() {
   const [error, setError] = useState("");
   const [gate409, setGate409] = useState<string | null>(null);
   const [result, setResult] = useState<GenerateResponse | null>(null);
+  // Deck generation success toast (deck-studio.md §5.3) — shown briefly before
+  // navigating into the slide editor.
+  const [toast, setToast] = useState<string | null>(null);
 
   // Slot-driven = the template carries a layout body; text comes from the
   // approved messaging document, so no prompt is needed but a product is.
@@ -273,6 +276,12 @@ export function Studio() {
         extra_brief: extraBrief.trim() === "" ? undefined : extraBrief.trim(),
       });
       if (!r.degraded && r.guard.ok) {
+        if (template.asset_type === "deck") {
+          // Deck prompt path now lands structured slides (§4.5) — say so, then open.
+          setToast("Deck generated — opening slide editor");
+          window.setTimeout(() => navigate(`/library/${r.artifactId}`), 900);
+          return;
+        }
         navigate(`/library/${r.artifactId}`);
         return;
       }
@@ -714,6 +723,32 @@ export function Studio() {
         </div>
       )}
         </>
+      )}
+
+      {toast !== null && (
+        <div
+          role="status"
+          style={{
+            position: "fixed",
+            bottom: 28,
+            left: "50%",
+            transform: "translateX(-50%)",
+            background: "var(--teal-darkest)",
+            color: "#fff",
+            padding: "12px 22px",
+            borderRadius: "var(--r-pill)",
+            fontSize: 13.5,
+            fontWeight: 500,
+            boxShadow: "var(--shadow-2)",
+            zIndex: 80,
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+          }}
+        >
+          <i className="fa-solid fa-circle-check" style={{ color: "var(--teal-light)" }} />
+          {toast}
+        </div>
       )}
     </div>
   );
