@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { useNavigate } from "react-router-dom";
 import { apiDelete, apiGet, apiPost } from "../lib/api";
 import { useAuth } from "../auth/AuthContext";
@@ -120,13 +120,46 @@ interface EventsSummaryT {
   top: { competitor: string; severity: string; title: string; createdAt: string }[];
 }
 
-const TIER_STYLE: Record<number, { label: string; bg: string; color: string }> = {
-  1: { label: "TIER 1 · ACTIVE THREAT", bg: "#FCE8E8", color: "#A32D2D" },
-  2: { label: "TIER 2 · DIRECT", bg: "#E3F0F3", color: "#015F74" },
-  3: { label: "TIER 3 · WATCH", bg: "#EFEFEF", color: "#5A5A5A" },
+// Tier badges reuse the severity pill classes from brand.css so threat levels
+// read the same as delta severities everywhere on the page.
+const TIER_STYLE: Record<number, { label: string; pill: string }> = {
+  1: { label: "Tier 1 · Active threat", pill: "pill-lost" },
+  2: { label: "Tier 2 · Direct", pill: "pill-review" },
+  3: { label: "Tier 3 · Watch", pill: "pill-archived" },
 };
 
 const TRAJECTORY_ARROW: Record<string, string> = { rising: "↑ rising", stable: "→ stable", fading: "↓ fading" };
+
+// One card style for a threat-board entry, shared by the Overview threat board
+// and the Frameworks threat-tiers view (same data, same rendering).
+function ThreatTile({
+  entry,
+  showTier = true,
+  showWatch = false,
+  style,
+}: {
+  entry: ThreatEntry;
+  showTier?: boolean;
+  showWatch?: boolean;
+  style?: CSSProperties;
+}) {
+  return (
+    <div
+      style={{ border: "1px solid var(--border)", borderRadius: "var(--r-md)", padding: "10px 14px", background: "var(--bg-card)", ...style }}
+      title={!showWatch && entry.watch_items.length > 0 ? entry.watch_items.join(" · ") : undefined}
+    >
+      <div style={{ fontWeight: 500, fontSize: 13.5, marginBottom: 5 }}>
+        {entry.competitor}{" "}
+        <span style={{ fontWeight: 400, fontSize: 12.5, color: "var(--text-secondary)" }}>{TRAJECTORY_ARROW[entry.trajectory]}</span>
+      </div>
+      {showTier && <span className={`pill ${TIER_STYLE[entry.tier].pill}`}>{TIER_STYLE[entry.tier].label}</span>}
+      <p style={{ fontSize: 12.5, color: "var(--text-secondary)", margin: "6px 0 0" }}>{entry.rationale}</p>
+      {showWatch && entry.watch_items.length > 0 && (
+        <p style={{ fontSize: 12.5, color: "var(--text-muted)", margin: "5px 0 0" }}>Watch: {entry.watch_items.join(" · ")}</p>
+      )}
+    </div>
+  );
+}
 
 const SUGGESTIONS = [
   "Top 3 features vs Kahua for a state DOT deal",
@@ -868,32 +901,28 @@ export function CompetitiveIntel() {
             {overview?.threatBoard ? (
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
                 {((overview.threatBoard.result as { entries: ThreatEntry[] })?.entries ?? []).map((t) => (
-                  <div key={t.competitor} style={{ border: "1px solid var(--border)", borderRadius: "var(--r-md)", padding: "10px 14px", minWidth: 200, flex: "1 1 200px", maxWidth: 300 }} title={t.watch_items.join(" · ")}>
-                    <div style={{ fontWeight: 600, marginBottom: 4 }}>{t.competitor}</div>
-                    <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: "0.04em", background: TIER_STYLE[t.tier].bg, color: TIER_STYLE[t.tier].color, borderRadius: 4, padding: "2px 8px" }}>
-                      {TIER_STYLE[t.tier].label}
-                    </span>
-                    <span style={{ fontSize: 12, marginLeft: 8, color: "var(--text-secondary)" }}>{TRAJECTORY_ARROW[t.trajectory]}</span>
-                    <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: "6px 0 0" }}>{t.rationale}</p>
-                  </div>
+                  <ThreatTile key={t.competitor} entry={t} style={{ minWidth: 200, flex: "1 1 200px", maxWidth: 300 }} />
                 ))}
               </div>
             ) : (
               <div className="empty-note">No threat board yet — build one in the Frameworks tab (needs tracked competitors with scraped sources).</div>
             )}
             {overview?.threatBoard?.summaryHtml && (
-              <div className="prose" style={{ border: "none", boxShadow: "none", padding: 0, marginTop: 10 }} dangerouslySetInnerHTML={{ __html: overview.threatBoard.summaryHtml }} />
+              <div className="prose" style={{ border: "none", boxShadow: "none", padding: 0, marginTop: 12 }} dangerouslySetInnerHTML={{ __html: overview.threatBoard.summaryHtml }} />
             )}
           </div>
 
           {/* deltas this week + tracking state */}
-          <div className="grid grid-2" style={{ alignItems: "start" }}>
-            <div className="card" style={{ margin: 0 }}>
-              <h3 style={{ margin: "0 0 10px", fontSize: 15, fontWeight: 500 }}>Deltas — last 7 days</h3>
+          <div className="grid grid-2" style={{ alignItems: "start", marginBottom: 18 }}>
+            <div className="card" style={{ marginBottom: 0 }}>
+              <h3 style={{ margin: "0 0 10px", fontSize: 15, fontWeight: 500 }}>
+                <i className="fa-solid fa-wave-square" style={{ color: "var(--teal-dark)", marginRight: 8 }} />
+                Deltas — last 7 days
+              </h3>
               {eventsSummary && eventsSummary.total > 0 ? (
                 <>
                   {eventsSummary.byCompetitor.map((c) => (
-                    <div key={c.competitor} style={{ display: "flex", gap: 8, alignItems: "center", padding: "5px 0", fontSize: 13 }}>
+                    <div key={c.competitor} style={{ display: "flex", gap: 8, alignItems: "center", padding: "6px 0", fontSize: 13 }}>
                       <span style={{ fontWeight: 500, flex: 1 }}>{c.competitor}</span>
                       {c.high > 0 && <span className="pill pill-lost">{c.high} high</span>}
                       {c.notable > 0 && <span className="pill pill-pending">{c.notable} notable</span>}
@@ -904,7 +933,7 @@ export function CompetitiveIntel() {
                     <div style={{ marginTop: 8, borderTop: "1px solid var(--border)", paddingTop: 8 }}>
                       {eventsSummary.top.map((t, i) => (
                         <div key={i} style={{ fontSize: 12.5, color: "var(--text-secondary)", marginBottom: 4 }}>
-                          <span style={{ fontWeight: 500, color: "var(--text-primary, #222)" }}>{t.competitor}</span> — {t.title}
+                          <span style={{ fontWeight: 500, color: "var(--text-primary)" }}>{t.competitor}</span> — {t.title}
                         </div>
                       ))}
                     </div>
@@ -921,8 +950,11 @@ export function CompetitiveIntel() {
               )}
             </div>
 
-            <div className="card" style={{ margin: 0 }}>
-              <h3 style={{ margin: "0 0 10px", fontSize: 15, fontWeight: 500 }}>Battlecard readiness</h3>
+            <div className="card" style={{ marginBottom: 0 }}>
+              <h3 style={{ margin: "0 0 10px", fontSize: 15, fontWeight: 500 }}>
+                <i className="fa-solid fa-file-shield" style={{ color: "var(--teal-dark)", marginRight: 8 }} />
+                Battlecard readiness
+              </h3>
               {overview && overview.staleBattlecards.length > 0 ? (
                 overview.staleBattlecards.map((b) => (
                   <div key={b.artifactId} style={{ display: "flex", gap: 8, alignItems: "center", padding: "6px 0", borderBottom: "1px solid var(--border)" }}>
@@ -1309,20 +1341,16 @@ export function CompetitiveIntel() {
 
           {!fwBusy && fwAnalysis && fwKey === "threat-tiers" && (
             <>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+              <div className="grid grid-3">
                 {[1, 2, 3].map((tier) => (
                   <div key={tier}>
-                    <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.05em", color: TIER_STYLE[tier].color, marginBottom: 8 }}>{TIER_STYLE[tier].label}</div>
+                    <div style={{ marginBottom: 8 }}>
+                      <span className={`pill ${TIER_STYLE[tier].pill}`}>{TIER_STYLE[tier].label}</span>
+                    </div>
                     {((fwAnalysis.result as { entries: ThreatEntry[] })?.entries ?? [])
                       .filter((t) => t.tier === tier)
                       .map((t) => (
-                        <div key={t.competitor} style={{ border: "1px solid var(--border)", borderRadius: "var(--r-md)", padding: "10px 12px", marginBottom: 8, background: tier === 1 ? "#FEF6F6" : undefined }}>
-                          <div style={{ fontWeight: 600, fontSize: 13.5 }}>{t.competitor} <span style={{ fontWeight: 400, fontSize: 12, color: "var(--text-secondary)" }}>{TRAJECTORY_ARROW[t.trajectory]}</span></div>
-                          <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: "5px 0 0" }}>{t.rationale}</p>
-                          {t.watch_items.length > 0 && (
-                            <p style={{ fontSize: 11.5, color: "var(--text-muted)", margin: "5px 0 0" }}>Watch: {t.watch_items.join(" · ")}</p>
-                          )}
-                        </div>
+                        <ThreatTile key={t.competitor} entry={t} showTier={false} showWatch style={{ marginBottom: 8 }} />
                       ))}
                   </div>
                 ))}
