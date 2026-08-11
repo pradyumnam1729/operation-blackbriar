@@ -280,108 +280,58 @@ function BrandThemeCard() {
 
   if (!theme) return null;
 
+  // A regular template card — identical chrome to every other card in the
+  // grid; the corporate theme is nothing special in the library, it just
+  // happens to be the theme every deck wears.
   return (
     <div
-      className="card"
-      style={{ borderLeft: "3px solid var(--teal-dark)", cursor: "pointer" }}
+      className="template-card"
       role="button"
       tabIndex={0}
-      title="Open the theme preview"
       onClick={() => setOpen(true)}
       onKeyDown={(e) => {
-        if (e.target !== e.currentTarget) return;
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
           setOpen(true);
         }
       }}
     >
-      <div className="row-between" style={{ marginBottom: 6, flexWrap: "wrap", gap: 10 }}>
-        <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600 }}>
-          <i className="fa-regular fa-file-powerpoint" style={{ marginRight: 8, color: "var(--teal-dark)" }} />
-          Corporate PPT theme — {theme.source}
-        </h3>
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
-          <span className="pill pill-final">Governs every deck</span>
-          <button
-            className="btn btn-sm"
-            onClick={(e) => {
-              e.stopPropagation();
-              setOpen(true);
-            }}
-          >
-            <i className="fa-solid fa-eye" /> Preview
-          </button>
-          <button
-            className="btn btn-sm"
-            onClick={(e) => {
-              e.stopPropagation();
-              void download();
-            }}
-            disabled={downloading || !theme.available}
-          >
-            <i className={`fa-solid ${downloading ? "fa-spinner fa-spin" : "fa-download"}`} /> Download
-            source (.pptx)
-          </button>
-        </span>
+      <div
+        className="thumb"
+        style={{ background: `linear-gradient(135deg, #${theme.colors.ink}, #${theme.colors.tealDark})` }}
+      >
+        <i className="fa-regular fa-file-powerpoint" style={{ color: "#fff" }} />
       </div>
-      {downloadError && (
-        <div
-          style={{
-            margin: "0 0 10px",
-            padding: "9px 13px",
-            background: "#FCE8E8",
-            borderRadius: "var(--r-md)",
-            color: "#A32D2D",
-            fontSize: 12.5,
-          }}
-        >
-          {downloadError}
+      <div className="tname" style={{ paddingBottom: 12 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+          {theme.source}
+          <span className="pill pill-live">pptx</span>
+          <span className="pill pill-final">Corporate theme</span>
         </div>
-      )}
-      <p style={{ fontSize: 12.5, color: "var(--text-secondary)", margin: "0 0 12px", lineHeight: 1.55 }}>
-        Every generated deck and exported .pptx is styled from this template — its theme rides
-        verbatim inside each exported file, so slides added later in PowerPoint inherit it too.
-        Extracted {theme.extracted} · {theme.slide.widthIn}&Prime; × {theme.slide.heightIn}&Prime; ·{" "}
-        {theme.fonts.pptx} in exports, {theme.fonts.web} on the web canvas.
-      </p>
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
-        {SWATCH_ORDER.filter(([key]) => theme.colors[key]).map(([key, label]) => (
-          <div key={key} style={{ display: "flex", alignItems: "center", gap: 7 }}>
-            <span
-              title={`#${theme.colors[key]}`}
-              style={{
-                width: 22,
-                height: 22,
-                background: `#${theme.colors[key]}`,
-                border: "1px solid var(--border)",
-                display: "inline-block",
-              }}
-            />
-            <span style={{ fontSize: 11.5, color: "var(--text-secondary)" }}>
-              {label}
-              <span style={{ color: "var(--text-muted)", fontFamily: "Consolas, monospace", marginLeft: 5 }}>
-                #{theme.colors[key]}
-              </span>
-            </span>
-          </div>
-        ))}
-      </div>
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-        {theme.layouts.map((l) => (
-          <span
-            key={l.key}
-            style={{
-              fontSize: 11.5,
-              padding: "5px 11px",
-              background: l.dark ? `#${theme.colors.tealDark}` : `#${theme.colors.mist}`,
-              color: l.dark ? "#fff" : `#${theme.colors.charcoal}`,
-              border: "1px solid var(--border)",
-            }}
-          >
-            {l.label}
-          </span>
-        ))}
+        <div style={{ fontWeight: 400, fontSize: 11.5, color: "var(--text-muted)", marginTop: 4 }}>
+          deck · {theme.layouts.length} layouts · {theme.fonts.pptx} · governs every generated deck
+          and .pptx export
+        </div>
+        <div style={{ display: "flex", gap: 4, marginTop: 6 }}>
+          {SWATCH_ORDER.slice(0, 6)
+            .filter(([key]) => theme.colors[key])
+            .map(([key]) => (
+              <span
+                key={key}
+                title={`#${theme.colors[key]}`}
+                style={{
+                  width: 14,
+                  height: 14,
+                  background: `#${theme.colors[key]}`,
+                  border: "1px solid var(--border)",
+                  display: "inline-block",
+                }}
+              />
+            ))}
+        </div>
+        {downloadError && (
+          <div style={{ fontSize: 11.5, color: "#A32D2D", marginTop: 6 }}>{downloadError}</div>
+        )}
       </div>
 
       {open && (
@@ -439,10 +389,35 @@ function BrandThemeCard() {
                 </button>
               </span>
             </div>
-            <p style={{ fontSize: 12.5, color: "var(--text-secondary)", margin: "0 0 16px", lineHeight: 1.55 }}>
+            <p style={{ fontSize: 12.5, color: "var(--text-secondary)", margin: "0 0 12px", lineHeight: 1.55 }}>
               Rendered live by the same engine that draws the deck editor and the .pptx export —
-              what you see here is exactly what generated decks look like.
+              what you see here is exactly what generated decks look like. Its theme rides verbatim
+              inside every exported file. Extracted {theme.extracted} · {theme.slide.widthIn}&Prime;
+              × {theme.slide.heightIn}&Prime; · {theme.fonts.pptx} in exports, {theme.fonts.web} on
+              the web canvas.
             </p>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16 }}>
+              {SWATCH_ORDER.filter(([key]) => theme.colors[key]).map(([key, label]) => (
+                <div key={key} style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                  <span
+                    title={`#${theme.colors[key]}`}
+                    style={{
+                      width: 20,
+                      height: 20,
+                      background: `#${theme.colors[key]}`,
+                      border: "1px solid var(--border)",
+                      display: "inline-block",
+                    }}
+                  />
+                  <span style={{ fontSize: 11.5, color: "var(--text-secondary)" }}>
+                    {label}
+                    <span style={{ color: "var(--text-muted)", fontFamily: "Consolas, monospace", marginLeft: 5 }}>
+                      #{theme.colors[key]}
+                    </span>
+                  </span>
+                </div>
+              ))}
+            </div>
             <div
               style={{
                 display: "grid",
@@ -580,8 +555,6 @@ export function Templates() {
         )}
       </div>
 
-      <BrandThemeCard />
-
       <div className="step-pills">
         {TYPE_FILTERS.map((f) => (
           <button
@@ -627,6 +600,7 @@ export function Templates() {
 
       {!loading && templates.length > 0 && (
         <div className="grid grid-2">
+          {(typeFilter === "" || typeFilter === "deck") && <BrandThemeCard />}
           {templates.map((t) => {
             const m = meta[t.id];
             return (
