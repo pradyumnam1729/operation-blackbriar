@@ -139,7 +139,15 @@ export function ChatEditPanel({
 
       <div
         ref={listRef}
-        style={{ flex: 1, overflowY: "auto", maxHeight: 420, minHeight: 120, paddingRight: 2 }}
+        style={{
+          flex: 1,
+          overflowY: "auto",
+          // Fill the viewport column — the chat is the primary working surface,
+          // not a widget (user feedback: the AI window was too short).
+          minHeight: 420,
+          maxHeight: "calc(100vh - 330px)",
+          paddingRight: 2,
+        }}
       >
         {turns.length === 0 && (
           <p className="empty-note" style={{ paddingTop: 0 }}>

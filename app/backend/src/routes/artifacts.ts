@@ -541,18 +541,10 @@ artifactsRouter.post("/:id/chat-edit", requireAuth, async (req, res) => {
         .slice(-6)
     : [];
 
-  // Template slot-fill artifacts are edited through their render surface —
-  // chat-edit would mint versions disconnected from the render payload.
-  const { count: chatRenderCount } = await sb
-    .from("artifact_renders")
-    .select("id", { count: "exact", head: true })
-    .eq("artifact_id", artifact.id);
-  if ((chatRenderCount ?? 0) > 0) {
-    return res
-      .status(409)
-      .json({ error: "Template-generated artifacts are edited through their slot-fill surface" });
-  }
-
+  // Render-backed artifacts (slot-fill datasheets etc.) chat-edit through the
+  // document branch: every artifact edits like the deck. The version log is
+  // the source of truth; the render payload stays available on its own tab
+  // and re-rendering slots supersedes these edits (last write wins).
   const { data: current } = await sb
     .from("artifact_versions")
     .select("content_html, slides_json")
