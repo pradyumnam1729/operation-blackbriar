@@ -325,6 +325,7 @@ export function CompetitiveIntel() {
   const [reportCompetitorId, setReportCompetitorId] = useState("");
   const [reportProduct, setReportProduct] = useState("");
   const [reportBrief, setReportBrief] = useState("");
+  const [reportPriorityUrls, setReportPriorityUrls] = useState("");
   const [reportBusy, setReportBusy] = useState(false);
   const [reportError, setReportError] = useState("");
   const [openReport, setOpenReport] = useState<{ id: string; title: string; contentHtml: string } | null>(null);
@@ -594,8 +595,13 @@ export function CompetitiveIntel() {
         competitorId: reportCompetitorId,
         product: reportProduct || undefined,
         extraBrief: reportBrief.trim() || undefined,
+        priorityUrls: reportPriorityUrls
+          .split("\n")
+          .map((u) => u.trim())
+          .filter((u) => u !== ""),
       });
       setReportBrief("");
+      setReportPriorityUrls("");
       await load();
     } catch (e) {
       setReportError((e as Error).message);
@@ -1191,42 +1197,51 @@ export function CompetitiveIntel() {
               <h3 style={{ margin: "0 0 12px", fontSize: 15, fontWeight: 500 }}>Generate a CI report</h3>
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 4 }}>
                 <select
-                  value={reportCompetitorId}
+                  value={reportProduct}
                   onChange={(e) => {
-                    const id = e.target.value;
-                    setReportCompetitorId(id);
-                    // Reflect the registry's own competitor->product mapping —
-                    // don't make the user re-pick what's already defined.
-                    const c = competitors.find((x) => x.id === id);
-                    setReportProduct(c?.aurigo_product ?? "");
+                    setReportProduct(e.target.value);
+                    // Selected competitor may no longer belong to the new product — clear it.
+                    const c = competitors.find((x) => x.id === reportCompetitorId);
+                    if (c && e.target.value && c.aurigo_product !== e.target.value) setReportCompetitorId("");
                   }}
                 >
-                  <option value="">Pick a competitor…</option>
-                  {competitors.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                      {c.aurigo_product ? ` (${c.aurigo_product})` : ""}
-                    </option>
-                  ))}
+                  <option value="">Pick Aurigo product…</option>
+                  <option value="Primus">Primus</option>
+                  <option value="Masterworks">Masterworks</option>
                 </select>
                 {(() => {
                   const logo = lineLogo(reportProduct);
                   return logo ? <img src={logo} alt="" style={{ height: 22, width: "auto", alignSelf: "center" }} /> : null;
                 })()}
-                <select value={reportProduct} onChange={(e) => setReportProduct(e.target.value)} title="Pre-filled from the competitor registry — override only for a genuine cross-market case">
-                  <option value="">Auto-pick Aurigo product</option>
-                  <option value="Primus">Primus</option>
-                  <option value="Masterworks">Masterworks</option>
+                <select
+                  value={reportCompetitorId}
+                  onChange={(e) => setReportCompetitorId(e.target.value)}
+                >
+                  <option value="">Pick a competitor…</option>
+                  {competitors
+                    .filter((c) => !reportProduct || c.aurigo_product === reportProduct)
+                    .map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                        {c.aurigo_product ? ` (${c.aurigo_product})` : ""}
+                      </option>
+                    ))}
                 </select>
               </div>
               <p style={{ margin: "0 0 10px", fontSize: 11.5, color: "var(--text-secondary)" }}>
-                Product is pre-filled from the competitor registry — change it only if this
-                competitor genuinely spans multiple markets.
+                Pick the Aurigo product first — the competitor list narrows to that product's tracked competitors.
               </p>
               <input
                 placeholder="Extra brief (optional) — angle to emphasize, deal context…"
                 value={reportBrief}
                 onChange={(e) => setReportBrief(e.target.value)}
+              />
+              <textarea
+                placeholder="Priority URLs (optional) — one per line, e.g. a specific pricing page or press release to weight heavily in this report"
+                value={reportPriorityUrls}
+                onChange={(e) => setReportPriorityUrls(e.target.value)}
+                rows={3}
+                style={{ width: "100%", marginTop: 8 }}
               />
               <p style={{ marginTop: 10, marginBottom: 0 }}>
                 <button
