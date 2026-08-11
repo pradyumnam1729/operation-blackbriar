@@ -14,6 +14,8 @@ import {
 } from "../lib/api";
 import { TemplatePreview } from "../components/TemplatePreview";
 import { TemplateEditor } from "../components/TemplateEditor";
+import { SlideStage } from "../components/deck/SlideCanvas";
+import type { DeckSlide } from "../lib/api";
 
 // Template Library (blueprint §4.2): browse layout-locked, slot-based templates,
 // preview them in a sandboxed iframe, and author them (PMM-admin only).
@@ -223,9 +225,31 @@ const SWATCH_ORDER: [string, string][] = [
   ["orange", "Orange"],
 ];
 
+/** Seven sample slides — one per layout — for the in-app theme preview.
+ *  Copy stays clear of the forbidden-words list. */
+const THEME_SAMPLE_SLIDES: DeckSlide[] = [
+  { id: "t1", layout: "title", title: "Deliver More With the Team You Have", subtitle: "How the corporate theme frames every deck" },
+  { id: "t2", layout: "agenda", title: "What We'll Cover", body: ["Where programs stand today", "What changed", "The path forward"] },
+  { id: "t3", layout: "section", title: "Part One", subtitle: "The market shift" },
+  { id: "t4", layout: "content-bullets", title: "The Old Way", body: ["Program records scattered across systems", "Reports assembled by hand each quarter", "Risks surface after they cost money"] },
+  {
+    id: "t5",
+    layout: "two-column",
+    title: "Where Point Tools Stop",
+    columns: [
+      { heading: "Recording tools", items: ["Track what already happened", "Stop at the project boundary"] },
+      { heading: "A unified system", items: ["Connects planning through maintenance", "Surfaces risk before it lands"] },
+    ],
+  },
+  { id: "t6", layout: "quote", title: "Proof", quote: { text: "We deliver a growing program with the same team.", attribution: "Capital Program Director" } },
+  { id: "t7", layout: "closing", title: "The Next Step", subtitle: "A working session on your own program data" },
+];
+
 function BrandThemeCard() {
   const [theme, setTheme] = useState<BrandTheme | null>(null);
   const [downloading, setDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
 
   useEffect(() => {
     apiGet<BrandTheme>("/api/templates/brand-theme")
@@ -236,6 +260,7 @@ function BrandThemeCard() {
   const download = async () => {
     if (!theme) return;
     setDownloading(true);
+    setDownloadError(null);
     try {
       const blob = await apiGetBlob("/api/templates/brand-theme/download");
       const url = URL.createObjectURL(blob);
@@ -244,8 +269,10 @@ function BrandThemeCard() {
       a.download = theme.source;
       a.click();
       URL.revokeObjectURL(url);
-    } catch {
-      /* surfaced by the button state reset */
+    } catch (e) {
+      setDownloadError(
+        `Download failed: ${(e as Error).message}. Check that the backend is running and try again.`
+      );
     } finally {
       setDownloading(false);
     }
@@ -254,7 +281,21 @@ function BrandThemeCard() {
   if (!theme) return null;
 
   return (
-    <div className="card" style={{ borderLeft: "3px solid var(--teal-dark)" }}>
+    <div
+      className="card"
+      style={{ borderLeft: "3px solid var(--teal-dark)", cursor: "pointer" }}
+      role="button"
+      tabIndex={0}
+      title="Open the theme preview"
+      onClick={() => setOpen(true)}
+      onKeyDown={(e) => {
+        if (e.target !== e.currentTarget) return;
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          setOpen(true);
+        }
+      }}
+    >
       <div className="row-between" style={{ marginBottom: 6, flexWrap: "wrap", gap: 10 }}>
         <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600 }}>
           <i className="fa-regular fa-file-powerpoint" style={{ marginRight: 8, color: "var(--teal-dark)" }} />
@@ -262,12 +303,42 @@ function BrandThemeCard() {
         </h3>
         <span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
           <span className="pill pill-final">Governs every deck</span>
-          <button className="btn btn-sm" onClick={() => void download()} disabled={downloading || !theme.available}>
+          <button
+            className="btn btn-sm"
+            onClick={(e) => {
+              e.stopPropagation();
+              setOpen(true);
+            }}
+          >
+            <i className="fa-solid fa-eye" /> Preview
+          </button>
+          <button
+            className="btn btn-sm"
+            onClick={(e) => {
+              e.stopPropagation();
+              void download();
+            }}
+            disabled={downloading || !theme.available}
+          >
             <i className={`fa-solid ${downloading ? "fa-spinner fa-spin" : "fa-download"}`} /> Download
             source (.pptx)
           </button>
         </span>
       </div>
+      {downloadError && (
+        <div
+          style={{
+            margin: "0 0 10px",
+            padding: "9px 13px",
+            background: "#FCE8E8",
+            borderRadius: "var(--r-md)",
+            color: "#A32D2D",
+            fontSize: 12.5,
+          }}
+        >
+          {downloadError}
+        </div>
+      )}
       <p style={{ fontSize: 12.5, color: "var(--text-secondary)", margin: "0 0 12px", lineHeight: 1.55 }}>
         Every generated deck and exported .pptx is styled from this template — its theme rides
         verbatim inside each exported file, so slides added later in PowerPoint inherit it too.
@@ -312,6 +383,112 @@ function BrandThemeCard() {
           </span>
         ))}
       </div>
+
+      {open && (
+        <div
+          onClick={(e) => {
+            e.stopPropagation();
+            if (e.target === e.currentTarget) setOpen(false);
+          }}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(4, 32, 39, 0.55)",
+            zIndex: 200,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 20,
+            cursor: "default",
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: "#fff",
+              width: "min(96vw, 1000px)",
+              maxHeight: "90vh",
+              overflowY: "auto",
+              padding: "24px 26px",
+              boxShadow: "0 24px 60px rgba(0,0,0,.35)",
+            }}
+          >
+            <div className="row-between" style={{ marginBottom: 4 }}>
+              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>
+                <i className="fa-regular fa-file-powerpoint" style={{ marginRight: 8, color: "var(--teal-dark)" }} />
+                {theme.source} — the seven deck layouts
+              </h3>
+              <span style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
+                <button className="btn btn-sm" onClick={() => void download()} disabled={downloading}>
+                  <i className={`fa-solid ${downloading ? "fa-spinner fa-spin" : "fa-download"}`} /> Download source
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setOpen(false)}
+                  style={{
+                    border: "none",
+                    background: "var(--bg-page)",
+                    width: 30,
+                    height: 30,
+                    borderRadius: "50%",
+                    color: "var(--text-secondary)",
+                    cursor: "pointer",
+                  }}
+                >
+                  <i className="fa-solid fa-xmark" />
+                </button>
+              </span>
+            </div>
+            <p style={{ fontSize: 12.5, color: "var(--text-secondary)", margin: "0 0 16px", lineHeight: 1.55 }}>
+              Rendered live by the same engine that draws the deck editor and the .pptx export —
+              what you see here is exactly what generated decks look like.
+            </p>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))",
+                gap: 16,
+              }}
+            >
+              {THEME_SAMPLE_SLIDES.map((s) => (
+                <div key={s.id}>
+                  <div
+                    style={{
+                      width: "100%",
+                      aspectRatio: "16 / 9",
+                      overflow: "hidden",
+                      position: "relative",
+                      border: "1px solid var(--border)",
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: 1280,
+                        height: 720,
+                        transform: "scale(var(--theme-thumb-scale, 0.2344))",
+                        transformOrigin: "top left",
+                        position: "absolute",
+                      }}
+                      ref={(el) => {
+                        if (el && el.parentElement) {
+                          const w = el.parentElement.clientWidth;
+                          el.style.setProperty("--theme-thumb-scale", String(w / 1280));
+                          el.style.transform = `scale(${w / 1280})`;
+                        }
+                      }}
+                    >
+                      <SlideStage slide={s} editable={false} kicker="Aurigo" />
+                    </div>
+                  </div>
+                  <div style={{ fontSize: 11.5, color: "var(--text-secondary)", marginTop: 5, fontWeight: 500 }}>
+                    {theme.layouts.find((l) => l.key === s.layout)?.label ?? s.layout}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
