@@ -992,6 +992,29 @@ tbody tr:last-child td {
   box-shadow: var(--shadow-1);
 }
 
+/* page-level underline tabs (PMM Workspace — blueprint workspace-tabs §7) */
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 16px;
+}
+.tabs button {
+  border: none;
+  background: transparent;
+  padding: 10px 14px;
+  font-size: 13.5px;
+  color: var(--text-secondary);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+.tabs button.active {
+  color: var(--text-primary);
+  font-weight: 500;
+  border-bottom-color: var(--teal-dark);
+}
+
 /* persona switch */
 .persona-switch {
   display: inline-flex;
