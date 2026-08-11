@@ -1,0 +1,504 @@
+import { useCallback, useEffect, useState } from "react";
+import { apiDelete, apiGet, apiPost, apiPut } from "../lib/api";
+
+// SharePoint (Microsoft Graph) config drawer — extracted from IntegrationsPage
+// per blueprint connectors-cards.md §3.1. Credentials, test-connection,
+// add-connection, connections table, and sync log all moved verbatim; the
+// drawer self-loads status on mount and reports every successful mutation back
+// to the page via onChanged. The drawer itself is the disclosure, so the old
+// "Configure credentials" collapsible is now an always-open section.
+
+interface SpStatus {
+  configured: boolean;
+  credentials: { source: "database" | "env"; tenantId: string; clientId: string } | null;
+  flagEnabled: boolean;
+  requiredPermission: string;
+  connections: {
+    id: string;
+    name: string;
+    enabled: boolean;
+    siteUrl?: string;
+    folderPath?: string;
+    docType?: string;
+    productLine?: string;
+    lastSync: string | null;
+    lastResult: string | null;
+  }[];
+}
+
+interface SpForm {
+  name: string;
+  siteUrl: string;
+  folderPath: string;
+  docType: string;
+  productLine: string;
+}
+
+const EMPTY_FORM: SpForm = {
+  name: "",
+  siteUrl: "",
+  folderPath: "",
+  docType: "release_note",
+  productLine: "Masterworks",
+};
+
+function StatePill({ on, labels }: { on: boolean; labels: [string, string] }) {
+  return <span className={`pill ${on ? "pill-live" : "pill-archived"}`}>{on ? labels[0] : labels[1]}</span>;
+}
+
+interface Props {
+  isAdmin: boolean;
+  onClose: () => void;
+  /** Fired after any successful mutation so the page refreshes card pills/stats. */
+  onChanged: () => void;
+}
+
+export function SharePointDrawer({ isAdmin, onClose, onChanged }: Props) {
+  const [status, setStatus] = useState<SpStatus | null>(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  // credentials form
+  const [tenantId, setTenantId] = useState("");
+  const [clientId, setClientId] = useState("");
+  const [clientSecret, setClientSecret] = useState("");
+  const [credsNote, setCredsNote] = useState("");
+
+  // test / add-connection / sync
+  const [testUrl, setTestUrl] = useState("");
+  const [testResult, setTestResult] = useState("");
+  const [showAdd, setShowAdd] = useState(false);
+  const [form, setForm] = useState<SpForm>(EMPTY_FORM);
+  const [syncLog, setSyncLog] = useState<string[]>([]);
+
+  const load = useCallback(async () => {
+    try {
+      const s = await apiGet<SpStatus>("/api/sharepoint/status");
+      setStatus(s);
+      if (s.credentials) {
+        setTenantId(s.credentials.tenantId);
+        setClientId(s.credentials.clientId);
+      }
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const run = async (fn: () => Promise<void>) => {
+    setBusy(true);
+    setError("");
+    try {
+      await fn();
+      await load();
+      onChanged();
+    } catch (e) {
+      const msg = (e as Error).message;
+      setError(
+        msg.includes("Admin")
+          ? "Only PMMs (admins) can change integration settings. Ask a PMM to flip this."
+          : msg
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const toggleLiveSync = () =>
+    run(async () => {
+      await apiPost("/api/integrations/flags/sharepoint_graph/toggle");
+    });
+
+  const saveCredentials = () =>
+    run(async () => {
+      setCredsNote("");
+      await apiPut("/api/sharepoint/credentials", {
+        tenantId: tenantId.trim(),
+        clientId: clientId.trim(),
+        clientSecret: clientSecret,
+      });
+      setClientSecret("");
+      setCredsNote("Credentials saved. Test a site URL below to confirm access.");
+    });
+
+  const clearCredentials = () => {
+    // Confirm BEFORE run(): a cancelled confirm must not trigger the
+    // load()/onChanged() refresh cascade for a no-op.
+    if (!window.confirm("Clear the stored SharePoint credentials? If app/backend/.env still has MS_* values, those take over; otherwise live sync stops until new credentials are saved.")) return;
+    void run(async () => {
+      setCredsNote("");
+      await apiDelete("/api/sharepoint/credentials");
+      setTenantId("");
+      setClientId("");
+      setClientSecret("");
+    });
+  };
+
+  const test = () =>
+    run(async () => {
+      setTestResult("");
+      const r = await apiPost<{ ok: boolean; webUrl: string; suggestedFolderPath: string | null }>(
+        "/api/sharepoint/test",
+        { siteUrl: testUrl }
+      );
+      setTestResult(
+        `Connected: ${r.webUrl}${r.suggestedFolderPath ? ` — folder detected: ${r.suggestedFolderPath}` : ""}`
+      );
+      // Pre-fill the add-connection form with what the test learned.
+      setForm((f) => ({
+        ...f,
+        siteUrl: testUrl,
+        folderPath: r.suggestedFolderPath ?? f.folderPath,
+      }));
+      setShowAdd(true);
+    });
+
+  const addConnection = () =>
+    run(async () => {
+      await apiPost("/api/sharepoint/connections", form);
+      setShowAdd(false);
+      setForm(EMPTY_FORM);
+    });
+
+  const syncNow = (id: string) =>
+    run(async () => {
+      setSyncLog([]);
+      const r = await apiPost<{ log: string[] }>(`/api/sharepoint/connections/${id}/sync`);
+      setSyncLog(r.log);
+    });
+
+  const toggleConnection = (id: string) =>
+    run(async () => {
+      await apiPost(`/api/integrations/${id}/toggle`);
+    });
+
+  const removeConnection = (id: string) => {
+    if (!window.confirm("Remove this SharePoint connection?")) return;
+    void run(async () => {
+      await apiDelete(`/api/sharepoint/connections/${id}`);
+    });
+  };
+
+  const canSaveCreds = tenantId.trim() !== "" && clientId.trim() !== "" && clientSecret !== "";
+
+  // Narrow dirty guard (blueprint §3): an unsaved secret, a partially filled
+  // add-connection form, or an abandoned test URL with the add form open.
+  const dirty =
+    clientSecret !== "" ||
+    form.name !== EMPTY_FORM.name ||
+    form.siteUrl !== EMPTY_FORM.siteUrl ||
+    form.folderPath !== EMPTY_FORM.folderPath ||
+    form.docType !== EMPTY_FORM.docType ||
+    form.productLine !== EMPTY_FORM.productLine ||
+    (testUrl !== "" && showAdd);
+
+  const attemptClose = () => {
+    if (dirty && !window.confirm("Discard unsaved changes?")) return;
+    onClose();
+  };
+
+  // Escape closes (through the dirty guard).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") attemptClose();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  });
+
+  return (
+    <div
+      className="overlay"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) attemptClose();
+      }}
+    >
+      <div
+        className="drawer"
+        role="dialog"
+        aria-label="Configure SharePoint connector"
+        style={{ width: 640 }}
+      >
+        <div className="row-between" style={{ marginBottom: 10 }}>
+          <h2 style={{ margin: 0 }}>
+            <i className="fa-brands fa-microsoft" style={{ marginRight: 8, color: "var(--teal-dark)" }} />
+            SharePoint (Microsoft Graph)
+          </h2>
+          <button className="close" aria-label="Close" onClick={attemptClose}>
+            <i className="fa-solid fa-xmark" />
+          </button>
+        </div>
+
+        {status === null && error === "" && <div className="empty-note">Loading SharePoint status…</div>}
+
+        {error && (
+          <div style={{ background: "#FCE8E8", color: "#A32D2D", borderRadius: "var(--r-md)", padding: "10px 14px", fontSize: 13, marginBottom: 12 }}>
+            {error}
+          </div>
+        )}
+
+        {status !== null && (
+          <>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 14 }}>
+              {status.configured ? (
+                <span className="pill pill-live">
+                  <i className="fa-solid fa-circle-check" style={{ fontSize: 10 }} /> Credentials configured
+                </span>
+              ) : (
+                <span className="pill pill-lock">
+                  <i className="fa-solid fa-lock" style={{ fontSize: 10 }} /> Credentials missing
+                </span>
+              )}
+              {isAdmin ? (
+                <button
+                  className={`pill ${status.flagEnabled ? "pill-live" : "pill-lost"}`}
+                  style={{ border: "none", cursor: "pointer" }}
+                  onClick={toggleLiveSync}
+                  disabled={busy}
+                  title={status.flagEnabled ? "Turn live sync off" : "Turn live sync on"}
+                >
+                  {status.flagEnabled ? "Live sync on" : "Live sync off"}
+                </button>
+              ) : (
+                <StatePill on={status.flagEnabled} labels={["Live sync on", "Live sync off"]} />
+              )}
+            </div>
+
+            {/* ---------- credentials ---------- */}
+            {isAdmin ? (
+              <div style={{ background: "var(--bg-page)", borderRadius: "var(--r-md)", padding: 16, marginBottom: 14 }}>
+                {!status.configured && (
+                  <p style={{ marginTop: 0, fontSize: 13, lineHeight: 1.6 }}>
+                    <strong>Setup:</strong> register an app in Azure Portal, grant Microsoft Graph →
+                    Application → <strong>{status.requiredPermission}</strong>, have an admin consent to
+                    it, then paste the tenant ID, client ID, and client secret here.
+                  </p>
+                )}
+                {status.credentials?.source === "env" && (
+                  <p style={{ marginTop: 0, fontSize: 12.5, color: "var(--text-muted)", lineHeight: 1.5 }}>
+                    Credentials currently come from <code>app/backend/.env</code>. Saving here stores
+                    them in the database and overrides the .env values.
+                  </p>
+                )}
+                <div className="grid grid-2">
+                  <div>
+                    <label style={{ marginTop: 0 }}>Tenant ID</label>
+                    <input
+                      value={tenantId}
+                      onChange={(e) => setTenantId(e.target.value)}
+                      placeholder="00000000-0000-0000-0000-000000000000"
+                    />
+                  </div>
+                  <div>
+                    <label style={{ marginTop: 0 }}>Client ID</label>
+                    <input
+                      value={clientId}
+                      onChange={(e) => setClientId(e.target.value)}
+                      placeholder="00000000-0000-0000-0000-000000000000"
+                    />
+                  </div>
+                  <div>
+                    <label>Client secret</label>
+                    <input
+                      type="password"
+                      value={clientSecret}
+                      onChange={(e) => setClientSecret(e.target.value)}
+                      placeholder="••••••••  (unchanged secret is not shown)"
+                      autoComplete="new-password"
+                    />
+                  </div>
+                </div>
+                <p style={{ marginBottom: 0, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                  <button
+                    className="btn btn-primary btn-sm"
+                    onClick={saveCredentials}
+                    disabled={busy || !canSaveCreds}
+                    title={canSaveCreds ? "Save credentials" : "All three fields are required — the secret must be re-entered on every save"}
+                  >
+                    <i className="fa-solid fa-key" /> Save credentials
+                  </button>
+                  {status.credentials?.source === "database" && (
+                    <button className="btn btn-danger btn-sm" onClick={clearCredentials} disabled={busy}>
+                      <i className="fa-solid fa-trash" /> Clear credentials
+                    </button>
+                  )}
+                  <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                    The secret is stored on the backend and never shown again.
+                  </span>
+                </p>
+                {credsNote && (
+                  <p style={{ margin: "10px 0 0", color: "var(--teal-dark)", fontWeight: 500, fontSize: 13 }}>
+                    {credsNote}
+                  </p>
+                )}
+              </div>
+            ) : (
+              !status.configured && (
+                <p style={{ fontSize: 13, color: "var(--text-muted)" }}>
+                  A PMM admin must configure the SharePoint credentials before live sync can run.
+                </p>
+              )
+            )}
+
+            {/* ---------- test + add connection ---------- */}
+            {status.configured && isAdmin && (
+              <>
+                <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 12 }}>
+                  <input
+                    style={{ maxWidth: 380 }}
+                    placeholder="https://yourtenant.sharepoint.com/sites/ProductMarketing"
+                    value={testUrl}
+                    onChange={(e) => setTestUrl(e.target.value)}
+                  />
+                  <button
+                    className="btn btn-sm"
+                    onClick={test}
+                    disabled={busy || testUrl.trim() === ""}
+                    title={testUrl.trim() === "" ? "Enter a SharePoint site URL first" : "Verify credentials + site access"}
+                  >
+                    <i className="fa-solid fa-plug" /> Test connection
+                  </button>
+                  <button className="btn btn-primary btn-sm" onClick={() => setShowAdd((s) => !s)} disabled={busy}>
+                    <i className="fa-solid fa-plus" /> Add connection
+                  </button>
+                </div>
+                {testResult && <p style={{ color: "var(--teal-dark)", fontWeight: 500, fontSize: 13 }}>{testResult}</p>}
+
+                {showAdd && (
+                  <div style={{ background: "var(--bg-page)", borderRadius: "var(--r-md)", padding: 16, marginBottom: 14 }}>
+                    <div className="grid grid-2">
+                      <div>
+                        <label style={{ marginTop: 0 }}>Connection name</label>
+                        <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Masterworks release notes" />
+                      </div>
+                      <div>
+                        <label style={{ marginTop: 0 }}>Site URL</label>
+                        <input value={form.siteUrl} onChange={(e) => setForm({ ...form, siteUrl: e.target.value })} placeholder="https://tenant.sharepoint.com/sites/PMM" />
+                      </div>
+                      <div>
+                        <label>Folder path (blank = whole library)</label>
+                        <input value={form.folderPath} onChange={(e) => setForm({ ...form, folderPath: e.target.value })} placeholder="Release Notes/Masterworks" />
+                      </div>
+                      <div>
+                        <label>Document type</label>
+                        <select value={form.docType} onChange={(e) => setForm({ ...form, docType: e.target.value })} style={{ width: "100%" }}>
+                          <option value="release_note">Release notes → Feature catalog</option>
+                          <option value="prd">PRDs → Context docs</option>
+                          <option value="jtbd">JTBDs → Context docs</option>
+                          <option value="transcript">Transcripts → Context docs</option>
+                          <option value="other">Other → Context docs</option>
+                        </select>
+                      </div>
+                      {form.docType === "release_note" && (
+                        <div>
+                          <label>Product line</label>
+                          <select value={form.productLine} onChange={(e) => setForm({ ...form, productLine: e.target.value })} style={{ width: "100%" }}>
+                            <option>Masterworks</option>
+                            <option>Primus</option>
+                          </select>
+                        </div>
+                      )}
+                    </div>
+                    <p style={{ marginBottom: 0 }}>
+                      <button
+                        className="btn btn-primary btn-sm"
+                        onClick={addConnection}
+                        disabled={busy || form.name.trim() === "" || form.siteUrl.trim() === ""}
+                        title={
+                          form.name.trim() === ""
+                            ? "Name the connection first"
+                            : form.siteUrl.trim() === ""
+                              ? "Enter the site URL first"
+                              : "Create the connection"
+                        }
+                      >
+                        <i className="fa-solid fa-link" /> Connect
+                      </button>
+                    </p>
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* ---------- connections table ---------- */}
+            {status.connections.length > 0 && (
+              <div style={{ overflowX: "auto" }}>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Connection</th>
+                      <th>Site / folder</th>
+                      <th>Ingests as</th>
+                      <th>Last sync</th>
+                      <th>State</th>
+                      {isAdmin && <th></th>}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {status.connections.map((c) => (
+                      <tr key={c.id}>
+                        <td style={{ fontWeight: 500 }}>{c.name}</td>
+                        <td style={{ fontSize: 12.5 }}>
+                          {c.siteUrl}
+                          {c.folderPath ? ` / ${c.folderPath}` : ""}
+                        </td>
+                        <td>
+                          <span className="pill pill-review">{c.docType}</span>
+                          {c.productLine && (
+                            <span style={{ fontSize: 12, color: "var(--text-muted)", marginLeft: 6 }}>{c.productLine}</span>
+                          )}
+                        </td>
+                        <td style={{ fontSize: 12.5 }}>
+                          {c.lastSync ? new Date(c.lastSync).toLocaleString() : "never"}
+                          {c.lastResult && (
+                            <div style={{ color: "var(--text-muted)", fontSize: 12 }}>{c.lastResult}</div>
+                          )}
+                        </td>
+                        <td>
+                          <StatePill on={c.enabled} labels={["Enabled", "Paused"]} />
+                        </td>
+                        {isAdmin && (
+                          <td style={{ whiteSpace: "nowrap" }}>
+                            <button
+                              className="btn btn-sm"
+                              onClick={() => void syncNow(c.id)}
+                              disabled={busy || !status.configured}
+                              title={status.configured ? "Run a delta sync now" : "Configure credentials first"}
+                            >
+                              <i className="fa-solid fa-rotate" /> Sync now
+                            </button>{" "}
+                            <button className="btn btn-sm" onClick={() => void toggleConnection(c.id)} disabled={busy}>
+                              {c.enabled ? "Pause" : "Resume"}
+                            </button>{" "}
+                            <button className="btn btn-danger btn-sm" onClick={() => void removeConnection(c.id)} disabled={busy}>
+                              <i className="fa-solid fa-trash" />
+                            </button>
+                          </td>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            {status.connections.length === 0 && status.configured && (
+              <p className="empty-note">No SharePoint connections yet — add one above.</p>
+            )}
+
+            {/* ---------- sync log ---------- */}
+            {syncLog.length > 0 && (
+              <div style={{ background: "var(--bg-page)", borderRadius: "var(--r-md)", padding: "12px 16px", fontSize: 12.5, marginTop: 12 }}>
+                {syncLog.map((l, i) => (
+                  <div key={i}>{l}</div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}

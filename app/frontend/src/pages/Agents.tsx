@@ -212,6 +212,9 @@ export function Agents() {
         tabIndex={isCustom ? undefined : 0}
         onClick={() => !isCustom && setSelected(a)}
         onKeyDown={(e) => {
+          // Only when the card itself is focused — nested buttons (toggle,
+          // test, delete) must keep their native Enter/Space activation.
+          if (e.target !== e.currentTarget) return;
           if (!isCustom && (e.key === "Enter" || e.key === " ")) {
             e.preventDefault();
             setSelected(a);

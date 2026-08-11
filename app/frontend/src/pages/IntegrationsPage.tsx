@@ -1,43 +1,82 @@
-import { useCallback, useEffect, useState } from "react";
-import { apiDelete, apiGet, apiPost, apiPut } from "../lib/api";
+import { ReactNode, useCallback, useEffect, useState } from "react";
+import { apiGet, apiPost } from "../lib/api";
 import { useAuth } from "../auth/AuthContext";
+import { SharePointDrawer } from "../components/SharePointDrawer";
+import { LocalFoldersDrawer } from "../components/LocalFoldersDrawer";
 
-// SharePoint (Microsoft Graph) connector console. Admins configure Graph
-// credentials from here, connect document libraries, and control live sync;
-// everyone else can see the connection state.
+// Connectors screen — one card per connector (blueprint connectors-cards.md).
+// The page shell loads the three status GETs, renders the card grid with
+// flag-toggle pills, and opens the SharePoint / Local folders config drawers.
+// All mutations are admin-only on the backend; non-admins see static pills and
+// read-only drawers.
 
-function StatePill({ on, labels }: { on: boolean; labels: [string, string] }) {
-  return <span className={`pill ${on ? "pill-live" : "pill-archived"}`}>{on ? labels[0] : labels[1]}</span>;
+interface FlagRow {
+  key: string;
+  enabled: boolean;
 }
 
-// ---------- Connector summary (hive 1 toggle rows) ----------
+interface LfSummary {
+  configured: boolean;
+  enabled?: boolean;
+  lastScan?: string | null;
+  lastExport?: string | null;
+}
 
-interface ConnectorRow {
+interface SpSummary {
+  configured: boolean;
+  flagEnabled: boolean;
+  connections: { enabled: boolean; lastSync: string | null }[];
+}
+
+interface ConnectorCard {
   id: string;
   name: string;
+  subline: string;
+  icon: string; // full Font Awesome class
   desc: string;
-  icon: string;
-  on: boolean;
-  available: boolean;
-  hint?: string;
-  toggle: () => Promise<void>;
+  toggle: {
+    on: boolean;
+    labels: [string, string];
+    disabled?: boolean;
+    hint?: string;
+    run: () => Promise<void>;
+  };
+  footerPill: { cls: string; label: string };
+  stat: ReactNode;
+  opens: "sharepoint" | "localfolders" | null;
 }
 
-function ConnectorSummary({ isAdmin }: { isAdmin: boolean }) {
-  const [flags, setFlags] = useState<{ key: string; enabled: boolean }[]>([]);
-  const [lf, setLf] = useState<{ configured: boolean; enabled?: boolean } | null>(null);
-  const [csError, setCsError] = useState("");
-  const [csBusy, setCsBusy] = useState("");
+function fmt(iso?: string | null): string {
+  return iso ? new Date(iso).toLocaleString() : "never";
+}
+
+export function IntegrationsPage() {
+  const { me } = useAuth();
+  const isAdmin = me?.role === "admin";
+
+  const [flags, setFlags] = useState<FlagRow[]>([]);
+  const [lf, setLf] = useState<LfSummary | null>(null);
+  const [sp, setSp] = useState<SpSummary | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState("");
+  const [open, setOpen] = useState<"sharepoint" | "localfolders" | null>(null);
 
   const load = useCallback(async () => {
-    try {
-      const r = await apiGet<{ flags: { key: string; enabled: boolean }[] }>("/api/integrations");
-      setFlags(r.flags);
-      const l = await apiGet<{ configured: boolean; enabled?: boolean }>("/api/local-folders");
-      setLf(l);
-    } catch (e) {
-      setCsError((e as Error).message);
-    }
+    const [fr, lr, sr] = await Promise.allSettled([
+      apiGet<{ flags: FlagRow[] }>("/api/integrations"),
+      apiGet<LfSummary>("/api/local-folders"),
+      apiGet<SpSummary>("/api/sharepoint/status"),
+    ]);
+    const errs: string[] = [];
+    if (fr.status === "fulfilled") setFlags(fr.value.flags);
+    else errs.push((fr.reason as Error).message);
+    if (lr.status === "fulfilled") setLf(lr.value);
+    else errs.push((lr.reason as Error).message);
+    if (sr.status === "fulfilled") setSp(sr.value);
+    else errs.push((sr.reason as Error).message);
+    setError(errs.join(" · "));
+    setLoading(false);
   }, []);
 
   useEffect(() => {
@@ -45,826 +84,297 @@ function ConnectorSummary({ isAdmin }: { isAdmin: boolean }) {
   }, [load]);
 
   const flagOn = (key: string) => flags.find((f) => f.key === key)?.enabled ?? false;
-  const toggleFlag = (key: string) => async () => {
-    await apiPost(`/api/integrations/flags/${key}/toggle`);
+
+  const flip = (card: ConnectorCard) => {
+    if (!isAdmin || card.toggle.disabled === true || busy !== "") return;
+    setBusy(card.id);
+    setError("");
+    card.toggle
+      .run()
+      .then(load)
+      .catch((e) => {
+        const msg = (e as Error).message;
+        setError(
+          msg.includes("Admin")
+            ? "Only PMMs (admins) can change integration settings. Ask a PMM to flip this."
+            : msg
+        );
+      })
+      .finally(() => setBusy(""));
   };
 
-  const rows: ConnectorRow[] = [
+  const lastSpSync =
+    sp !== null && sp.connections.length > 0
+      ? sp.connections
+          .map((c) => c.lastSync)
+          .filter((s): s is string => s !== null)
+          .sort()
+          .at(-1) ?? null
+      : null;
+
+  const cards: ConnectorCard[] = [
     {
-      id: "canva",
-      name: "Canva",
-      desc: "Populate approved brand templates directly in Asset Studio.",
-      icon: "fa-palette",
-      on: flagOn("canva_live"),
-      available: true,
-      hint: "Mock template gallery until the Canva Connect OAuth app exists.",
-      toggle: toggleFlag("canva_live"),
+      id: "sharepoint",
+      name: "SharePoint (Microsoft Graph)",
+      subline: "sharepoint_graph",
+      icon: "fa-brands fa-microsoft",
+      desc: "Live sync of release notes and context docs via Microsoft Graph.",
+      toggle: {
+        on: flagOn("sharepoint_graph"),
+        labels: ["Live sync on", "Live sync off"],
+        run: async () => {
+          await apiPost("/api/integrations/flags/sharepoint_graph/toggle");
+        },
+      },
+      footerPill:
+        sp === null
+          ? { cls: "pill-pending", label: "Status unavailable" }
+          : sp.configured
+            ? { cls: "pill-live", label: "Credentials configured" }
+            : { cls: "pill-lock", label: "Credentials missing" },
+      stat:
+        sp !== null
+          ? `${sp.connections.length} connection${sp.connections.length === 1 ? "" : "s"} · last sync ${fmt(lastSpSync)}`
+          : "",
+      opens: "sharepoint",
+    },
+    {
+      id: "localfolders",
+      name: "Local folders (Input / Output)",
+      subline: "local-folders",
+      icon: "fa-solid fa-hard-drive",
+      desc: "Watched Input folder + Output export — the SharePoint stand-in.",
+      toggle: {
+        on: lf?.enabled ?? false,
+        labels: ["Watching Input", "Paused"],
+        disabled: lf?.configured !== true,
+        hint: lf?.configured === true ? undefined : "Configure the folder pair first",
+        run: async () => {
+          await apiPost("/api/local-folders/toggle");
+        },
+      },
+      footerPill:
+        lf === null
+          ? { cls: "pill-pending", label: "Status unavailable" }
+          : lf.configured
+            ? { cls: "pill-live", label: "Configured" }
+            : { cls: "pill-pending", label: "Not configured" },
+      stat: lf !== null ? `last scan ${fmt(lf.lastScan)} · last export ${fmt(lf.lastExport)}` : "",
+      opens: "localfolders",
     },
     {
       id: "salesforce",
       name: "Salesforce",
-      desc: "Nightly sync of Win / loss opportunity data.",
-      icon: "fa-cloud",
-      on: flagOn("salesforce_live"),
-      available: true,
-      hint: "Mock opportunities until the read-only Connected App is provisioned.",
-      toggle: toggleFlag("salesforce_live"),
-    },
-    {
-      id: "sharepoint",
-      name: "SharePoint",
-      desc: "Live sync of release notes and context docs via Microsoft Graph.",
-      icon: "fa-folder-tree",
-      on: flagOn("sharepoint_graph"),
-      available: true,
-      hint: "Configure credentials and connections below.",
-      toggle: toggleFlag("sharepoint_graph"),
-    },
-    {
-      id: "localfolders",
-      name: "Local folders",
-      desc: "Watched Input folder + Output export — the SharePoint stand-in.",
-      icon: "fa-hard-drive",
-      on: lf?.enabled ?? false,
-      available: lf?.configured ?? false,
-      hint: lf?.configured ? undefined : "Configure the folder pair below first.",
-      toggle: async () => {
-        await apiPost("/api/local-folders/toggle");
+      subline: "salesforce_live",
+      icon: "fa-solid fa-cloud",
+      desc: "Nightly sync of win / loss opportunity data.",
+      toggle: {
+        on: flagOn("salesforce_live"),
+        labels: ["Live (mock)", "Off"],
+        run: async () => {
+          await apiPost("/api/integrations/flags/salesforce_live/toggle");
+        },
       },
+      footerPill: { cls: "pill-review", label: "Mock data" },
+      stat: "Mock opportunities until the read-only Connected App is provisioned.",
+      opens: null,
+    },
+    {
+      id: "canva",
+      name: "Canva",
+      subline: "canva_live",
+      icon: "fa-solid fa-palette",
+      desc: "Populate approved brand templates directly in Asset Studio.",
+      toggle: {
+        on: flagOn("canva_live"),
+        labels: ["Live (mock)", "Off"],
+        run: async () => {
+          await apiPost("/api/integrations/flags/canva_live/toggle");
+        },
+      },
+      footerPill: { cls: "pill-review", label: "Mock data" },
+      stat: "Mock template gallery until the Canva Connect OAuth app exists.",
+      opens: null,
     },
   ];
 
-  const flip = (row: ConnectorRow) => {
-    if (!isAdmin || !row.available || csBusy !== "") return;
-    setCsBusy(row.id);
-    setCsError("");
-    row
-      .toggle()
-      .then(load)
-      .catch((e) => setCsError((e as Error).message))
-      .finally(() => setCsBusy(""));
-  };
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 18 }}>
-      {csError && (
-        <div style={{ background: "#FCE8E8", color: "#A32D2D", borderRadius: "var(--r-md)", padding: "10px 14px", fontSize: 13 }}>
-          {csError}
-        </div>
-      )}
-      {rows.map((c) => (
-        <div
-          key={c.id}
-          className="card"
-          style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 0, padding: "14px 18px" }}
-        >
-          <div style={{ width: 38, height: 38, borderRadius: "var(--r-sm)", background: "#E1F0F2", color: "var(--teal-dark)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-            <i className={`fa-solid ${c.icon}`} />
+  const renderCard = (c: ConnectorCard) => {
+    const clickable = c.opens !== null;
+    return (
+      <div
+        key={c.id}
+        className="card"
+        role={clickable ? "button" : undefined}
+        tabIndex={clickable ? 0 : undefined}
+        onClick={() => clickable && setOpen(c.opens)}
+        onKeyDown={(e) => {
+          // Only when the card itself is focused — a focused toggle pill must
+          // keep its native Enter/Space activation.
+          if (e.target !== e.currentTarget) return;
+          if (clickable && (e.key === "Enter" || e.key === " ")) {
+            e.preventDefault();
+            setOpen(c.opens);
+          }
+        }}
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: 10,
+          marginBottom: 0,
+          padding: "18px 18px 14px",
+          cursor: clickable ? "pointer" : "default",
+          transition: "box-shadow .15s ease, transform .15s ease",
+        }}
+        onMouseEnter={(e) => {
+          (e.currentTarget as HTMLDivElement).style.boxShadow = "var(--shadow-2)";
+          (e.currentTarget as HTMLDivElement).style.transform = "translateY(-2px)";
+        }}
+        onMouseLeave={(e) => {
+          (e.currentTarget as HTMLDivElement).style.boxShadow = "";
+          (e.currentTarget as HTMLDivElement).style.transform = "";
+        }}
+      >
+        {/* header */}
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
+          <div
+            style={{
+              width: 40,
+              height: 40,
+              borderRadius: "var(--r-sm)",
+              background: "#E1F0F2",
+              color: "var(--teal-dark)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              flexShrink: 0,
+              fontSize: 15,
+            }}
+          >
+            <i className={c.icon} />
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontWeight: 500 }}>{c.name}</div>
-            <div style={{ fontSize: 12.5, color: "var(--text-secondary)" }}>
-              {c.desc}
-              {c.hint && <span style={{ color: "var(--text-muted)" }}> · {c.hint}</span>}
+            <div
+              style={{
+                fontSize: 14.5,
+                fontWeight: 600,
+                color: "var(--text-primary)",
+                letterSpacing: "-0.01em",
+                lineHeight: 1.3,
+              }}
+            >
+              {c.name}
+            </div>
+            <div
+              style={{
+                fontFamily: "Consolas, monospace",
+                fontSize: 10.5,
+                color: "var(--text-muted)",
+                marginTop: 2,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {c.subline}
             </div>
           </div>
-          <span className={`pill ${c.on ? "pill-final" : "pill-archived"}`}>
-            {c.on ? "Connected" : c.available ? "Not connected" : "Not configured"}
-          </span>
-          {isAdmin && (
-            <div
-              className={`toggle-switch ${c.on ? "on" : ""} ${!c.available || csBusy !== "" ? "disabled" : ""}`}
-              role="switch"
-              aria-checked={c.on}
-              title={c.available ? (c.on ? "Turn off" : "Turn on") : c.hint}
-              onClick={() => flip(c)}
+          {isAdmin ? (
+            <button
+              className={`pill ${c.toggle.on ? "pill-live" : "pill-lost"}`}
+              style={{ border: "none", cursor: c.toggle.disabled === true ? "not-allowed" : "pointer", flexShrink: 0 }}
+              disabled={busy !== "" || c.toggle.disabled === true}
+              onClick={(e) => {
+                e.stopPropagation();
+                flip(c);
+              }}
+              title={c.toggle.hint ?? (c.toggle.on ? "Click to turn off" : "Click to turn on")}
             >
-              <div className="thumb" />
-            </div>
+              {c.toggle.on ? c.toggle.labels[0] : c.toggle.labels[1]}
+            </button>
+          ) : (
+            <span className={`pill ${c.toggle.on ? "pill-live" : "pill-lost"}`} style={{ flexShrink: 0 }}>
+              {c.toggle.on ? c.toggle.labels[0] : c.toggle.labels[1]}
+            </span>
           )}
         </div>
-      ))}
-    </div>
-  );
-}
 
-interface SpStatus {
-  configured: boolean;
-  credentials: { source: "database" | "env"; tenantId: string; clientId: string } | null;
-  flagEnabled: boolean;
-  requiredPermission: string;
-  connections: {
-    id: string;
-    name: string;
-    enabled: boolean;
-    siteUrl?: string;
-    folderPath?: string;
-    docType?: string;
-    productLine?: string;
-    lastSync: string | null;
-    lastResult: string | null;
-  }[];
-}
+        {/* description */}
+        <div
+          style={{
+            fontSize: 12.5,
+            lineHeight: 1.55,
+            color: "var(--text-secondary)",
+            display: "-webkit-box",
+            WebkitLineClamp: 3,
+            WebkitBoxOrient: "vertical",
+            overflow: "hidden",
+            minHeight: 40,
+          }}
+          title={c.desc}
+        >
+          {c.desc}
+        </div>
 
-// ---------- Local folders (Input / Output) ----------
-
-interface LocalFoldersStatus {
-  configured: boolean;
-  enabled?: boolean;
-  inputPath?: string;
-  outputPath?: string;
-  docType?: string;
-  productLine?: string | null;
-  lastScan?: string | null;
-  lastScanResult?: string | null;
-  lastIngest?: string | null;
-  lastIngestResult?: string | null;
-  lastExport?: string | null;
-  lastExportResult?: string | null;
-}
-
-function LocalFoldersSection({ isAdmin }: { isAdmin: boolean }) {
-  const [status, setStatus] = useState<LocalFoldersStatus | null>(null);
-  const [lfError, setLfError] = useState("");
-  const [lfBusy, setLfBusy] = useState(false);
-  const [log, setLog] = useState<string[]>([]);
-  const [form, setForm] = useState({
-    inputPath: "",
-    outputPath: "",
-    docType: "release_note",
-    productLine: "Masterworks",
-  });
-  const [editing, setEditing] = useState(false);
-
-  const load = useCallback(async () => {
-    try {
-      const s = await apiGet<LocalFoldersStatus>("/api/local-folders");
-      setStatus(s);
-      if (s.configured) {
-        setForm({
-          inputPath: s.inputPath ?? "",
-          outputPath: s.outputPath ?? "",
-          docType: s.docType ?? "release_note",
-          productLine: s.productLine ?? "Masterworks",
-        });
-      } else {
-        setEditing(true); // nothing configured yet — open the form
-      }
-    } catch (e) {
-      setLfError((e as Error).message);
-    }
-  }, []);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  const act = async (fn: () => Promise<void>) => {
-    setLfBusy(true);
-    setLfError("");
-    try {
-      await fn();
-      await load();
-    } catch (e) {
-      setLfError((e as Error).message);
-    } finally {
-      setLfBusy(false);
-    }
-  };
-
-  const save = () =>
-    act(async () => {
-      await apiPut("/api/local-folders", form);
-      setEditing(false);
-      setLog(["Folders saved — Input is being watched. Drop files in and they ingest automatically."]);
-    });
-
-  const scan = () =>
-    act(async () => {
-      const r = await apiPost<{ log: string[] }>("/api/local-folders/scan");
-      setLog(r.log);
-    });
-
-  const exportNow = () =>
-    act(async () => {
-      const r = await apiPost<{ log: string[] }>("/api/local-folders/export");
-      setLog(r.log);
-    });
-
-  const toggle = () =>
-    act(async () => {
-      await apiPost("/api/local-folders/toggle");
-    });
-
-  const canSave = form.inputPath.trim() !== "" && form.outputPath.trim() !== "";
-
-  return (
-    <div className="card">
-      <div className="row-between" style={{ marginBottom: 12 }}>
-        <h3 style={{ margin: 0, fontSize: 15, fontWeight: 500 }}>
-          <i className="fa-solid fa-folder-tree" style={{ marginRight: 8, color: "var(--teal-dark)" }} />
-          Local folders (Input / Output)
-        </h3>
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          {status?.configured ? (
-            <StatePill on={status.enabled ?? false} labels={["Watching Input", "Paused"]} />
-          ) : (
-            <span className="pill pill-pending">Not configured</span>
-          )}
-          {isAdmin && status?.configured && (
-            <>
-              <button className="btn btn-sm" onClick={toggle} disabled={lfBusy}>
-                {status.enabled ? "Pause" : "Resume"}
-              </button>
-              <button className="btn btn-sm" onClick={() => setEditing((e) => !e)} disabled={lfBusy}>
-                <i className="fa-solid fa-pen" /> Edit
-              </button>
-            </>
-          )}
+        {/* footer */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            flexWrap: "wrap",
+            marginTop: "auto",
+            paddingTop: 10,
+            borderTop: "1px solid var(--border)",
+          }}
+        >
+          <span className={`pill ${c.footerPill.cls}`}>{c.footerPill.label}</span>
+          <span style={{ fontSize: 11, color: "var(--text-muted)", flex: 1, minWidth: 0 }}>{c.stat}</span>
         </div>
       </div>
-
-      <p style={{ margin: "0 0 12px", fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.6 }}>
-        Files dropped into <strong>Input</strong> are ingested automatically. Each file's type
-        (release note, PRD, JTBD, transcript, battlecard) is detected from its filename — release
-        notes flow to the Feature Catalog review queue, everything else becomes AI-ready context
-        docs. Approved <strong>final</strong> artifacts export to <strong>Output</strong> as
-        ready-to-share HTML files.
-      </p>
-
-      {lfError && (
-        <div style={{ background: "#FCE8E8", color: "#A32D2D", borderRadius: "var(--r-md)", padding: "10px 14px", fontSize: 13, marginBottom: 12 }}>
-          {lfError}
-        </div>
-      )}
-
-      {isAdmin && editing && (
-        <div style={{ background: "var(--bg-page)", borderRadius: "var(--r-md)", padding: 16, marginBottom: 14 }}>
-          <div className="grid grid-2">
-            <div>
-              <label style={{ marginTop: 0 }}>Input folder path</label>
-              <input
-                value={form.inputPath}
-                onChange={(e) => setForm({ ...form, inputPath: e.target.value })}
-                placeholder="C:\\PMM\\Input"
-              />
-            </div>
-            <div>
-              <label style={{ marginTop: 0 }}>Output folder path</label>
-              <input
-                value={form.outputPath}
-                onChange={(e) => setForm({ ...form, outputPath: e.target.value })}
-                placeholder="C:\\PMM\\Output"
-              />
-            </div>
-            <div>
-              <label>Default type for unrecognized files</label>
-              <select value={form.docType} onChange={(e) => setForm({ ...form, docType: e.target.value })} style={{ width: "100%" }}>
-                <option value="release_note">Release notes → Feature catalog</option>
-                <option value="prd">PRDs → Context docs</option>
-                <option value="jtbd">JTBDs → Context docs</option>
-                <option value="transcript">Transcripts → Context docs</option>
-                <option value="other">Other → Context docs</option>
-              </select>
-              <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
-                Types are auto-detected per file from the filename; this only applies when detection
-                finds no match.
-              </span>
-            </div>
-            {form.docType === "release_note" && (
-              <div>
-                <label>Product line</label>
-                <select value={form.productLine} onChange={(e) => setForm({ ...form, productLine: e.target.value })} style={{ width: "100%" }}>
-                  <option>Masterworks</option>
-                  <option>Primus</option>
-                </select>
-              </div>
-            )}
-          </div>
-          <p style={{ marginBottom: 0 }}>
-            <button
-              className="btn btn-primary btn-sm"
-              onClick={save}
-              disabled={lfBusy || !canSave}
-              title={canSave ? "Create the folders and start watching Input" : "Enter both folder paths first"}
-            >
-              <i className="fa-solid fa-link" /> {lfBusy ? "Saving…" : "Save & start watching"}
-            </button>
-            <span style={{ fontSize: 12, color: "var(--text-muted)", marginLeft: 10 }}>
-              Folders are created if they don't exist yet.
-            </span>
-          </p>
-        </div>
-      )}
-
-      {status?.configured && (
-        <div style={{ overflowX: "auto" }}>
-          <table>
-            <thead>
-              <tr>
-                <th>Folder</th>
-                <th>Path</th>
-                <th>Purpose</th>
-                <th>Last activity</th>
-                {isAdmin && <th></th>}
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td style={{ fontWeight: 500 }}>
-                  <i className="fa-solid fa-arrow-right-to-bracket" style={{ color: "var(--teal-dark)", marginRight: 6 }} />
-                  Input
-                </td>
-                <td><code style={{ fontSize: 12.5 }}>{status.inputPath}</code></td>
-                <td>
-                  <span className="pill pill-review">auto-detect</span>
-                  <span style={{ fontSize: 12, color: "var(--text-muted)", marginLeft: 6 }}>
-                    default: {status.docType}
-                    {status.productLine && status.docType === "release_note" ? ` (${status.productLine})` : ""}
-                  </span>
-                </td>
-                <td style={{ fontSize: 12.5 }}>
-                  {status.lastScan ? new Date(status.lastScan).toLocaleString() : "never scanned"}
-                  {status.lastScanResult && (
-                    <div style={{ color: "var(--text-muted)", fontSize: 12 }}>{status.lastScanResult}</div>
-                  )}
-                  {status.lastIngestResult && status.lastIngestResult !== status.lastScanResult && (
-                    <div style={{ color: "var(--text-muted)", fontSize: 12 }}>
-                      Last ingest{status.lastIngest ? ` (${new Date(status.lastIngest).toLocaleString()})` : ""}: {status.lastIngestResult}
-                    </div>
-                  )}
-                </td>
-                {isAdmin && (
-                  <td>
-                    <button className="btn btn-sm" onClick={scan} disabled={lfBusy} title="Ingest new/changed files now">
-                      <i className="fa-solid fa-rotate" /> Scan now
-                    </button>
-                  </td>
-                )}
-              </tr>
-              <tr>
-                <td style={{ fontWeight: 500 }}>
-                  <i className="fa-solid fa-arrow-right-from-bracket" style={{ color: "var(--teal-dark)", marginRight: 6 }} />
-                  Output
-                </td>
-                <td><code style={{ fontSize: 12.5 }}>{status.outputPath}</code></td>
-                <td><span className="pill pill-final">final artifacts</span></td>
-                <td style={{ fontSize: 12.5 }}>
-                  {status.lastExport ? new Date(status.lastExport).toLocaleString() : "never exported"}
-                  {status.lastExportResult && (
-                    <div style={{ color: "var(--text-muted)", fontSize: 12 }}>{status.lastExportResult}</div>
-                  )}
-                </td>
-                {isAdmin && (
-                  <td>
-                    <button className="btn btn-sm" onClick={exportNow} disabled={lfBusy} title="Write all final artifacts to Output as HTML">
-                      <i className="fa-solid fa-file-export" /> Export finals
-                    </button>
-                  </td>
-                )}
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {log.length > 0 && (
-        <div style={{ background: "var(--bg-page)", borderRadius: "var(--r-md)", padding: "12px 16px", fontSize: 12.5, marginTop: 12 }}>
-          {log.map((l, i) => (
-            <div key={i}>{l}</div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-export function IntegrationsPage() {
-  const { me } = useAuth();
-  const isAdmin = me?.role === "admin";
-
-  const [status, setStatus] = useState<SpStatus | null>(null);
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-
-  // credentials form
-  const [showCreds, setShowCreds] = useState(false);
-  const [credsInitialised, setCredsInitialised] = useState(false);
-  const [tenantId, setTenantId] = useState("");
-  const [clientId, setClientId] = useState("");
-  const [clientSecret, setClientSecret] = useState("");
-  const [credsNote, setCredsNote] = useState("");
-
-  // test / add-connection / sync
-  const [testUrl, setTestUrl] = useState("");
-  const [testResult, setTestResult] = useState("");
-  const [showAdd, setShowAdd] = useState(false);
-  const [form, setForm] = useState({
-    name: "",
-    siteUrl: "",
-    folderPath: "",
-    docType: "release_note",
-    productLine: "Masterworks",
-  });
-  const [syncLog, setSyncLog] = useState<string[]>([]);
-
-  const load = useCallback(async () => {
-    try {
-      const s = await apiGet<SpStatus>("/api/sharepoint/status");
-      setStatus(s);
-      if (s.credentials) {
-        setTenantId(s.credentials.tenantId);
-        setClientId(s.credentials.clientId);
-      }
-      setCredsInitialised((done) => {
-        if (!done && !s.configured) setShowCreds(true); // auto-expand when nothing is configured yet
-        return true;
-      });
-    } catch (e) {
-      setError((e as Error).message);
-    }
-  }, []);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  const run = async (fn: () => Promise<void>) => {
-    setBusy(true);
-    setError("");
-    try {
-      await fn();
-      await load();
-    } catch (e) {
-      const msg = (e as Error).message;
-      setError(
-        msg.includes("Admin")
-          ? "Only PMMs (admins) can change integration settings. Ask a PMM to flip this."
-          : msg
-      );
-    } finally {
-      setBusy(false);
-    }
+    );
   };
-
-  const toggleLiveSync = () =>
-    run(async () => {
-      await apiPost("/api/integrations/flags/sharepoint_graph/toggle");
-    });
-
-  const saveCredentials = () =>
-    run(async () => {
-      setCredsNote("");
-      await apiPut("/api/sharepoint/credentials", {
-        tenantId: tenantId.trim(),
-        clientId: clientId.trim(),
-        clientSecret: clientSecret,
-      });
-      setClientSecret("");
-      setCredsNote("Credentials saved. Test a site URL below to confirm access.");
-    });
-
-  const clearCredentials = () =>
-    run(async () => {
-      if (!window.confirm("Clear the stored SharePoint credentials? If app/backend/.env still has MS_* values, those take over; otherwise live sync stops until new credentials are saved.")) return;
-      setCredsNote("");
-      await apiDelete("/api/sharepoint/credentials");
-      setTenantId("");
-      setClientId("");
-      setClientSecret("");
-    });
-
-  const test = () =>
-    run(async () => {
-      setTestResult("");
-      const r = await apiPost<{ ok: boolean; webUrl: string; suggestedFolderPath: string | null }>(
-        "/api/sharepoint/test",
-        { siteUrl: testUrl }
-      );
-      setTestResult(
-        `Connected: ${r.webUrl}${r.suggestedFolderPath ? ` — folder detected: ${r.suggestedFolderPath}` : ""}`
-      );
-      // Pre-fill the add-connection form with what the test learned.
-      setForm((f) => ({
-        ...f,
-        siteUrl: testUrl,
-        folderPath: r.suggestedFolderPath ?? f.folderPath,
-      }));
-      setShowAdd(true);
-    });
-
-  const addConnection = () =>
-    run(async () => {
-      await apiPost("/api/sharepoint/connections", form);
-      setShowAdd(false);
-      setForm({ name: "", siteUrl: "", folderPath: "", docType: "release_note", productLine: "Masterworks" });
-    });
-
-  const syncNow = (id: string) =>
-    run(async () => {
-      setSyncLog([]);
-      const r = await apiPost<{ log: string[] }>(`/api/sharepoint/connections/${id}/sync`);
-      setSyncLog(r.log);
-    });
-
-  const toggleConnection = (id: string) =>
-    run(async () => {
-      await apiPost(`/api/integrations/${id}/toggle`);
-    });
-
-  const removeConnection = (id: string) =>
-    run(async () => {
-      if (!window.confirm("Remove this SharePoint connection?")) return;
-      await apiDelete(`/api/sharepoint/connections/${id}`);
-    });
-
-  const canSaveCreds = tenantId.trim() !== "" && clientId.trim() !== "" && clientSecret !== "";
 
   return (
     <div>
-      <h1 className="pagetitle">
-        Connectors{" "}
-        <span className="pill pill-lock" style={{ marginLeft: 6 }}>
-          <i className="fa-solid fa-lock" style={{ fontSize: 9 }} /> Admin only
-        </span>
-      </h1>
-      <p className="pagesub">Turn on the systems Hive pulls from and pushes to.</p>
+      <h1 className="pagetitle">Connectors</h1>
+      <p className="pagesub">
+        Turn on the systems Hive pulls from and pushes to. Only PMM admins can change settings.
+      </p>
 
-      <ConnectorSummary isAdmin={isAdmin} />
-
-      {error && <p style={{ color: "var(--red)" }}>{error}</p>}
-
-      <LocalFoldersSection isAdmin={isAdmin} />
-
-      {status && (
-        <div className="card">
-          <div className="row-between" style={{ marginBottom: 12 }}>
-            <h3 style={{ margin: 0, fontSize: 15, fontWeight: 500 }}>
-              <i className="fa-brands fa-microsoft" style={{ marginRight: 8, color: "var(--teal-dark)" }} />
-              SharePoint (Microsoft Graph)
-            </h3>
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              {status.configured ? (
-                <span className="pill pill-live">
-                  <i className="fa-solid fa-circle-check" style={{ fontSize: 10 }} /> Credentials configured
-                </span>
-              ) : (
-                <span className="pill pill-lock">
-                  <i className="fa-solid fa-lock" style={{ fontSize: 10 }} /> Credentials missing
-                </span>
-              )}
-              <StatePill on={status.flagEnabled} labels={["Live sync on", "Live sync off"]} />
-              {isAdmin && (
-                <button
-                  className="btn btn-sm"
-                  onClick={toggleLiveSync}
-                  disabled={busy}
-                  title={status.flagEnabled ? "Turn live sync off" : "Turn live sync on"}
-                >
-                  {status.flagEnabled ? "Turn off" : "Turn on"}
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* ---------- credentials ---------- */}
-          {isAdmin ? (
-            <div style={{ marginBottom: 14 }}>
-              <button className="btn btn-sm" onClick={() => setShowCreds((s) => !s)} disabled={busy}>
-                <i className={`fa-solid fa-chevron-${showCreds ? "up" : "down"}`} /> Configure credentials
-              </button>
-
-              {showCreds && (
-                <div style={{ background: "var(--bg-page)", borderRadius: "var(--r-md)", padding: 16, marginTop: 10 }}>
-                  {!status.configured && (
-                    <p style={{ marginTop: 0, fontSize: 13, lineHeight: 1.6 }}>
-                      <strong>Setup:</strong> register an app in Azure Portal, grant Microsoft Graph →
-                      Application → <strong>{status.requiredPermission}</strong>, have an admin consent to
-                      it, then paste the tenant ID, client ID, and client secret here.
-                    </p>
-                  )}
-                  {status.credentials?.source === "env" && (
-                    <p style={{ marginTop: 0, fontSize: 12.5, color: "var(--text-muted)", lineHeight: 1.5 }}>
-                      Credentials currently come from <code>app/backend/.env</code>. Saving here stores
-                      them in the database and overrides the .env values.
-                    </p>
-                  )}
-                  <div className="grid grid-2">
-                    <div>
-                      <label style={{ marginTop: 0 }}>Tenant ID</label>
-                      <input
-                        value={tenantId}
-                        onChange={(e) => setTenantId(e.target.value)}
-                        placeholder="00000000-0000-0000-0000-000000000000"
-                      />
-                    </div>
-                    <div>
-                      <label style={{ marginTop: 0 }}>Client ID</label>
-                      <input
-                        value={clientId}
-                        onChange={(e) => setClientId(e.target.value)}
-                        placeholder="00000000-0000-0000-0000-000000000000"
-                      />
-                    </div>
-                    <div>
-                      <label>Client secret</label>
-                      <input
-                        type="password"
-                        value={clientSecret}
-                        onChange={(e) => setClientSecret(e.target.value)}
-                        placeholder="••••••••  (unchanged secret is not shown)"
-                        autoComplete="new-password"
-                      />
-                    </div>
-                  </div>
-                  <p style={{ marginBottom: 0, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                    <button
-                      className="btn btn-primary btn-sm"
-                      onClick={saveCredentials}
-                      disabled={busy || !canSaveCreds}
-                      title={canSaveCreds ? "Save credentials" : "All three fields are required — the secret must be re-entered on every save"}
-                    >
-                      <i className="fa-solid fa-key" /> Save credentials
-                    </button>
-                    {status.credentials?.source === "database" && (
-                      <button className="btn btn-danger btn-sm" onClick={clearCredentials} disabled={busy}>
-                        <i className="fa-solid fa-trash" /> Clear credentials
-                      </button>
-                    )}
-                    <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
-                      The secret is stored on the backend and never shown again.
-                    </span>
-                  </p>
-                  {credsNote && (
-                    <p style={{ margin: "10px 0 0", color: "var(--teal-dark)", fontWeight: 500, fontSize: 13 }}>
-                      {credsNote}
-                    </p>
-                  )}
-                </div>
-              )}
-            </div>
-          ) : (
-            !status.configured && (
-              <p style={{ fontSize: 13, color: "var(--text-muted)" }}>
-                A PMM admin must configure the SharePoint credentials before live sync can run.
-              </p>
-            )
-          )}
-
-          {/* ---------- test + add connection ---------- */}
-          {status.configured && isAdmin && (
-            <>
-              <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 12 }}>
-                <input
-                  style={{ maxWidth: 380 }}
-                  placeholder="https://yourtenant.sharepoint.com/sites/ProductMarketing"
-                  value={testUrl}
-                  onChange={(e) => setTestUrl(e.target.value)}
-                />
-                <button
-                  className="btn btn-sm"
-                  onClick={test}
-                  disabled={busy || testUrl.trim() === ""}
-                  title={testUrl.trim() === "" ? "Enter a SharePoint site URL first" : "Verify credentials + site access"}
-                >
-                  <i className="fa-solid fa-plug" /> Test connection
-                </button>
-                <button className="btn btn-primary btn-sm" onClick={() => setShowAdd((s) => !s)} disabled={busy}>
-                  <i className="fa-solid fa-plus" /> Add connection
-                </button>
-              </div>
-              {testResult && <p style={{ color: "var(--teal-dark)", fontWeight: 500, fontSize: 13 }}>{testResult}</p>}
-
-              {showAdd && (
-                <div style={{ background: "var(--bg-page)", borderRadius: "var(--r-md)", padding: 16, marginBottom: 14 }}>
-                  <div className="grid grid-2">
-                    <div>
-                      <label style={{ marginTop: 0 }}>Connection name</label>
-                      <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Masterworks release notes" />
-                    </div>
-                    <div>
-                      <label style={{ marginTop: 0 }}>Site URL</label>
-                      <input value={form.siteUrl} onChange={(e) => setForm({ ...form, siteUrl: e.target.value })} placeholder="https://tenant.sharepoint.com/sites/PMM" />
-                    </div>
-                    <div>
-                      <label>Folder path (blank = whole library)</label>
-                      <input value={form.folderPath} onChange={(e) => setForm({ ...form, folderPath: e.target.value })} placeholder="Release Notes/Masterworks" />
-                    </div>
-                    <div>
-                      <label>Document type</label>
-                      <select value={form.docType} onChange={(e) => setForm({ ...form, docType: e.target.value })} style={{ width: "100%" }}>
-                        <option value="release_note">Release notes → Feature catalog</option>
-                        <option value="prd">PRDs → Context docs</option>
-                        <option value="jtbd">JTBDs → Context docs</option>
-                        <option value="transcript">Transcripts → Context docs</option>
-                        <option value="other">Other → Context docs</option>
-                      </select>
-                    </div>
-                    {form.docType === "release_note" && (
-                      <div>
-                        <label>Product line</label>
-                        <select value={form.productLine} onChange={(e) => setForm({ ...form, productLine: e.target.value })} style={{ width: "100%" }}>
-                          <option>Masterworks</option>
-                          <option>Primus</option>
-                        </select>
-                      </div>
-                    )}
-                  </div>
-                  <p style={{ marginBottom: 0 }}>
-                    <button
-                      className="btn btn-primary btn-sm"
-                      onClick={addConnection}
-                      disabled={busy || form.name.trim() === "" || form.siteUrl.trim() === ""}
-                      title={
-                        form.name.trim() === ""
-                          ? "Name the connection first"
-                          : form.siteUrl.trim() === ""
-                            ? "Enter the site URL first"
-                            : "Create the connection"
-                      }
-                    >
-                      <i className="fa-solid fa-link" /> Connect
-                    </button>
-                  </p>
-                </div>
-              )}
-            </>
-          )}
-
-          {/* ---------- connections table ---------- */}
-          {status.connections.length > 0 && (
-            <div style={{ overflowX: "auto" }}>
-              <table>
-                <thead>
-                  <tr>
-                    <th>Connection</th>
-                    <th>Site / folder</th>
-                    <th>Ingests as</th>
-                    <th>Last sync</th>
-                    <th>State</th>
-                    {isAdmin && <th></th>}
-                  </tr>
-                </thead>
-                <tbody>
-                  {status.connections.map((c) => (
-                    <tr key={c.id}>
-                      <td style={{ fontWeight: 500 }}>{c.name}</td>
-                      <td style={{ fontSize: 12.5 }}>
-                        {c.siteUrl}
-                        {c.folderPath ? ` / ${c.folderPath}` : ""}
-                      </td>
-                      <td>
-                        <span className="pill pill-review">{c.docType}</span>
-                        {c.productLine && (
-                          <span style={{ fontSize: 12, color: "var(--text-muted)", marginLeft: 6 }}>{c.productLine}</span>
-                        )}
-                      </td>
-                      <td style={{ fontSize: 12.5 }}>
-                        {c.lastSync ? new Date(c.lastSync).toLocaleString() : "never"}
-                        {c.lastResult && (
-                          <div style={{ color: "var(--text-muted)", fontSize: 12 }}>{c.lastResult}</div>
-                        )}
-                      </td>
-                      <td>
-                        <StatePill on={c.enabled} labels={["Enabled", "Paused"]} />
-                      </td>
-                      {isAdmin && (
-                        <td style={{ whiteSpace: "nowrap" }}>
-                          <button
-                            className="btn btn-sm"
-                            onClick={() => void syncNow(c.id)}
-                            disabled={busy || !status.configured}
-                            title={status.configured ? "Run a delta sync now" : "Configure credentials first"}
-                          >
-                            <i className="fa-solid fa-rotate" /> Sync now
-                          </button>{" "}
-                          <button className="btn btn-sm" onClick={() => void toggleConnection(c.id)} disabled={busy}>
-                            {c.enabled ? "Pause" : "Resume"}
-                          </button>{" "}
-                          <button className="btn btn-danger btn-sm" onClick={() => void removeConnection(c.id)} disabled={busy}>
-                            <i className="fa-solid fa-trash" />
-                          </button>
-                        </td>
-                      )}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-          {status.connections.length === 0 && status.configured && (
-            <p className="empty-note">No SharePoint connections yet — add one above.</p>
-          )}
-
-          {/* ---------- sync log ---------- */}
-          {syncLog.length > 0 && (
-            <div style={{ background: "var(--bg-page)", borderRadius: "var(--r-md)", padding: "12px 16px", fontSize: 12.5, marginTop: 12 }}>
-              {syncLog.map((l, i) => (
-                <div key={i}>{l}</div>
-              ))}
-            </div>
-          )}
+      {error !== "" && (
+        <div
+          style={{
+            background: "#FCE8E8",
+            color: "#A32D2D",
+            borderRadius: "var(--r-md)",
+            padding: "10px 14px",
+            fontSize: 13,
+            marginBottom: 12,
+          }}
+        >
+          {error}
         </div>
+      )}
+
+      {loading ? (
+        <div className="empty-note">Loading connectors…</div>
+      ) : (
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fill, minmax(310px, 1fr))",
+            gap: 14,
+          }}
+        >
+          {cards.map(renderCard)}
+        </div>
+      )}
+
+      {open === "sharepoint" && (
+        <SharePointDrawer isAdmin={isAdmin} onClose={() => setOpen(null)} onChanged={() => void load()} />
+      )}
+      {open === "localfolders" && (
+        <LocalFoldersDrawer isAdmin={isAdmin} onClose={() => setOpen(null)} onChanged={() => void load()} />
       )}
     </div>
   );
