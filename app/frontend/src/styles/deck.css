@@ -77,9 +77,36 @@
   color: #46b2be;
 }
 
+/* Template chrome (from AURIGO_PPT_TEMPLATE_2026 "Title slide_01"): red
+   vertical bar + white Aurigo logo, top-right. 96px/in on the 1280×720 stage:
+   bar (1064, 37) 12×75; logo (1117, 60) 114×35. */
+.ds-template-mark {
+  position: absolute;
+  top: 37px;
+  right: 49px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  pointer-events: none;
+}
+.ds-template-mark::before {
+  content: "";
+  width: 12px;
+  height: 75px;
+  background: #ee3135;
+  display: block;
+}
+.ds-template-mark img {
+  width: 114px;
+  height: 35px;
+  object-fit: contain;
+  display: block;
+}
+
 /* ---------- layout: title (dark teal full bleed) ---------- */
 .deck-stage.layout-title {
-  background: #015f74;
+  /* Template "Title slide_01" background is ink, not teal. */
+  background: #053445;
   padding: 211px 86px 0;
 }
 .layout-title .ds-heading {

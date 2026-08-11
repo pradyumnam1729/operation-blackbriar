@@ -14,6 +14,32 @@ const FONT = DECK_THEME.fonts.pptx;
 const W = DECK_THEME.slide.widthIn;
 const H = DECK_THEME.slide.heightIn;
 
+// The template's own top-right chrome (extracted from "Title slide_01"):
+// red vertical bar at (11.09, 0.39) 0.12×0.78, white Aurigo logo at
+// (11.64, 0.62) 1.19×0.36. Used on every dark slide.
+const LOGO_WHITE = path.resolve(__dirname, "..", "..", "assets", "logo-white.png");
+const hasLogo = fs.existsSync(LOGO_WHITE);
+
+function templateMark(slide: PptxGenJS.Slide) {
+  slide.addShape("rect", {
+    x: 11.09,
+    y: 0.39,
+    w: 0.12,
+    h: 0.78,
+    fill: { color: C.red },
+    line: { type: "none" },
+  });
+  if (hasLogo) {
+    slide.addImage({ path: LOGO_WHITE, x: 11.64, y: 0.62, w: 1.19, h: 0.36 });
+  } else {
+    slide.addText(DECK_THEME.wordmark.text, {
+      x: 11.3, y: 0.55, w: 1.9, h: 0.4,
+      fontFace: FONT, fontSize: 12, color: C.white, bold: true,
+      charSpacing: DECK_THEME.wordmark.charSpacingPt,
+    });
+  }
+}
+
 function wordmark(slide: PptxGenJS.Slide, color: string, centered = false) {
   slide.addText(DECK_THEME.wordmark.text, {
     x: centered ? 0 : W - 2.4,
@@ -50,7 +76,9 @@ function lightHeader(slide: PptxGenJS.Slide, title: string) {
 
 function addTitle(pptx: PptxGenJS, s: DeckSlide, kicker: string | null) {
   const slide = pptx.addSlide();
-  slide.background = { color: C.tealDark };
+  // Template "Title slide_01": ink background + top-right red bar/logo chrome.
+  slide.background = { color: C.ink };
+  templateMark(slide);
   if (kicker) {
     slide.addText(kicker.toUpperCase(), {
       x: 0.9, y: 2.2, w: 11.5, h: 0.4,
@@ -67,7 +95,6 @@ function addTitle(pptx: PptxGenJS, s: DeckSlide, kicker: string | null) {
       fontFace: FONT, fontSize: 16, color: C.mist,
     });
   }
-  wordmark(slide, C.tealLight);
   return slide;
 }
 
@@ -87,6 +114,7 @@ function addAgenda(pptx: PptxGenJS, s: DeckSlide) {
 function addSection(pptx: PptxGenJS, s: DeckSlide) {
   const slide = pptx.addSlide();
   slide.background = { color: C.ink };
+  templateMark(slide);
   slide.addText(s.title, {
     x: 1.2, y: 2.9, w: 11.0, h: 1.2,
     fontFace: FONT, fontSize: 32, bold: true, color: C.white,
@@ -97,7 +125,6 @@ function addSection(pptx: PptxGenJS, s: DeckSlide) {
       fontFace: FONT, fontSize: 15, color: C.tealLight,
     });
   }
-  wordmark(slide, C.tealLight);
   return slide;
 }
 
@@ -150,6 +177,7 @@ function addTwoColumn(pptx: PptxGenJS, s: DeckSlide) {
 function addQuote(pptx: PptxGenJS, s: DeckSlide) {
   const slide = pptx.addSlide();
   slide.background = { color: C.tealDark };
+  templateMark(slide);
   slide.addText("PROOF", {
     x: 0.9, y: 1.4, w: 6, h: 0.4,
     fontFace: FONT, fontSize: 13, color: C.tealLight, charSpacing: 3, bold: true,
@@ -164,13 +192,13 @@ function addQuote(pptx: PptxGenJS, s: DeckSlide) {
       fontFace: FONT, fontSize: 13, color: C.tealLight,
     });
   }
-  wordmark(slide, C.tealLight);
   return slide;
 }
 
 function addClosing(pptx: PptxGenJS, s: DeckSlide) {
   const slide = pptx.addSlide();
   slide.background = { color: C.ink };
+  templateMark(slide);
   slide.addText("NEXT STEP", {
     x: 0.9, y: 2.0, w: 11.5, h: 0.4, align: "center",
     fontFace: FONT, fontSize: 13, color: C.tealLight, charSpacing: 3, bold: true,

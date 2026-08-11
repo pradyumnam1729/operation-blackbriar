@@ -176,14 +176,21 @@ export function SlideStage({ slide, editable, kicker, onPatch }: SlideStageProps
   // ---- quote bindings ----
   const quote = slide.quote ?? { text: "", attribution: "" };
 
+  // Template top-right chrome (red bar + white Aurigo logo) on dark slides.
+  const templateMark = (
+    <span className="ds-template-mark" aria-hidden>
+      <img src="/deck-theme/logo-white.png" alt="" />
+    </span>
+  );
+
   switch (slide.layout) {
     case "title":
       return (
         <div className="deck-stage layout-title">
+          {templateMark}
           <span className="ds-kicker">{(kicker ?? "Aurigo").toUpperCase()}</span>
           {heading("Deck title")}
           {subtitle("Subtitle — audience and promise in one line")}
-          <span className="ds-wordmark on-dark">AURIGO</span>
         </div>
       );
 
@@ -212,9 +219,9 @@ export function SlideStage({ slide, editable, kicker, onPatch }: SlideStageProps
     case "section":
       return (
         <div className="deck-stage layout-section">
+          {templateMark}
           {heading("Section title")}
           {subtitle("One line on what this section proves")}
-          <span className="ds-wordmark on-dark">AURIGO</span>
         </div>
       );
 
@@ -233,6 +240,7 @@ export function SlideStage({ slide, editable, kicker, onPatch }: SlideStageProps
     case "quote":
       return (
         <div className="deck-stage layout-quote">
+          {templateMark}
           <span className="ds-kicker">PROOF</span>
           <SlideText
             className="ds-quote-text"
@@ -261,6 +269,7 @@ export function SlideStage({ slide, editable, kicker, onPatch }: SlideStageProps
           <span className="ds-kicker">NEXT STEP</span>
           {heading("The advance you are asking for")}
           {subtitle("Make the next step concrete and easy to say yes to")}
+          {templateMark}
           <span className="ds-wordmark on-dark">AURIGO</span>
         </div>
       );

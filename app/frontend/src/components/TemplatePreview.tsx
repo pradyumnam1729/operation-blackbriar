@@ -1,10 +1,13 @@
+import { useEffect, useRef } from "react";
 import { TemplateFormat } from "../lib/api";
 
 // The one rendering primitive for template payloads (blueprint §4.2), reused by
-// the Template Library page and the artifact editor. Payloads always render in
-// a fully sandboxed iframe (sandbox="" — no scripts, no same-origin, no top
-// navigation): the payload came through the authed JSON API, the token never
-// touches the frame, and even a hostile payload stays inert.
+// the Template Library page and the artifact editor. Payloads render in a
+// sandboxed iframe: read-only mode is fully inert (sandbox=""); editable mode
+// allows ONLY scripts (no same-origin — the frame keeps an opaque origin, so
+// the auth token and parent DOM stay unreachable) to run the tiny injected
+// editor that binds contentEditable to the payload's data-slot markers and
+// postMessages edits back to the parent.
 
 interface Props {
   format: TemplateFormat;
@@ -13,7 +16,40 @@ interface Props {
   title?: string;
   /** Hide the download control (e.g. inside the library preview drawer). */
   hideDownload?: boolean;
+  /** Inline slot editing on the styled render (canEdit surfaces only). */
+  editable?: boolean;
+  /** One edited slot committed (blur): id + new plain text. */
+  onSlotEdit?: (slotId: string, text: string) => void;
+  /** How many editable slot regions the payload carries (0 = legacy render). */
+  onEditableRegions?: (count: number) => void;
 }
+
+/** Injected into the editable frame. Marks [data-slot] regions editable and
+ *  reports commits to the parent; runs with an opaque origin. */
+const EDIT_SCRIPT = `<script>(function(){
+  var els = document.querySelectorAll("[data-slot]");
+  parent.postMessage({ hive: "slots-ready", count: els.length }, "*");
+  els.forEach(function (el) {
+    el.setAttribute("contenteditable", "true");
+    el.style.outline = "1.5px dashed rgba(70,178,190,.6)";
+    el.style.outlineOffset = "2px";
+    el.style.cursor = "text";
+    el.addEventListener("focus", function () {
+      el.style.outline = "2px solid rgba(1,95,116,.9)";
+      if (el.getAttribute("data-empty") === "1") {
+        el.textContent = "";
+        el.removeAttribute("data-empty");
+      }
+    });
+    el.addEventListener("blur", function () {
+      el.style.outline = "1.5px dashed rgba(70,178,190,.6)";
+      parent.postMessage(
+        { hive: "slot-edit", id: el.getAttribute("data-slot"), text: el.innerText },
+        "*"
+      );
+    });
+  });
+})();</scr` + `ipt>`;
 
 const escapeHtml = (s: string) =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -58,7 +94,38 @@ function frameStyle(format: TemplateFormat): React.CSSProperties {
   return { ...base, aspectRatio: "816/1056" }; // html / email — US Letter proportions
 }
 
-export function TemplatePreview({ format, payload, title, hideDownload }: Props) {
+export function TemplatePreview({
+  format,
+  payload,
+  title,
+  hideDownload,
+  editable,
+  onSlotEdit,
+  onEditableRegions,
+}: Props) {
+  const frameRef = useRef<HTMLIFrameElement | null>(null);
+
+  useEffect(() => {
+    if (!editable) return;
+    const onMessage = (e: MessageEvent) => {
+      if (e.source !== frameRef.current?.contentWindow) return;
+      const data = e.data as { hive?: string; count?: number; id?: string; text?: string };
+      if (data?.hive === "slots-ready") onEditableRegions?.(Number(data.count) || 0);
+      if (data?.hive === "slot-edit" && typeof data.id === "string" && typeof data.text === "string") {
+        onSlotEdit?.(data.id, data.text);
+      }
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [editable, onSlotEdit, onEditableRegions]);
+
+  const baseDoc = toSrcDoc(format, payload);
+  const srcDoc = editable
+    ? /<\/body>/i.test(baseDoc)
+      ? baseDoc.replace(/<\/body>/i, `${EDIT_SCRIPT}</body>`)
+      : baseDoc + EDIT_SCRIPT
+    : baseDoc;
+
   const download = () => {
     const slug =
       (title ?? "artifact")
@@ -79,8 +146,9 @@ export function TemplatePreview({ format, payload, title, hideDownload }: Props)
   return (
     <div>
       <iframe
-        sandbox=""
-        srcDoc={toSrcDoc(format, payload)}
+        ref={frameRef}
+        sandbox={editable ? "allow-scripts" : ""}
+        srcDoc={srcDoc}
         title="Rendered template preview"
         style={frameStyle(format)}
       />

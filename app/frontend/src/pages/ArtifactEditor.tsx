@@ -107,6 +107,46 @@ export function ArtifactEditor() {
   const [showHistory, setShowHistory] = useState(false);
   const [showComments, setShowComments] = useState(false);
 
+  // Inline slot editing on the styled render: edits collect here until saved
+  // through the slot pipeline (POST /slots → deterministic re-render).
+  const [pendingFills, setPendingFills] = useState<Record<string, string>>({});
+  const [editableRegions, setEditableRegions] = useState<number | null>(null);
+  const [inlineSaving, setInlineSaving] = useState(false);
+  const [inlineError, setInlineError] = useState<string | null>(null);
+
+  const saveInlineEdits = async () => {
+    if (!id || Object.keys(pendingFills).length === 0) return;
+    setInlineSaving(true);
+    setInlineError(null);
+    try {
+      await apiPost(`/api/artifacts/${id}/slots`, {
+        fills: pendingFills,
+        note: "Inline edits on the rendered view",
+      });
+      setPendingFills({});
+      await load();
+    } catch (e) {
+      setInlineError((e as Error).message);
+    } finally {
+      setInlineSaving(false);
+    }
+  };
+
+  // Legacy renders predate the data-slot markers — one no-op re-render adds them.
+  const refreshRender = async () => {
+    if (!id) return;
+    setInlineSaving(true);
+    setInlineError(null);
+    try {
+      await apiPost(`/api/artifacts/${id}/slots`, { fills: {} });
+      await load();
+    } catch (e) {
+      setInlineError((e as Error).message);
+    } finally {
+      setInlineSaving(false);
+    }
+  };
+
   const load = useCallback(async () => {
     if (!id) return;
     try {
@@ -338,11 +378,73 @@ export function ArtifactEditor() {
                   >
                     <i className="fa-solid fa-triangle-exclamation" style={{ marginRight: 6 }} />
                     {render.warnings.length} slot{render.warnings.length === 1 ? "" : "s"} still need
-                    {render.warnings.length === 1 ? "s" : ""} PMM input — ask the AI to draft them or
-                    fill them on the Manual slots tab.
+                    {render.warnings.length === 1 ? "s" : ""} PMM input — click them in the render,
+                    ask the AI, or fill them on the Manual slots tab.
                   </div>
                 )}
-                <TemplatePreview format={render.format} payload={render.payload} title={artifact.title} />
+                {canEdit && editableRegions !== null && editableRegions > 0 && (
+                  <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "0 0 10px" }}>
+                    <i className="fa-solid fa-i-cursor" style={{ marginRight: 6 }} />
+                    Click any highlighted text to edit it directly on the render.
+                  </p>
+                )}
+                <TemplatePreview
+                  format={render.format}
+                  payload={render.payload}
+                  title={artifact.title}
+                  editable={canEdit}
+                  onSlotEdit={(slotId, text) =>
+                    setPendingFills((f) => ({ ...f, [slotId]: text }))
+                  }
+                  onEditableRegions={setEditableRegions}
+                />
+                {canEdit && editableRegions === 0 && (
+                  <div style={{ marginTop: 10, fontSize: 12.5, color: "var(--text-secondary)" }}>
+                    This render predates inline editing.{" "}
+                    <button className="btn btn-sm" disabled={inlineSaving} onClick={() => void refreshRender()}>
+                      {inlineSaving ? <i className="fa-solid fa-spinner fa-spin" /> : <i className="fa-solid fa-rotate" />}{" "}
+                      Refresh render to enable it
+                    </button>
+                  </div>
+                )}
+                {canEdit && Object.keys(pendingFills).length > 0 && (
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 10,
+                      marginTop: 10,
+                      padding: "9px 13px",
+                      background: "#E1F0F2",
+                      borderRadius: "var(--r-md)",
+                      fontSize: 12.5,
+                      color: "var(--teal-dark)",
+                    }}
+                  >
+                    <span style={{ flex: 1 }}>
+                      {Object.keys(pendingFills).length} unsaved inline edit
+                      {Object.keys(pendingFills).length === 1 ? "" : "s"}
+                    </span>
+                    <button
+                      className="btn btn-primary btn-sm"
+                      disabled={inlineSaving}
+                      onClick={() => void saveInlineEdits()}
+                    >
+                      {inlineSaving ? (
+                        <i className="fa-solid fa-spinner fa-spin" />
+                      ) : (
+                        <i className="fa-solid fa-check" />
+                      )}{" "}
+                      Save as v{artifact.current_version + 1}
+                    </button>
+                    <button className="btn btn-sm" disabled={inlineSaving} onClick={() => { setPendingFills({}); void load(); }}>
+                      Discard
+                    </button>
+                  </div>
+                )}
+                {inlineError && (
+                  <div style={{ ...errStrip, marginTop: 10 }}>{inlineError}</div>
+                )}
               </div>
               {canEdit && (
                 <ChatEditPanel

@@ -288,10 +288,21 @@ export function renderTemplate(
 ): { payload: string; warnings: RenderWarning[] } {
   const warnings: RenderWarning[] = [];
   const rendered = new Map<string, string>();
+
+  // Inline-editing markers: html/email payloads wrap each non-lines slot in a
+  // <span data-slot="id"> so the editable preview can bind contentEditable
+  // regions directly on the styled render. Invisible otherwise; the slot text
+  // inside is already escaped, and slot ids are template-authored identifiers.
+  const wrapSlot = (slot: TemplateSlot, value: string, empty: boolean): string => {
+    if ((format !== "html" && format !== "email") || slot.render === "lines") return value;
+    const id = slot.id.replace(/["<>&]/g, "");
+    return `<span data-slot="${id}"${empty ? ' data-empty="1"' : ""}>${value}</span>`;
+  };
+
   for (const slot of slots) {
     const fill = (fills[slot.id] ?? "").trim();
     if (fill !== "") {
-      rendered.set(slot.id, escapeForFormat(format, slot, fill));
+      rendered.set(slot.id, wrapSlot(slot, escapeForFormat(format, slot, fill), false));
       continue;
     }
     if (!slot.required) {
@@ -308,7 +319,7 @@ export function renderTemplate(
       slot.id,
       slot.render === "lines" && (format === "html" || format === "deck" || format === "email")
         ? `<li>${placeholder}</li>`
-        : placeholder
+        : wrapSlot(slot, placeholder, true)
     );
   }
 
