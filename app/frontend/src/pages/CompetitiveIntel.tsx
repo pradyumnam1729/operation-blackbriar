@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { apiDelete, apiGet, apiPost } from "../lib/api";
 import { useAuth } from "../auth/AuthContext";
+import { lineLogo } from "../lib/branding";
 
 // Competitive Intelligence: grounded comparisons of Aurigo products vs market
 // competitors. Competitor facts come only from scraped sources (Jina Reader);
@@ -41,11 +42,52 @@ interface HistoryRow {
   createdAt: string;
 }
 
+interface BattlecardRow {
+  id: string;
+  title: string;
+  status: "draft" | "in_review" | "final" | "archived";
+  updated_at: string;
+}
+
+interface CiReportRow {
+  id: string;
+  competitor: string | null;
+  aurigo_product: string | null;
+  title: string;
+  status: "draft" | "final" | "archived";
+  created_at: string;
+}
+
+interface NewsItemRow {
+  id: string;
+  headline: string;
+  summary_html: string;
+  source_url: string | null;
+  status: "pending" | "approved" | "dismissed";
+  discovered_at: string;
+  category: string | null;
+  priority: "high" | "normal";
+}
+
+interface MarketThreatRow {
+  id: string;
+  name: string;
+  aurigo_product: string | null;
+  summary_html: string;
+  rationale: string;
+  confidence: number;
+  source_url: string | null;
+  status: "draft" | "final" | "archived";
+  created_at: string;
+}
+
 const SUGGESTIONS = [
   "Top 3 features vs Kahua for a state DOT deal",
   "How does Procore's AI compare to ours for facility owners?",
   "Where does e-Builder beat us, honestly?",
 ];
+
+const NEWS_CATEGORY_LABELS = ["News", "Press Release", "Acquisition", "AI Direction", "Bidding & RFP", "Webinar & Event", "Site Change"];
 
 interface PositioningAxis {
   label: string;
@@ -100,7 +142,16 @@ const AXIS_PRESETS: PositioningAxis[] = [
   { label: "Asset orientation", low: "Project delivery", high: "Asset & maintenance management" },
 ];
 
-const MAP_AURIGO_PRODUCTS = ["Masterworks", "Masterworks AI", "Primus", "Essentials"];
+const MAP_AURIGO_PRODUCTS = ["Masterworks", "Masterworks AI", "Primus"];
+
+const errBox: React.CSSProperties = {
+  background: "#FCE8E8",
+  color: "#A32D2D",
+  borderRadius: "var(--r-md)",
+  padding: "10px 14px",
+  fontSize: 13,
+  marginBottom: 14,
+};
 
 interface Tip {
   x: number;
@@ -264,7 +315,32 @@ export function CompetitiveIntel() {
   const [showAdd, setShowAdd] = useState(false);
   const [addForm, setAddForm] = useState({ name: "", website: "", category: "", aurigoProduct: "" });
   const [sourceUrlFor, setSourceUrlFor] = useState<{ id: string; url: string } | null>(null);
-  const [tab, setTab] = useState<"compare" | "map">("compare");
+  const [tab, setTab] = useState<"compare" | "battlecards" | "map" | "reports" | "news" | "threats">("compare");
+
+  // Battlecards originated from this page (comparison- or CI-report-sourced).
+  const [battlecards, setBattlecards] = useState<BattlecardRow[]>([]);
+
+  // CI Reports
+  const [reports, setReports] = useState<CiReportRow[]>([]);
+  const [reportCompetitorId, setReportCompetitorId] = useState("");
+  const [reportProduct, setReportProduct] = useState("");
+  const [reportBrief, setReportBrief] = useState("");
+  const [reportBusy, setReportBusy] = useState(false);
+  const [reportError, setReportError] = useState("");
+  const [openReport, setOpenReport] = useState<{ id: string; title: string; contentHtml: string } | null>(null);
+
+  // Daily news
+  const [news, setNews] = useState<NewsItemRow[]>([]);
+  const [newsBusyId, setNewsBusyId] = useState("");
+  const [newsError, setNewsError] = useState("");
+  const [newsView, setNewsView] = useState<"latest" | "past" | "site_changes">("latest");
+  const [newsPriority, setNewsPriority] = useState<"all" | "high">("all");
+
+  // Market threats
+  const [threats, setThreats] = useState<MarketThreatRow[]>([]);
+  const [threatForm, setThreatForm] = useState({ name: "", product: "", url: "" });
+  const [threatBusy, setThreatBusy] = useState(false);
+  const [threatError, setThreatError] = useState("");
   const [posMap, setPosMap] = useState<PositioningMap | null>(null);
   const [mapBusy, setMapBusy] = useState(false);
   const [mapError, setMapError] = useState("");
@@ -276,7 +352,7 @@ export function CompetitiveIntel() {
   const [yPreset, setYPreset] = useState("auto");
   const [xCustom, setXCustom] = useState<PositioningAxis>({ label: "", low: "", high: "" });
   const [yCustom, setYCustom] = useState<PositioningAxis>({ label: "", low: "", high: "" });
-  const [mapProducts, setMapProducts] = useState<string[]>(["Masterworks", "Primus", "Essentials"]);
+  const [mapProducts, setMapProducts] = useState<string[]>(["Masterworks", "Primus"]);
   const [mapCompetitors, setMapCompetitors] = useState<string[]>([]);
   const paramsRestored = useRef(false);
 
@@ -321,6 +397,12 @@ export function CompetitiveIntel() {
         if (p.products && p.products.length > 0) setMapProducts(p.products);
         if (p.competitorIds && p.competitorIds.length > 0) setMapCompetitors(p.competitorIds);
       }
+      const bc = await apiGet<{ artifacts: BattlecardRow[] }>("/api/artifacts?asset_type=battlecard");
+      setBattlecards(bc.artifacts);
+      const rr = await apiGet<{ reports: CiReportRow[] }>("/api/competitive/ci-reports");
+      setReports(rr.reports);
+      const tt = await apiGet<{ threats: MarketThreatRow[] }>("/api/competitive/threats");
+      setThreats(tt.threats);
     } catch (e) {
       setError((e as Error).message);
     }
@@ -329,6 +411,21 @@ export function CompetitiveIntel() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  const loadNews = useCallback(async () => {
+    try {
+      const nn = await apiGet<{ items: NewsItemRow[] }>(
+        `/api/competitive/news?view=${newsView}&priority=${newsPriority}`
+      );
+      setNews(nn.items);
+    } catch (e) {
+      setNewsError((e as Error).message);
+    }
+  }, [newsView, newsPriority]);
+
+  useEffect(() => {
+    void loadNews();
+  }, [loadNews]);
 
   const runCompare = async (q?: string) => {
     const text = (q ?? question).trim();
@@ -487,11 +584,117 @@ export function CompetitiveIntel() {
     }
   };
 
+  // ---------- CI Reports ----------
+  const generateReport = async () => {
+    if (!reportCompetitorId) return;
+    setReportBusy(true);
+    setReportError("");
+    try {
+      await apiPost("/api/competitive/ci-reports", {
+        competitorId: reportCompetitorId,
+        product: reportProduct || undefined,
+        extraBrief: reportBrief.trim() || undefined,
+      });
+      setReportBrief("");
+      await load();
+    } catch (e) {
+      setReportError((e as Error).message);
+    } finally {
+      setReportBusy(false);
+    }
+  };
+
+  const viewReport = async (id: string) => {
+    setReportError("");
+    try {
+      const r = await apiGet<{ report: { id: string; title: string; content_html: string } }>(
+        `/api/competitive/ci-reports/${id}`
+      );
+      setOpenReport({ id: r.report.id, title: r.report.title, contentHtml: r.report.content_html });
+    } catch (e) {
+      setReportError((e as Error).message);
+    }
+  };
+
+  const approveReport = async (id: string) => {
+    setReportBusy(true);
+    setReportError("");
+    try {
+      await apiPost(`/api/competitive/ci-reports/${id}/approve`);
+      setOpenReport(null);
+      await load();
+    } catch (e) {
+      setReportError((e as Error).message);
+    } finally {
+      setReportBusy(false);
+    }
+  };
+
+  const battlecardFromReport = async (id: string) => {
+    setReportBusy(true);
+    setReportError("");
+    try {
+      const r = await apiPost<{ artifactId: string }>(`/api/competitive/ci-reports/${id}/battlecard`);
+      navigate(`/library/${r.artifactId}`);
+    } catch (e) {
+      setReportError((e as Error).message);
+    } finally {
+      setReportBusy(false);
+    }
+  };
+
+  // ---------- Daily news ----------
+  const dismissNews = async (id: string) => {
+    setNewsBusyId(id);
+    setNewsError("");
+    try {
+      await apiPost(`/api/competitive/news/${id}/dismiss`);
+      await load();
+    } catch (e) {
+      setNewsError((e as Error).message);
+    } finally {
+      setNewsBusyId("");
+    }
+  };
+
+  // ---------- Market threats ----------
+  const draftThreat = async () => {
+    if (threatForm.name.trim() === "") return;
+    setThreatBusy(true);
+    setThreatError("");
+    try {
+      await apiPost("/api/competitive/threats/draft", {
+        name: threatForm.name.trim(),
+        product: threatForm.product || undefined,
+        url: threatForm.url.trim() || undefined,
+      });
+      setThreatForm({ name: "", product: "", url: "" });
+      await load();
+    } catch (e) {
+      setThreatError((e as Error).message);
+    } finally {
+      setThreatBusy(false);
+    }
+  };
+
+  const approveThreat = async (id: string) => {
+    setThreatBusy(true);
+    setThreatError("");
+    try {
+      await apiPost(`/api/competitive/threats/${id}/approve`);
+      await load();
+    } catch (e) {
+      setThreatError((e as Error).message);
+    } finally {
+      setThreatBusy(false);
+    }
+  };
+
   const staleDays = (iso: string | null) =>
     iso ? Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000) : null;
 
   return (
-    <div>
+    <div className="competitive-intel">
       <h1 className="pagetitle">Competitive intel</h1>
       <p className="pagesub">
         Grounded comparisons: competitor facts only from freshly scraped sources, Aurigo facts only
@@ -513,8 +716,20 @@ export function CompetitiveIntel() {
         <button className={tab === "compare" ? "active" : ""} onClick={() => setTab("compare")}>
           <i className="fa-solid fa-chess" style={{ marginRight: 6 }} /> Compare &amp; registry
         </button>
+        <button className={tab === "battlecards" ? "active" : ""} onClick={() => setTab("battlecards")}>
+          <i className="fa-solid fa-shield-halved" style={{ marginRight: 6 }} /> Battlecards
+        </button>
+        <button className={tab === "reports" ? "active" : ""} onClick={() => setTab("reports")}>
+          <i className="fa-solid fa-file-shield" style={{ marginRight: 6 }} /> CI reports
+        </button>
+        <button className={tab === "news" ? "active" : ""} onClick={() => setTab("news")}>
+          <i className="fa-solid fa-newspaper" style={{ marginRight: 6 }} /> Daily news
+        </button>
         <button className={tab === "map" ? "active" : ""} onClick={() => setTab("map")}>
           <i className="fa-solid fa-map-location-dot" style={{ marginRight: 6 }} /> Positioning map
+        </button>
+        <button className={tab === "threats" ? "active" : ""} onClick={() => setTab("threats")}>
+          <i className="fa-solid fa-triangle-exclamation" style={{ marginRight: 6 }} /> Market threats
         </button>
       </div>
 
@@ -534,11 +749,14 @@ export function CompetitiveIntel() {
               </option>
             ))}
           </select>
+          {(() => {
+            const logo = lineLogo(product);
+            return logo ? <img src={logo} alt="" style={{ height: 22, width: "auto", alignSelf: "center" }} /> : null;
+          })()}
           <select value={product} onChange={(e) => setProduct(e.target.value)}>
             <option value="">Auto-pick Aurigo product</option>
             <option value="Primus">Compare vs Primus</option>
             <option value="Masterworks">Compare vs Masterworks</option>
-            <option value="Essentials">Compare vs Essentials</option>
           </select>
         </div>
         <form
@@ -643,7 +861,6 @@ export function CompetitiveIntel() {
                 <option value="">Maps to (auto)</option>
                 <option>Primus</option>
                 <option>Masterworks</option>
-                <option>Essentials</option>
               </select>
             </div>
             <p style={{ marginBottom: 0 }}>
@@ -944,6 +1161,305 @@ export function CompetitiveIntel() {
               <div style={{ color: "#9FC1C9", marginTop: 4 }}>Evidence strength: {tip.size}/100</div>
             </div>
           )}
+        </>
+      )}
+
+      {/* ---------- battlecards tab ---------- */}
+      {tab === "battlecards" && (
+        <div className="card">
+          <h3 style={{ margin: "0 0 12px", fontSize: 15, fontWeight: 500 }}>Battlecards</h3>
+          {battlecards.length === 0 && (
+            <div className="empty-note">
+              None yet — save a comparison or an approved CI report as a battlecard to see it here.
+            </div>
+          )}
+          {battlecards.map((b) => (
+            <div key={b.id} className="rowhover" style={{ display: "flex", gap: 10, alignItems: "center", padding: "8px 6px", borderBottom: "1px solid var(--border)", cursor: "pointer" }} onClick={() => navigate(`/library/${b.id}`)}>
+              <span className={`pill ${b.status === "final" ? "pill-final" : b.status === "archived" ? "pill-archived" : "pill-draft"}`}>{b.status}</span>
+              <span style={{ flex: 1, fontSize: 13.5, fontWeight: 500 }}>{b.title}</span>
+              <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{new Date(b.updated_at).toLocaleDateString()}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ---------- CI reports tab ---------- */}
+      {tab === "reports" && (
+        <>
+          {isAdmin && (
+            <div className="card">
+              <h3 style={{ margin: "0 0 12px", fontSize: 15, fontWeight: 500 }}>Generate a CI report</h3>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 4 }}>
+                <select
+                  value={reportCompetitorId}
+                  onChange={(e) => {
+                    const id = e.target.value;
+                    setReportCompetitorId(id);
+                    // Reflect the registry's own competitor->product mapping —
+                    // don't make the user re-pick what's already defined.
+                    const c = competitors.find((x) => x.id === id);
+                    setReportProduct(c?.aurigo_product ?? "");
+                  }}
+                >
+                  <option value="">Pick a competitor…</option>
+                  {competitors.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                      {c.aurigo_product ? ` (${c.aurigo_product})` : ""}
+                    </option>
+                  ))}
+                </select>
+                {(() => {
+                  const logo = lineLogo(reportProduct);
+                  return logo ? <img src={logo} alt="" style={{ height: 22, width: "auto", alignSelf: "center" }} /> : null;
+                })()}
+                <select value={reportProduct} onChange={(e) => setReportProduct(e.target.value)} title="Pre-filled from the competitor registry — override only for a genuine cross-market case">
+                  <option value="">Auto-pick Aurigo product</option>
+                  <option value="Primus">Primus</option>
+                  <option value="Masterworks">Masterworks</option>
+                </select>
+              </div>
+              <p style={{ margin: "0 0 10px", fontSize: 11.5, color: "var(--text-secondary)" }}>
+                Product is pre-filled from the competitor registry — change it only if this
+                competitor genuinely spans multiple markets.
+              </p>
+              <input
+                placeholder="Extra brief (optional) — angle to emphasize, deal context…"
+                value={reportBrief}
+                onChange={(e) => setReportBrief(e.target.value)}
+              />
+              <p style={{ marginTop: 10, marginBottom: 0 }}>
+                <button
+                  className="btn btn-primary btn-sm"
+                  onClick={() => void generateReport()}
+                  disabled={reportBusy || !reportCompetitorId || !jinaOk}
+                >
+                  <i className={`fa-solid ${reportBusy ? "fa-spinner fa-spin" : "fa-wand-magic-sparkles"}`} />{" "}
+                  {reportBusy ? "Generating…" : "Generate report"}
+                </button>
+              </p>
+              {reportError && <div style={{ ...errBox, marginTop: 12 }}>{reportError}</div>}
+            </div>
+          )}
+
+          <div className="card">
+            <h3 style={{ margin: "0 0 12px", fontSize: 15, fontWeight: 500 }}>
+              {isAdmin ? "All reports" : "Approved CI reports"}
+            </h3>
+            {reports.length === 0 && <div className="empty-note">No CI reports yet.</div>}
+            {reports.map((r) => (
+              <div key={r.id} className="rowhover" style={{ display: "flex", gap: 10, alignItems: "center", padding: "8px 6px", borderBottom: "1px solid var(--border)" }}>
+                <span className={`pill ${r.status === "final" ? "pill-final" : "pill-draft"}`}>{r.status}</span>
+                <span style={{ flex: 1, fontSize: 13.5, fontWeight: 500 }}>{r.title}</span>
+                <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{new Date(r.created_at).toLocaleDateString()}</span>
+                <button className="btn btn-sm" onClick={() => void viewReport(r.id)}>
+                  <i className="fa-solid fa-eye" /> View
+                </button>
+                {r.status === "final" && (
+                  <button className="btn btn-sm btn-primary" onClick={() => void battlecardFromReport(r.id)} disabled={reportBusy}>
+                    <i className="fa-solid fa-shield-halved" /> Generate battlecard
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {openReport && (
+            <div className="card">
+              <div className="row-between" style={{ marginBottom: 10 }}>
+                <h3 style={{ margin: 0, fontSize: 15, fontWeight: 500 }}>{openReport.title}</h3>
+                <div style={{ display: "flex", gap: 8 }}>
+                  {isAdmin && (
+                    <button className="btn btn-primary btn-sm" onClick={() => void approveReport(openReport.id)} disabled={reportBusy}>
+                      <i className="fa-solid fa-circle-check" /> Approve
+                    </button>
+                  )}
+                  <button className="btn btn-sm" onClick={() => setOpenReport(null)}>
+                    <i className="fa-solid fa-xmark" /> Close
+                  </button>
+                </div>
+              </div>
+              <div className="prose" style={{ border: "none", boxShadow: "none", padding: 0 }} dangerouslySetInnerHTML={{ __html: openReport.contentHtml }} />
+            </div>
+          )}
+        </>
+      )}
+
+      {/* ---------- Daily news tab ---------- */}
+      {tab === "news" && (
+        <>
+          {newsError && <div style={errBox}>{newsError}</div>}
+
+          <div className="card" style={{ display: "flex", gap: 16, alignItems: "center", justifyContent: "space-between", flexWrap: "wrap" }}>
+            <div style={{ display: "flex", gap: 6 }}>
+              {(["latest", "past", "site_changes"] as const).map((v) => (
+                <button
+                  key={v}
+                  className={`btn btn-sm ${newsView === v ? "btn-primary" : ""}`}
+                  onClick={() => setNewsView(v)}
+                >
+                  {v === "latest" ? "Latest" : v === "past" ? "Past news" : "Site Changes"}
+                </button>
+              ))}
+            </div>
+            <div style={{ display: "flex", gap: 6 }}>
+              {(["all", "high"] as const).map((p) => (
+                <button
+                  key={p}
+                  className={`btn btn-sm ${newsPriority === p ? "btn-primary" : ""}`}
+                  onClick={() => setNewsPriority(p)}
+                >
+                  {p === "all" ? "All" : "High priority"}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="grid grid-3" style={{ marginTop: 12 }}>
+            <div className="card">
+              <div style={{ fontSize: 22, fontWeight: 600 }}>{battlecards.filter((b) => b.status === "final").length}</div>
+              <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>Battlecards published</div>
+            </div>
+            <div className="card">
+              <div style={{ fontSize: 22, fontWeight: 600 }}>
+                {threats.filter((t) => t.status === "draft").length + reports.filter((r) => r.status === "draft").length}
+              </div>
+              <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>Pending review</div>
+            </div>
+            <div className="card">
+              <div style={{ fontSize: 22, fontWeight: 600 }}>
+                {
+                  news.filter(
+                    (n) =>
+                      n.category === "Site Change" &&
+                      Date.now() - new Date(n.discovered_at).getTime() < 7 * 24 * 3600 * 1000
+                  ).length
+                }
+              </div>
+              <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>Site changes (7d)</div>
+            </div>
+          </div>
+
+          <div className="grid grid-3" style={{ marginTop: 12 }}>
+            {NEWS_CATEGORY_LABELS.map((category) => {
+              const items = news.filter((n) => (newsView === "site_changes" ? true : n.category === category));
+              if (newsView === "site_changes" && category !== "Site Change") return null;
+              return (
+                <div key={category} className="card">
+                  <h3 style={{ margin: "0 0 10px", fontSize: 14, fontWeight: 500 }}>
+                    {category} <span style={{ color: "var(--text-muted)", fontWeight: 400 }}>{items.length}</span>
+                  </h3>
+                  {items.length === 0 && <div className="empty-note">Nothing here yet.</div>}
+                  {items.map((n) => (
+                    <div key={n.id} style={{ padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                        <span
+                          title={n.priority === "high" ? "High priority" : "Normal priority"}
+                          style={{
+                            width: 7,
+                            height: 7,
+                            borderRadius: "50%",
+                            background: n.priority === "high" ? "#c0392b" : "var(--text-muted)",
+                            display: "inline-block",
+                          }}
+                        />
+                        <span style={{ fontWeight: 500, fontSize: 13 }}>{n.headline}</span>
+                        {isAdmin && (
+                          <button
+                            className="btn btn-sm"
+                            style={{ marginLeft: "auto" }}
+                            disabled={newsBusyId === n.id}
+                            onClick={() => void dismissNews(n.id)}
+                            title="Hide a bad scan"
+                          >
+                            <i className="fa-solid fa-xmark" />
+                          </button>
+                        )}
+                      </div>
+                      <div
+                        className="prose"
+                        style={{ border: "none", boxShadow: "none", padding: 0, fontSize: 12 }}
+                        dangerouslySetInnerHTML={{ __html: n.summary_html }}
+                      />
+                      <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{new Date(n.discovered_at).toLocaleDateString()}</span>
+                      {n.source_url && (
+                        <a href={n.source_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, marginLeft: 8 }}>
+                          <i className="fa-solid fa-arrow-up-right-from-square" style={{ fontSize: 9, marginRight: 3 }} />
+                          source
+                        </a>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+
+      {/* ---------- Market threats tab ---------- */}
+      {tab === "threats" && (
+        <>
+          {isAdmin && (
+            <div className="card">
+              <h3 style={{ margin: "0 0 12px", fontSize: 15, fontWeight: 500 }}>Draft a threat / new entrant</h3>
+              <div className="grid grid-3">
+                <input placeholder="Name" value={threatForm.name} onChange={(e) => setThreatForm({ ...threatForm, name: e.target.value })} />
+                <select value={threatForm.product} onChange={(e) => setThreatForm({ ...threatForm, product: e.target.value })}>
+                  <option value="">Aurigo product (optional)</option>
+                  <option value="Primus">Primus</option>
+                  <option value="Masterworks">Masterworks</option>
+                </select>
+                <input placeholder="Source URL (optional)" value={threatForm.url} onChange={(e) => setThreatForm({ ...threatForm, url: e.target.value })} />
+              </div>
+              <p style={{ marginTop: 10, marginBottom: 0 }}>
+                <button className="btn btn-primary btn-sm" onClick={() => void draftThreat()} disabled={threatBusy || threatForm.name.trim() === ""}>
+                  <i className={`fa-solid ${threatBusy ? "fa-spinner fa-spin" : "fa-wand-magic-sparkles"}`} />{" "}
+                  {threatBusy ? "Researching…" : "AI-draft assessment"}
+                </button>
+              </p>
+              {threatError && <div style={{ ...errBox, marginTop: 12 }}>{threatError}</div>}
+            </div>
+          )}
+
+          <div className="card">
+            <h3 style={{ margin: "0 0 12px", fontSize: 15, fontWeight: 500 }}>
+              {isAdmin ? "All threats & entrants" : "Approved threats & entrants"}
+            </h3>
+            {threats.length === 0 && <div className="empty-note">Nothing flagged yet.</div>}
+            {threats.map((t) => (
+              <div key={t.id} style={{ padding: "10px 6px", borderBottom: "1px solid var(--border)" }}>
+                <div className="row-between" style={{ marginBottom: 6 }}>
+                  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <span style={{ fontWeight: 500, fontSize: 13.5 }}>{t.name}</span>
+                    {t.aurigo_product && <span className="pill pill-live">{t.aurigo_product}</span>}
+                    <span
+                      className={`pill ${t.confidence >= 70 ? "pill-lost" : t.confidence >= 40 ? "pill-review" : "pill-pending"}`}
+                      title="Confidence this is a real, current threat"
+                    >
+                      {Math.round(t.confidence)}% confidence
+                    </span>
+                    {isAdmin && <span className={`pill ${t.status === "final" ? "pill-final" : "pill-draft"}`}>{t.status}</span>}
+                  </div>
+                  {isAdmin && t.status === "draft" && (
+                    <button className="btn btn-sm btn-primary" disabled={threatBusy} onClick={() => void approveThreat(t.id)}>
+                      <i className="fa-solid fa-circle-check" /> Approve
+                    </button>
+                  )}
+                </div>
+                <div className="prose" style={{ border: "none", boxShadow: "none", padding: 0, fontSize: 12.5, marginBottom: 6 }} dangerouslySetInnerHTML={{ __html: t.summary_html }} />
+                <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+                  <b>Why flagged:</b> {t.rationale}
+                </div>
+                {t.source_url && (
+                  <a href={t.source_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12 }}>
+                    <i className="fa-solid fa-arrow-up-right-from-square" style={{ fontSize: 10, marginRight: 4 }} />
+                    source
+                  </a>
+                )}
+              </div>
+            ))}
+          </div>
         </>
       )}
     </div>
