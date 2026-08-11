@@ -3,7 +3,7 @@ import { ask } from "./claude";
 import { markdownToHtml } from "./html";
 import { searchWeb, jinaConfigured } from "./jina";
 import { logActivity } from "./activity";
-import { CompetitorRow } from "./competitive";
+import { CompetitorRow, draftMarketThreat } from "./competitive";
 
 // Daily competitor news feed: one automatic scan per tracked competitor
 // every 24h, drafted candidates queued as "pending" for PMM approval before
@@ -133,6 +133,41 @@ export function startCompetitiveNewsPolling(): void {
   pollTimer = setInterval(() => void tick(), ONE_DAY_MS);
   void tick();
   console.log("[competitive-news] daily polling scheduler armed (24h interval, gated on JINA_API_KEY)");
+}
+
+let threatPollTimer: ReturnType<typeof setInterval> | null = null;
+
+/** Once a day, draft a threat assessment for every tracked competitor. Lands
+ * as status "draft" — PMM must still approve before anyone else sees it. */
+export function startMarketThreatPolling(): void {
+  if (threatPollTimer) return;
+  const tick = async () => {
+    try {
+      const sb = supabase();
+      if (!sb) return;
+      const { data: admin } = await sb.from("profiles").select("id").eq("role", "admin").limit(1).maybeSingle();
+      if (!admin) {
+        console.error("[market-threats] no admin profile found — skipping auto-draft tick");
+        return;
+      }
+      const { data: competitors } = await sb
+        .from("competitors")
+        .select("id, name, aliases, website, category, aurigo_product");
+      for (const c of (competitors ?? []) as CompetitorRow[]) {
+        try {
+          await draftMarketThreat(c.name, c.aurigo_product, null, admin.id);
+          console.log(`[market-threats] drafted assessment for ${c.name}`);
+        } catch (err) {
+          console.error(`[market-threats] draft failed for ${c.name}: ${(err as Error).message}`);
+        }
+      }
+    } catch (err) {
+      console.error("[market-threats] poll error:", (err as Error).message);
+    }
+  };
+  threatPollTimer = setInterval(() => void tick(), ONE_DAY_MS);
+  void tick();
+  console.log("[market-threats] daily auto-draft scheduler armed (24h interval)");
 }
 
 const LATEST_WINDOW_DAYS = 14;

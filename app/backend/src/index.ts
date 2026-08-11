@@ -27,11 +27,13 @@ import { templatesRouter } from "./routes/templates";
 import { agentsRouter } from "./routes/agents";
 import { customAgentsRouter } from "./routes/customAgents";
 import { referenceAssetsRouter } from "./routes/referenceAssets";
+import { exportRouter } from "./routes/export";
 import { syncAgentBaselines } from "./services/agents";
 import { WAR_ROOM_DIR } from "./services/warRoom";
 import { dbStatus } from "./services/db";
 import { startSharePointPolling } from "./services/sharepoint";
 import { restartInputWatcher } from "./services/localFolders";
+import { startCompetitiveNewsPolling, startMarketThreatPolling } from "./services/competitiveNews";
 
 const app = express();
 app.use(cors());
@@ -67,6 +69,7 @@ app.use("/api/templates", templatesRouter);
 app.use("/api/agents/custom", customAgentsRouter);
 app.use("/api/agents", agentsRouter);
 app.use("/api/reference-assets", referenceAssetsRouter);
+app.use("/api/export", exportRouter);
 
 // Uploaded files (previews/downloads go through routes; this serves raw files to admins via signed paths later)
 app.use("/files", express.static(path.resolve(__dirname, "..", "uploads")));
@@ -77,6 +80,8 @@ app.listen(port, () => {
   console.log(`War room: ${WAR_ROOM_DIR}`);
   startSharePointPolling();
   void restartInputWatcher();
+  startCompetitiveNewsPolling();
+  startMarketThreatPolling();
   // Reconcile agent base prompts from canonical sources (code constants +
   // .claude/agents files) — never touches admin-owned config fields.
   void syncAgentBaselines();
