@@ -6,3 +6,4 @@ dist/
 app/backend/uploads/
 local-folders/
 reference output/Output/
+*.tsbuildinfo
