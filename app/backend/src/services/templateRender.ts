@@ -294,8 +294,18 @@ export function renderTemplate(
   // regions directly on the styled render. Invisible otherwise; the slot text
   // inside is already escaped, and slot ids are template-authored identifiers.
   const wrapSlot = (slot: TemplateSlot, value: string, empty: boolean): string => {
-    if ((format !== "html" && format !== "email") || slot.render === "lines") return value;
+    if (format !== "html" && format !== "email") return value;
     const id = slot.id.replace(/["<>&]/g, "");
+    if (slot.render === "lines") {
+      // Each line is its own <li> — mark every one; the edit script reassembles
+      // the full slot text (all lines, newline-joined) on commit.
+      let line = 0;
+      return value.replace(
+        /<li>([\s\S]*?)<\/li>/g,
+        (_m, inner: string) =>
+          `<li><span data-slot="${id}" data-line="${line++}"${empty ? ' data-empty="1"' : ""}>${inner}</span></li>`
+      );
+    }
     return `<span data-slot="${id}"${empty ? ' data-empty="1"' : ""}>${value}</span>`;
   };
 
@@ -318,7 +328,7 @@ export function renderTemplate(
     rendered.set(
       slot.id,
       slot.render === "lines" && (format === "html" || format === "deck" || format === "email")
-        ? `<li>${placeholder}</li>`
+        ? wrapSlot(slot, `<li>${placeholder}</li>`, true)
         : wrapSlot(slot, placeholder, true)
     );
   }

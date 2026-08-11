@@ -43,10 +43,20 @@ const EDIT_SCRIPT = `<script>(function(){
     });
     el.addEventListener("blur", function () {
       el.style.outline = "1.5px dashed rgba(70,178,190,.6)";
-      parent.postMessage(
-        { hive: "slot-edit", id: el.getAttribute("data-slot"), text: el.innerText },
-        "*"
-      );
+      var id = el.getAttribute("data-slot");
+      var text;
+      if (el.hasAttribute("data-line")) {
+        // Lines slot: one <li> per line — reassemble the FULL slot text from
+        // every line element, in DOM order, so the fill round-trips intact.
+        var lines = [];
+        document.querySelectorAll('[data-slot="' + id + '"]').forEach(function (lineEl) {
+          lines.push(lineEl.innerText.replace(/\\n+/g, " ").trim());
+        });
+        text = lines.filter(function (l) { return l !== ""; }).join("\\n");
+      } else {
+        text = el.innerText;
+      }
+      parent.postMessage({ hive: "slot-edit", id: id, text: text }, "*");
     });
   });
 })();</scr` + `ipt>`;
