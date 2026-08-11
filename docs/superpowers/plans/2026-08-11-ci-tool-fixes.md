@@ -12,7 +12,7 @@
 
 - Draft → approval → final for anything PMM-gated; PMM = `role === "admin"` (`app/backend/src/middleware/auth.ts`).
 - Competitor facts only from scraped sources; Aurigo facts only from the knowledge base — never invented (existing rule in `competitive.ts`, unchanged).
-- No real email sending in this pass — the inbox-subscribe box is UI + a stub save-only endpoint.
+- The "daily intel to your inbox" subscribe feature is dropped for this pass (user decision, 2026-08-11) — no subscribe endpoint, no subscribe UI, no `news_subscriptions` table.
 - No change to the news-items approval gate — stays auto-visible + dismiss-after-the-fact.
 - No change to the overall CompetitiveIntel page shell, tabs, or navigation — News tab and CI Reports tab content only.
 - Follow the existing `*.pure.test.ts` convention: test pure functions with `node:test` + `node:assert/strict`; don't attempt to mock Supabase or the Claude API in tests — those paths get manual/dev-server verification.
@@ -804,7 +804,41 @@ git commit -m "app(competitive): let PMM flag priority URLs when generating a CI
 
 ---
 
-### Task 7: Subscribe stub endpoint
+### Task 7: Subscribe stub endpoint — DROPPED
+
+**Dropped by user decision on 2026-08-11.** The "daily intel to your inbox" subscribe feature is out of scope for this pass. Do not implement this task. `news_subscriptions` (added in Task 1) is being removed by a follow-up migration; see Task 7b below.
+
+### Task 7b: Migration — drop news_subscriptions
+
+**Files:**
+- Create: `supabase/migrations/0021_drop_news_subscriptions.sql`
+
+- [ ] **Step 1: Write the migration**
+
+```sql
+-- Reverts the news_subscriptions table added in 0020_ci_news_priority.sql —
+-- the "daily intel to your inbox" subscribe feature was dropped before
+-- Task 7 built its endpoint/UI. category/priority on news_items (also from
+-- 0020) are unaffected and stay in place.
+
+drop table if exists news_subscriptions;
+```
+
+- [ ] **Step 2: Apply it**
+
+Run: `cd app/backend && npm run migrate`
+Expected: applies cleanly (or notes "not applied — no DATABASE_URL in this environment").
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add supabase/migrations/0021_drop_news_subscriptions.sql
+git commit -m "app(competitive): drop news_subscriptions — subscribe feature descoped"
+```
+
+---
+
+### Task 7 (original text, not implemented — kept for record)
 
 **Files:**
 - Modify: `app/backend/src/routes/competitive.ts` (add after the `/news/:id/dismiss` route, ~line 423)
@@ -856,7 +890,7 @@ git commit -m "app(competitive): add news-digest subscribe endpoint (save-only, 
 - Modify: `app/frontend/src/pages/CompetitiveIntel.tsx`
 
 **Interfaces:**
-- Consumes: `GET /api/competitive/news?view=&priority=` (Task 3), `POST /api/competitive/news/subscribe` (Task 7), existing `NewsItemRow` shape (now with `category`, `priority`), existing `battlecards`/`threats`/`reports` state.
+- Consumes: `GET /api/competitive/news?view=&priority=` (Task 3), existing `NewsItemRow` shape (now with `category`, `priority`), existing `battlecards`/`threats`/`reports` state.
 - Produces: nothing consumed elsewhere — this is the leaf UI task.
 
 - [ ] **Step 1: Extend the `NewsItemRow` interface**
@@ -886,9 +920,6 @@ Add near the other news-related state (currently lines 329-331):
   const [newsError, setNewsError] = useState("");
   const [newsView, setNewsView] = useState<"latest" | "past" | "site_changes">("latest");
   const [newsPriority, setNewsPriority] = useState<"all" | "high">("all");
-  const [subscribeEmail, setSubscribeEmail] = useState("");
-  const [subscribeBusy, setSubscribeBusy] = useState(false);
-  const [subscribeMsg, setSubscribeMsg] = useState("");
 ```
 
 Add a loader effect right after the existing `useEffect(() => { void load(); }, [load]);` (currently around line 407-409):
@@ -912,27 +943,7 @@ Add a loader effect right after the existing `useEffect(() => { void load(); }, 
 
 Remove the now-redundant unfiltered fetch inside `load()` (currently `const nn = await apiGet<{ items: NewsItemRow[] }>("/api/competitive/news"); setNews(nn.items);` around line 398-399) — `loadNews` owns this fetch now.
 
-- [ ] **Step 3: Add the subscribe handler**
-
-Add near `dismissNews` (currently starting at line 628):
-
-```typescript
-  const subscribe = async () => {
-    if (!subscribeEmail.trim()) return;
-    setSubscribeBusy(true);
-    setSubscribeMsg("");
-    try {
-      await apiPost("/api/competitive/news/subscribe", { email: subscribeEmail.trim() });
-      setSubscribeMsg("Saved — daily digest sending isn't wired up yet, but your preference is recorded.");
-    } catch (e) {
-      setSubscribeMsg((e as Error).message);
-    } finally {
-      setSubscribeBusy(false);
-    }
-  };
-```
-
-- [ ] **Step 4: Replace the News tab JSX**
+- [ ] **Step 3: Replace the News tab JSX**
 
 Replace the entire News tab block (currently `app/frontend/src/pages/CompetitiveIntel.tsx:1270-1303`):
 
@@ -989,23 +1000,6 @@ Replace the entire News tab block (currently `app/frontend/src/pages/Competitive
               </div>
               <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>Site changes (7d)</div>
             </div>
-          </div>
-
-          <div className="card" style={{ marginTop: 12, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-            <div style={{ flex: 1, minWidth: 220 }}>
-              <div style={{ fontWeight: 500, fontSize: 13.5 }}>Daily intel to your inbox</div>
-              <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>Save your email — sending isn't wired up yet.</div>
-            </div>
-            <input
-              placeholder="you@aurigo.com"
-              value={subscribeEmail}
-              onChange={(e) => setSubscribeEmail(e.target.value)}
-              style={{ minWidth: 220 }}
-            />
-            <button className="btn btn-primary btn-sm" disabled={subscribeBusy || !subscribeEmail.trim()} onClick={() => void subscribe()}>
-              Subscribe
-            </button>
-            {subscribeMsg && <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>{subscribeMsg}</span>}
           </div>
 
           <div className="grid grid-3" style={{ marginTop: 12 }}>
@@ -1080,7 +1074,7 @@ Expected: no errors.
 - [ ] **Step 6: Manual verification**
 
 Run: `cd app/frontend && npm run dev` (with backend running via `cd app/backend && npm run dev`)
-Then in the browser: open Competitive Intel → Daily news tab. Confirm: the Latest/Past news/Site Changes pills and All/High priority pills render and change which items show; the three summary tiles show numbers (0 is fine if there's no seeded data); the subscribe box saves and shows the confirmation message; category cards render even when empty ("Nothing here yet.").
+Then in the browser: open Competitive Intel → Daily news tab. Confirm: the Latest/Past news/Site Changes pills and All/High priority pills render and change which items show; the three summary tiles show numbers (0 is fine if there's no seeded data); category cards render even when empty ("Nothing here yet.").
 
 - [ ] **Step 7: Commit**
 
@@ -1230,4 +1224,4 @@ git commit -m "app(competitive): product-first competitor filter and priority UR
 
 ## Post-implementation
 
-- [ ] Update `GTM-War-Room/HANDOVER.md` per CLAUDE.md rule 7: what was built (news categorization/priority/site-changes, auto-drafted market threats, priority URLs and per-product filtering on CI report generation), that the migration `0020_ci_news_priority.sql` needs `npm run migrate` run against the real Supabase instance if it wasn't run during implementation, and that real email sending for the digest subscribe box remains a follow-up.
+- [ ] Update `GTM-War-Room/HANDOVER.md` per CLAUDE.md rule 7: what was built (news categorization/priority/site-changes, auto-drafted market threats, priority URLs and per-product filtering on CI report generation), that migrations `0020_ci_news_priority.sql` and `0021_drop_news_subscriptions.sql` need `npm run migrate` run against the real Supabase instance if it wasn't run during implementation, and that the "daily intel to your inbox" subscribe feature was descoped entirely (dropped Task 7, dropped the table) rather than deferred.
