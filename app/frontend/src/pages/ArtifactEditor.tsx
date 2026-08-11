@@ -95,6 +95,16 @@ export function ArtifactEditor() {
   const [converting, setConverting] = useState(false);
   const [convertError, setConvertError] = useState<string | null>(null);
 
+  // Render-backed artifacts (slot-fill datasheets etc.): the document editor is
+  // the default surface — every artifact edits like the deck — with the
+  // template-slot surface one tab away.
+  const [renderSurface, setRenderSurface] = useState<"editor" | "slots">("editor");
+
+  // History + comments are compact, collapsed-by-default panels (they were
+  // crowding the working surface).
+  const [showHistory, setShowHistory] = useState(false);
+  const [showComments, setShowComments] = useState(false);
+
   const load = useCallback(async () => {
     if (!id) return;
     try {
@@ -270,8 +280,42 @@ export function ArtifactEditor() {
           onRefresh={load}
         />
       ) : render !== null ? (
-        /* 2. Template-generated: the render surface — byte-identical behavior. */
+        /* 2. Template-generated: document editor by default (every artifact
+           edits like the deck), template-slot surface one tab away. */
         <>
+          <div className="tab-row" style={{ margin: "0 0 16px" }}>
+            <button
+              className={renderSurface === "editor" ? "active" : ""}
+              onClick={() => setRenderSurface("editor")}
+            >
+              <i className="fa-solid fa-pen-to-square" style={{ marginRight: 6 }} /> Editor
+            </button>
+            <button
+              className={renderSurface === "slots" ? "active" : ""}
+              onClick={() => setRenderSurface("slots")}
+            >
+              <i className="fa-solid fa-table-cells-large" style={{ marginRight: 6 }} /> Template
+              slots &amp; render
+            </button>
+          </div>
+
+          {renderSurface === "editor" ? (
+            canEdit ? (
+              <DocEditor
+                artifactId={artifact.id}
+                contentHtml={html}
+                currentVersion={artifact.current_version}
+                onRefresh={load}
+              />
+            ) : (
+              <div
+                className="prose"
+                style={{ marginBottom: 18 }}
+                dangerouslySetInnerHTML={{ __html: html }}
+              />
+            )
+          ) : (
+          <>
           {render.warnings.length > 0 && (
             <div
               style={{
@@ -358,6 +402,8 @@ export function ArtifactEditor() {
               <TemplatePreview format={render.format} payload={render.payload} title={artifact.title} />
             </div>
           </div>
+          </>
+          )}
         </>
       ) : canEdit ? (
         /* 3 + 4. Document editor v2; legacy decks get the convert banner first. */
@@ -413,18 +459,40 @@ export function ArtifactEditor() {
         />
       )}
 
-      <VersionHistoryPanel
-        artifactId={artifact.id}
-        artifactTitle={artifact.title}
-        currentVersion={artifact.current_version}
-        versions={versions}
-        canEdit={canEdit}
-        isRenderArtifact={render !== null}
-        productName={artifact.product_name}
-        onChanged={load}
-      />
+      {/* Compact, collapsed-by-default footer — history and comments are
+          reference material, not the working surface. */}
+      <div style={{ display: "flex", gap: 10, marginTop: 4, marginBottom: 10, flexWrap: "wrap" }}>
+        <button
+          className="btn btn-sm"
+          aria-expanded={showHistory}
+          onClick={() => setShowHistory((o) => !o)}
+        >
+          <i className={`fa-solid ${showHistory ? "fa-chevron-down" : "fa-clock-rotate-left"}`} />{" "}
+          Version history ({versions.length})
+        </button>
+        <button
+          className="btn btn-sm"
+          aria-expanded={showComments}
+          onClick={() => setShowComments((o) => !o)}
+        >
+          <i className={`fa-solid ${showComments ? "fa-chevron-down" : "fa-comments"}`} /> Comments
+        </button>
+      </div>
 
-      <Comments entityType="artifact" entityId={artifact.id} />
+      {showHistory && (
+        <VersionHistoryPanel
+          artifactId={artifact.id}
+          artifactTitle={artifact.title}
+          currentVersion={artifact.current_version}
+          versions={versions}
+          canEdit={canEdit}
+          isRenderArtifact={render !== null}
+          productName={artifact.product_name}
+          onChanged={load}
+        />
+      )}
+
+      {showComments && <Comments entityType="artifact" entityId={artifact.id} />}
     </div>
   );
 }
