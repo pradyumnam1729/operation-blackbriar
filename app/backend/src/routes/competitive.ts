@@ -502,6 +502,75 @@ competitiveRouter.get("/frameworks/:key/history", requireAuth, async (req, res) 
   }
 });
 
+/** Generic, safe HTML rendering of a framework result object (headings from
+ *  keys, lists from string arrays); sanitized as a whole before storage. */
+function frameworkResultHtml(value: unknown, depth = 2): string {
+  if (value == null) return "";
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return `<p>${String(value)}</p>`;
+  }
+  if (Array.isArray(value)) {
+    if (value.every((v) => typeof v === "string" || typeof v === "number")) {
+      return `<ul>${value.map((v) => `<li>${String(v)}</li>`).join("")}</ul>`;
+    }
+    return value.map((v) => frameworkResultHtml(v, depth)).join("");
+  }
+  return Object.entries(value as Record<string, unknown>)
+    .map(([k, v]) => {
+      const label = k.replace(/[_-]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+      const tag = `h${Math.min(depth, 4)}`;
+      return `<${tag}>${label}</${tag}>${frameworkResultHtml(v, depth + 1)}`;
+    })
+    .join("");
+}
+
+// POST /api/competitive/frameworks/:key/save-as-artifact — the framework
+// generators get the same save-to-workspace affordance as the digest
+// (consistency sweep §2.1: three sibling generators, one persistence model).
+competitiveRouter.post("/frameworks/:key/save-as-artifact", requireAuth, async (req, res) => {
+  const key = req.params.key as FrameworkKey;
+  if (!FRAMEWORK_KEYS.includes(key)) return res.status(404).json({ error: "Unknown framework" });
+  try {
+    const analysis = await getLatestFramework(key, {
+      competitorId:
+        typeof (req.body ?? {}).competitorId === "string" ? (req.body.competitorId as string) : undefined,
+    });
+    if (!analysis) {
+      return res.status(404).json({ error: "No analysis to save — build the framework first" });
+    }
+    const sb = supabase()!;
+    const title = `${key.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())} — competitive analysis`;
+    const html = cleanHtml(
+      `<h1>${title}</h1>${analysis.summaryHtml ?? ""}${frameworkResultHtml(analysis.result)}<p>Generated ${analysis.createdAt.slice(0, 10)} from live competitive intelligence. Review before promoting to final.</p>`
+    );
+    const { data: artifact, error } = await sb
+      .from("artifacts")
+      .insert({
+        title,
+        asset_type: "other",
+        persona: "Leadership",
+        status: "draft",
+        current_version: 1,
+        created_by: req.user!.id,
+      })
+      .select("id")
+      .single();
+    if (error || !artifact) return res.status(500).json({ error: error?.message ?? "Save failed" });
+    const { error: vErr } = await sb.from("artifact_versions").insert({
+      artifact_id: artifact.id,
+      version: 1,
+      content_html: html,
+      note: `AI: generated from the ${key} framework analysis`,
+      created_by: req.user!.id,
+    });
+    if (vErr) return res.status(500).json({ error: vErr.message });
+    void logActivity("artifact", artifact.id, req.user!.id, "framework_saved_as_artifact", { key });
+    res.json({ artifactId: artifact.id });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
 // ---------- Phase 1: one-call ELT overview ----------
 
 competitiveRouter.get("/elt-overview", requireAuth, async (_req, res) => {
@@ -722,7 +791,7 @@ competitiveRouter.post("/comparisons/:id/battlecard", requireAuth, async (req, r
     artifact_id: artifact.id,
     version: 1,
     content_html: contentHtml,
-    note: "Generated from Competitive Intel comparison",
+    note: "AI: generated from a Competitive Intel comparison",
     created_by: req.user!.id,
   });
   if (cmp.competitor_id) {
@@ -807,7 +876,7 @@ competitiveRouter.post("/battlecards/:artifactId/regenerate", requireAuth, async
       sb,
       link.artifact_id,
       contentHtml,
-      "Regenerated after competitor change (draft — review before promoting)",
+      "AI: regenerated after competitor change (draft — review before promoting)",
       req.user!
     );
     if (!appended.ok) return res.status(appended.status).json({ error: appended.error });

@@ -422,7 +422,12 @@ export function UploadsConsole() {
 
   return (
     <div>
-      <h1 className="pagetitle">Uploads console</h1>
+      <h1 className="pagetitle">
+        Uploads console{" "}
+        <span className="pill pill-lock" style={{ marginLeft: 6 }}>
+          <i className="fa-solid fa-lock" style={{ fontSize: 9 }} /> Admin only
+        </span>
+      </h1>
       <p className="pagesub">
         Drop source material — PRDs, JTBDs, call transcripts, release notes. Files are deduplicated
         and chunked into the knowledge base; promoting a file enables it for AI features.

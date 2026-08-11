@@ -161,7 +161,7 @@ export async function saveDigestAsArtifact(id: string, userId: string): Promise<
     artifact_id: artifact.id,
     version: 1,
     content_html: cleanHtml(`<h1>${title}</h1>${digest.contentHtml}`),
-    note: "Generated from the competitive delta feed",
+    note: "AI: generated from the competitive delta feed",
     created_by: userId,
   });
   return artifact.id;

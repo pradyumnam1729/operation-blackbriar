@@ -141,7 +141,14 @@ export function ArtifactLibrary() {
     <div>
       <div className="row-between" style={{ marginBottom: 4 }}>
         <div>
-          <h1 className="pagetitle">PMM Workspace</h1>
+          <h1 className="pagetitle">
+            PMM Workspace{" "}
+            {admin && (
+              <span className="pill pill-lock" style={{ marginLeft: 6 }}>
+                <i className="fa-solid fa-lock" style={{ fontSize: 9 }} /> Admin only
+              </span>
+            )}
+          </h1>
           {!showQuestionnaire && (
             <p className="pagesub">Every finished asset, versioned. Non-admins see final only.</p>
           )}
@@ -160,7 +167,7 @@ export function ArtifactLibrary() {
       {admin && (
         <div className="tab-row" style={{ margin: "10px 0 16px" }}>
           <button className={view === "assets" ? "active" : ""} onClick={() => setView("assets")}>
-            <i className="fa-solid fa-box-archive" style={{ marginRight: 6 }} /> Asset repository
+            <i className="fa-solid fa-box-archive" style={{ marginRight: 6 }} /> Asset workspace
           </button>
           <button
             className={view === "questionnaire" ? "active" : ""}

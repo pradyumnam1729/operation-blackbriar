@@ -162,7 +162,7 @@ const TRACE_LABELS: Record<string, { icon: string; label: string }> = {
   search_war_room: { icon: "fa-folder-open", label: "Searched war room" },
   get_product_features: { icon: "fa-layer-group", label: "Pulled feature catalog" },
   get_competitor_sources: { icon: "fa-chess", label: "Fetched competitor sources" },
-  list_final_assets: { icon: "fa-box-archive", label: "Checked repository" },
+  list_final_assets: { icon: "fa-box-archive", label: "Checked the workspace" },
   invoke_custom_agent: { icon: "fa-plug", label: "Delegated to team agent" },
 };
 
@@ -294,6 +294,29 @@ export function Home() {
       setGenPhase("select");
     } finally {
       if (loadTimer.current !== null) window.clearInterval(loadTimer.current);
+    }
+  };
+
+  // Save the quick-generated result as a draft artifact — same persistence
+  // semantics as every other generation surface (consistency sweep).
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const saveDraft = async () => {
+    if (!genResult || !genCard) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const r = await apiPost<{ artifactId: string }>("/api/quick-generate/save", {
+        action: actionOf(genCard),
+        product: genProduct,
+        industry: genIndustry,
+        contentType: genType || undefined,
+        html: genResult.html,
+      });
+      window.location.assign(`/library/${r.artifactId}`);
+    } catch (e) {
+      setSaveError((e as Error).message);
+      setSaving(false);
     }
   };
 
@@ -729,15 +752,24 @@ export function Home() {
                     Grounded in: {genResult.evidence.map((e) => e.title).join(", ")}
                   </div>
                 )}
-                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16, flexWrap: "wrap" }}>
                   <button className="btn" onClick={() => setGenPhase("select")}>
                     <i className="fa-solid fa-arrow-left" /> Go to the previous menu
+                  </button>
+                  <button className="btn" disabled={saving} onClick={() => void saveDraft()}>
+                    <i className={`fa-solid ${saving ? "fa-spinner fa-spin" : "fa-floppy-disk"}`} />{" "}
+                    {saving ? "Saving…" : "Save as draft"}
                   </button>
                   <button className="btn btn-primary" onClick={() => void copyResult()}>
                     <i className={`fa-solid ${copied ? "fa-check" : "fa-copy"}`} />{" "}
                     {copied ? "Copied" : "Copy"}
                   </button>
                 </div>
+                {saveError !== null && (
+                  <div style={{ marginTop: 10, padding: "9px 13px", background: "#FCE8E8", borderRadius: "var(--r-md)", color: "#A32D2D", fontSize: 12.5 }}>
+                    {saveError}
+                  </div>
+                )}
               </>
             )}
           </div>

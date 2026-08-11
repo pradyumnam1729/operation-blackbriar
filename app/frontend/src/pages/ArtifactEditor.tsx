@@ -113,16 +113,21 @@ export function ArtifactEditor() {
   const [editableRegions, setEditableRegions] = useState<number | null>(null);
   const [inlineSaving, setInlineSaving] = useState(false);
   const [inlineError, setInlineError] = useState<string | null>(null);
+  const [inlineGuard, setInlineGuard] = useState<{ ok: boolean; violations: string[] } | null>(null);
 
   const saveInlineEdits = async () => {
     if (!id || Object.keys(pendingFills).length === 0) return;
     setInlineSaving(true);
     setInlineError(null);
     try {
-      await apiPost(`/api/artifacts/${id}/slots`, {
-        fills: pendingFills,
-        note: inlineNote.trim() || "Inline edits on the rendered view",
-      });
+      const r = await apiPost<{ version: number; guard?: { ok: boolean; violations: string[] } }>(
+        `/api/artifacts/${id}/slots`,
+        {
+          fills: pendingFills,
+          note: inlineNote.trim() || "Inline edits on the rendered view",
+        }
+      );
+      setInlineGuard(r.guard ?? null);
       setPendingFills({});
       setInlineNote("");
       await load();
@@ -246,7 +251,7 @@ export function ArtifactEditor() {
         <h1 className="pagetitle">Artifact unavailable</h1>
         <div style={errStrip}>{loadError ?? "Artifact not found."}</div>
         <button className="btn" style={{ marginTop: 14 }} onClick={() => navigate("/library")}>
-          <i className="fa-solid fa-arrow-left" /> Back to repository
+          <i className="fa-solid fa-arrow-left" /> Back to the workspace
         </button>
       </div>
     );
@@ -269,7 +274,7 @@ export function ArtifactEditor() {
   return (
     <div>
       <button className="btn btn-sm" style={{ marginBottom: 14 }} onClick={() => navigate("/library")}>
-        <i className="fa-solid fa-arrow-left" /> Repository
+        <i className="fa-solid fa-arrow-left" /> Workspace
       </button>
 
       <div className="row-between" style={{ alignItems: "flex-start", marginBottom: 18 }}>
@@ -479,6 +484,26 @@ export function ArtifactEditor() {
           </div>
 
           {inlineError && <div style={{ ...errStrip, marginTop: 0, marginBottom: 14 }}>{inlineError}</div>}
+          {inlineGuard !== null && !inlineGuard.ok && (
+            <div
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                background: "#FCF0DA",
+                color: "#8A5A0B",
+                borderRadius: "var(--r-pill)",
+                padding: "4px 12px",
+                fontSize: 12,
+                fontWeight: 500,
+                marginBottom: 14,
+              }}
+            >
+              <i className="fa-solid fa-triangle-exclamation" />
+              {inlineGuard.violations.length} banned word{inlineGuard.violations.length === 1 ? "" : "s"} — will
+              block finalization: {inlineGuard.violations.join(", ")}
+            </div>
+          )}
 
           <div
             className="deck-workspace"

@@ -415,7 +415,7 @@ export function Studio() {
                           <button
                             className="btn btn-sm"
                             onClick={() => navigate(`/library/${a.id}`)}
-                            title="Edit in the PMM workspace repository"
+                            title="Edit in the PMM workspace"
                           >
                             <i className="fa-solid fa-pen" /> Edit
                           </button>

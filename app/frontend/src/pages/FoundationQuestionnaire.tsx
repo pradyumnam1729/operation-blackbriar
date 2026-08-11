@@ -250,7 +250,7 @@ export function FoundationQuestionnaire({ embedded = false }: { embedded?: boole
   if (!admin) {
     return (
       <div>
-        {!embedded && <h1 className="pagetitle">Foundation questionnaire</h1>}
+        {!embedded && <h1 className="pagetitle">Positioning &amp; messaging</h1>}
         <div className="card">
           <div className="empty-note">
             The Foundation Questionnaire is the PMM admin&rsquo;s workspace. Approved messaging
@@ -330,7 +330,7 @@ export function FoundationQuestionnaire({ embedded = false }: { embedded?: boole
       <div className="row-between" style={{ marginBottom: 4 }}>
         {!embedded && (
           <h1 className="pagetitle" style={{ margin: 0 }}>
-            Foundation questionnaire
+            Positioning &amp; messaging
           </h1>
         )}
         <select

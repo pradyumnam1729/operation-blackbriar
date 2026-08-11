@@ -375,7 +375,7 @@ export async function generateFromTemplate(
     artifact_id: artifactId,
     version: 1,
     content_html: digest,
-    note: `Generated from template "${template.name}" v${template.template_version}`,
+    note: `AI: generated from template "${template.name}" v${template.template_version}`,
     created_by: userId,
   });
   if (verErr) throw new TemplateGenError(verErr.message, 500);

@@ -164,8 +164,8 @@ export function Layout() {
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search the repository…"
-                aria-label="Search the repository"
+                placeholder="Search the PMM workspace…"
+                aria-label="Search the PMM workspace"
               />
             </form>
           ) : (

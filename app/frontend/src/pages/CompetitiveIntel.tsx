@@ -757,6 +757,24 @@ export function CompetitiveIntel() {
     }
   };
 
+  // Frameworks get the same save-to-workspace affordance as the digest
+  // (consistency: three sibling generators, one persistence model).
+  const saveFramework = async () => {
+    setFwBusy(true);
+    setFwError("");
+    try {
+      const r = await apiPost<{ artifactId: string }>(
+        `/api/competitive/frameworks/${fwKey}/save-as-artifact`,
+        { competitorId: fwKey === "swot" ? fwCompetitor || undefined : undefined }
+      );
+      navigate(`/library/${r.artifactId}`);
+    } catch (e) {
+      setFwError((e as Error).message);
+    } finally {
+      setFwBusy(false);
+    }
+  };
+
   const buildDigestNow = async () => {
     setOverviewBusy("digest");
     setError("");
@@ -1499,6 +1517,16 @@ export function CompetitiveIntel() {
               <button className="btn btn-primary btn-sm" disabled={fwBusy || (fwKey === "swot" && !fwCompetitor)} onClick={() => void buildFrameworkNow()}>
                 <i className={`fa-solid ${fwBusy ? "fa-spinner fa-spin" : "fa-wand-magic-sparkles"}`} /> {fwAnalysis ? "Rebuild" : "Build"}
               </button>
+              {fwAnalysis && (
+                <button
+                  className="btn btn-sm"
+                  disabled={fwBusy}
+                  title="Save this analysis to the PMM workspace as a draft"
+                  onClick={() => void saveFramework()}
+                >
+                  <i className="fa-solid fa-floppy-disk" /> Save as draft
+                </button>
+              )}
             </div>
           </div>
           <p style={{ fontSize: 12.5, color: "var(--text-secondary)", margin: "0 0 12px" }}>

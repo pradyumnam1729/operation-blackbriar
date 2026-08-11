@@ -2,8 +2,9 @@ import { Router } from "express";
 import { requireAuth } from "../middleware/auth";
 import { supabase } from "../services/db";
 import { ask } from "../services/claude";
-import { markdownToHtml } from "../services/html";
+import { cleanHtml, markdownToHtml } from "../services/html";
 import { chunksToContext, retrieveChunks } from "../services/ingestion";
+import { logActivity } from "../services/activity";
 import { contentFrameworks } from "../services/guardrailFiles";
 
 // Home-dashboard quick generation (hive 2): every persona card generates a
@@ -278,4 +279,63 @@ quickGenRouter.post("/", async (req, res) => {
   } catch (err) {
     res.status(502).json({ error: (err as Error).message });
   }
+});
+
+// Which artifact type a saved quick-gen result becomes (consistency sweep:
+// every generation surface can land in the versioned artifact system).
+const ASSET_TYPE_BY_ACTION: Record<string, string> = {
+  "Competitive intel": "battlecard",
+  "Campaign brief generator": "one-pager",
+  "SEO/AEO content brief builder": "one-pager",
+  "Quarterly exec summary": "one-pager",
+  "Analyst/press briefing brief": "one-pager",
+  "LinkedIn content kit": "email",
+  "Content creation studio": "other",
+};
+
+// POST /api/quick-generate/save — persist a quick-generated result as a draft
+// artifact, same semantics as every other generation surface.
+quickGenRouter.post("/save", async (req, res) => {
+  const { action, product, industry, contentType, html } = (req.body ?? {}) as {
+    action?: string;
+    product?: string;
+    industry?: string;
+    contentType?: string;
+    html?: string;
+  };
+  if (!action || !ACTIONS[action]) return res.status(400).json({ error: "Unknown action" });
+  if (!html || html.trim() === "") return res.status(400).json({ error: "Nothing to save" });
+  const sb = supabase();
+  if (!sb) return res.status(503).json({ error: "Database not configured" });
+
+  const clean = cleanHtml(html);
+  const isGeneric = !industry || industry === GENERIC_VERTICAL;
+  const title = `${contentType ?? action} — ${product ?? "Aurigo"}${isGeneric ? "" : ` (${industry})`}`;
+
+  const { data: artifact, error } = await sb
+    .from("artifacts")
+    .insert({
+      title,
+      asset_type: ASSET_TYPE_BY_ACTION[action] ?? "other",
+      product_id: null,
+      persona: null,
+      status: "draft",
+      current_version: 1,
+      created_by: req.user!.id,
+    })
+    .select("id")
+    .single();
+  if (error || !artifact) return res.status(500).json({ error: error?.message ?? "Save failed" });
+
+  const { error: vErr } = await sb.from("artifact_versions").insert({
+    artifact_id: artifact.id,
+    version: 1,
+    content_html: clean,
+    note: `AI: quick-generated on Home (${action})`,
+    created_by: req.user!.id,
+  });
+  if (vErr) return res.status(500).json({ error: vErr.message });
+
+  void logActivity("artifact", artifact.id, req.user!.id, "quick_gen_saved", { action, title });
+  res.status(201).json({ artifactId: artifact.id });
 });
