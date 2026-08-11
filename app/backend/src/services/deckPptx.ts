@@ -1,3 +1,6 @@
+import AdmZip from "adm-zip";
+import fs from "fs";
+import path from "path";
 import PptxGenJS from "pptxgenjs";
 import { DeckDoc, DeckSlide } from "./deck";
 import { DECK_THEME } from "./deckTheme";
@@ -223,6 +226,45 @@ export async function buildDeckPptx(
     if (s.notes) slide.addNotes(s.notes);
   }
 
-  const out = await pptx.write({ outputType: "nodebuffer" });
-  return out as Buffer;
+  const out = (await pptx.write({ outputType: "nodebuffer" })) as Buffer;
+  return applySourceTheme(out);
+}
+
+const TEMPLATE_PPTX = path.resolve(
+  __dirname,
+  "..",
+  "..",
+  "..",
+  "..",
+  "AURIGO_PPT_TEMPLATE_2026.pptx"
+);
+
+let cachedThemeXml: Buffer | null | undefined;
+
+/**
+ * Carry the corporate theme AS IS: replace the generated file's theme1.xml
+ * with the source template's verbatim theme part. Slides we author already
+ * use the palette explicitly; this makes the FILE's theme (color scheme, font
+ * scheme) the corporate one too — slides added later in PowerPoint inherit
+ * the Aurigo theme. If the template file is absent, the export still works.
+ */
+function applySourceTheme(buffer: Buffer): Buffer {
+  if (cachedThemeXml === undefined) {
+    try {
+      cachedThemeXml = new AdmZip(fs.readFileSync(TEMPLATE_PPTX))
+        .getEntry("ppt/theme/theme1.xml")!
+        .getData();
+    } catch {
+      cachedThemeXml = null;
+    }
+  }
+  if (!cachedThemeXml) return buffer;
+  try {
+    const zip = new AdmZip(buffer);
+    if (!zip.getEntry("ppt/theme/theme1.xml")) return buffer;
+    zip.updateFile("ppt/theme/theme1.xml", cachedThemeXml);
+    return zip.toBuffer();
+  } catch {
+    return buffer;
+  }
 }

@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import {
+  apiGet,
+  apiGetBlob,
   deleteTemplate,
   getTemplate,
   listTemplates,
@@ -196,6 +198,124 @@ function PreviewDrawer({ summary, admin, onClose, onEdit, onGenerate }: PreviewD
 
 // ---------- Page ----------
 
+// ---- Brand theme card: the corporate PPT template that governs every deck ----
+
+interface BrandTheme {
+  source: string;
+  extracted: string;
+  available: boolean;
+  sizeBytes: number | null;
+  colors: Record<string, string>;
+  fonts: { pptx: string; web: string };
+  slide: { widthIn: number; heightIn: number };
+  layouts: { key: string; label: string; dark: boolean }[];
+}
+
+const SWATCH_ORDER: [string, string][] = [
+  ["tealDark", "Dark teal"],
+  ["ink", "Ink"],
+  ["tealLight", "Teal light"],
+  ["tealMid", "Teal mid"],
+  ["mist", "Mist"],
+  ["charcoal", "Charcoal"],
+  ["red", "Accent red"],
+  ["green", "Green"],
+  ["orange", "Orange"],
+];
+
+function BrandThemeCard() {
+  const [theme, setTheme] = useState<BrandTheme | null>(null);
+  const [downloading, setDownloading] = useState(false);
+
+  useEffect(() => {
+    apiGet<BrandTheme>("/api/templates/brand-theme")
+      .then(setTheme)
+      .catch(() => setTheme(null));
+  }, []);
+
+  const download = async () => {
+    if (!theme) return;
+    setDownloading(true);
+    try {
+      const blob = await apiGetBlob("/api/templates/brand-theme/download");
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = theme.source;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      /* surfaced by the button state reset */
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  if (!theme) return null;
+
+  return (
+    <div className="card" style={{ borderLeft: "3px solid var(--teal-dark)" }}>
+      <div className="row-between" style={{ marginBottom: 6, flexWrap: "wrap", gap: 10 }}>
+        <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600 }}>
+          <i className="fa-regular fa-file-powerpoint" style={{ marginRight: 8, color: "var(--teal-dark)" }} />
+          Corporate PPT theme — {theme.source}
+        </h3>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
+          <span className="pill pill-final">Governs every deck</span>
+          <button className="btn btn-sm" onClick={() => void download()} disabled={downloading || !theme.available}>
+            <i className={`fa-solid ${downloading ? "fa-spinner fa-spin" : "fa-download"}`} /> Download
+            source (.pptx)
+          </button>
+        </span>
+      </div>
+      <p style={{ fontSize: 12.5, color: "var(--text-secondary)", margin: "0 0 12px", lineHeight: 1.55 }}>
+        Every generated deck and exported .pptx is styled from this template — its theme rides
+        verbatim inside each exported file, so slides added later in PowerPoint inherit it too.
+        Extracted {theme.extracted} · {theme.slide.widthIn}&Prime; × {theme.slide.heightIn}&Prime; ·{" "}
+        {theme.fonts.pptx} in exports, {theme.fonts.web} on the web canvas.
+      </p>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
+        {SWATCH_ORDER.filter(([key]) => theme.colors[key]).map(([key, label]) => (
+          <div key={key} style={{ display: "flex", alignItems: "center", gap: 7 }}>
+            <span
+              title={`#${theme.colors[key]}`}
+              style={{
+                width: 22,
+                height: 22,
+                background: `#${theme.colors[key]}`,
+                border: "1px solid var(--border)",
+                display: "inline-block",
+              }}
+            />
+            <span style={{ fontSize: 11.5, color: "var(--text-secondary)" }}>
+              {label}
+              <span style={{ color: "var(--text-muted)", fontFamily: "Consolas, monospace", marginLeft: 5 }}>
+                #{theme.colors[key]}
+              </span>
+            </span>
+          </div>
+        ))}
+      </div>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        {theme.layouts.map((l) => (
+          <span
+            key={l.key}
+            style={{
+              fontSize: 11.5,
+              padding: "5px 11px",
+              background: l.dark ? `#${theme.colors.tealDark}` : `#${theme.colors.mist}`,
+              color: l.dark ? "#fff" : `#${theme.colors.charcoal}`,
+              border: "1px solid var(--border)",
+            }}
+          >
+            {l.label}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function Templates() {
   const { me } = useAuth();
   const navigate = useNavigate();
@@ -282,6 +402,8 @@ export function Templates() {
           </button>
         )}
       </div>
+
+      <BrandThemeCard />
 
       <div className="step-pills">
         {TYPE_FILTERS.map((f) => (

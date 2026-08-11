@@ -26,6 +26,7 @@ import { messagingDocsRouter } from "./routes/messagingDocs";
 import { templatesRouter } from "./routes/templates";
 import { agentsRouter } from "./routes/agents";
 import { customAgentsRouter } from "./routes/customAgents";
+import { brandThemeRouter } from "./routes/brandTheme";
 import { referenceAssetsRouter } from "./routes/referenceAssets";
 import { syncAgentBaselines } from "./services/agents";
 import { WAR_ROOM_DIR } from "./services/warRoom";
@@ -62,6 +63,8 @@ app.use("/api/pmm", pmmRouter);
 app.use("/api/guardrails", guardrailsRouter);
 app.use("/api/questionnaire", questionnaireRouter);
 app.use("/api/messaging-docs", messagingDocsRouter);
+// Brand-theme routes mount first so the templates router's /:id never swallows them.
+app.use("/api/templates/brand-theme", brandThemeRouter);
 app.use("/api/templates", templatesRouter);
 // Custom-agent routes mount first so the main router's /:key never swallows them.
 app.use("/api/agents/custom", customAgentsRouter);
