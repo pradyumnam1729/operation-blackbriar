@@ -5,6 +5,7 @@ import path from "path";
 import { queryRouter } from "./routes/query";
 import { quickGenRouter } from "./routes/quickgen";
 import { meRouter } from "./routes/me";
+import { usersRouter } from "./routes/users";
 import { productsRouter } from "./routes/products";
 import { aiRouter } from "./routes/ai";
 import { requestsRouter } from "./routes/requests";
@@ -44,6 +45,7 @@ app.get("/api/health", async (_req, res) =>
 );
 
 app.use("/api/me", meRouter);
+app.use("/api/users", usersRouter);
 app.use("/api/products", productsRouter);
 app.use("/api/ai", aiRouter);
 app.use("/api/query", queryRouter);
