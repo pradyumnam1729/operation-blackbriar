@@ -166,8 +166,8 @@ export function ArtifactLibrary() {
             className={view === "questionnaire" ? "active" : ""}
             onClick={() => setView("questionnaire")}
           >
-            <i className="fa-solid fa-clipboard-question" style={{ marginRight: 6 }} /> Foundation
-            questionnaire
+            <i className="fa-solid fa-file-signature" style={{ marginRight: 6 }} /> Positioning &amp;
+            messaging
           </button>
         </div>
       )}

@@ -10,8 +10,6 @@ import { ArtifactLibrary } from "./pages/ArtifactLibrary";
 import { ArtifactEditor } from "./pages/ArtifactEditor";
 import { FeatureCatalog } from "./pages/FeatureCatalog";
 import { CompetitiveIntel } from "./pages/CompetitiveIntel";
-import { PMMWizard } from "./pages/PMMWizard";
-import { PMMDocDetail } from "./pages/PMMDocDetail";
 import { Guardrails } from "./pages/Guardrails";
 import { UploadsConsole } from "./pages/UploadsConsole";
 import { UsersAdmin } from "./pages/UsersAdmin";
@@ -44,8 +42,6 @@ function Root() {
         <Route path="/features" element={<FeatureCatalog />} />
         <Route path="/competitive" element={<CompetitiveIntel />} />
         <Route path="/pmm" element={<Navigate to="/library?tab=questionnaire" replace />} />
-        <Route path="/pmm/:id" element={adminOnly(<PMMDocDetail />)} />
-        <Route path="/pmm/:id/edit" element={adminOnly(<PMMWizard />)} />
         <Route path="/guardrails" element={adminOnly(<Guardrails />)} />
         <Route path="/studio" element={<Studio />} />
         <Route path="/templates" element={adminOnly(<Templates />)} />

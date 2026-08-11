@@ -57,13 +57,19 @@ interface GenCard {
   icon: string;
   title: string;
   desc: string;
+  /** Backend quick-generate action key when it differs from the display title
+   *  (audit fix: card titles must not impersonate nav destinations). */
+  action?: string;
 }
+
+/** The action key sent to /api/quick-generate for a card. */
+const actionOf = (c: GenCard | null): string => (c ? (c.action ?? c.title) : "");
 
 // hive 2 persona card sets — every card generates, none navigate.
 const GEN_CARDS: Record<Persona, GenCard[]> = {
   sales: [
     { icon: "fa-bolt", title: "Elevator pitch", desc: "Tell it who you're calling — get a 30-second opener and discovery questions." },
-    { icon: "fa-shield-halved", title: "Competitive intel", desc: "Strengths, weaknesses, landmines, and talk track by competitor." },
+    { icon: "fa-shield-halved", title: "Competitive brief", action: "Competitive intel", desc: "Generate strengths, weaknesses, landmines, and a talk track — deep analysis lives on the Competitive intel page." },
     { icon: "fa-lightbulb", title: "Value proposition", desc: "The value prop and proof points that win, by persona." },
     { icon: "fa-magnifying-glass", title: "Enablement assets", desc: "Which proof points and case studies fit, by industry." },
     { icon: "fa-star", title: "Customer proof points", desc: "Real quotes and metrics, matched to the prospect's industry." },
@@ -80,11 +86,11 @@ const GEN_CARDS: Record<Persona, GenCard[]> = {
     { icon: "fa-feather-pointed", title: "Thought-leadership draft generator", desc: "A byline/LinkedIn outline in your voice, drawn from customer evidence." },
     { icon: "fa-chart-pie", title: "Quarterly exec summary", desc: "One-page rollup of position, launches, and outcomes — in board language." },
     { icon: "fa-newspaper", title: "Analyst/press briefing brief", desc: "Feature list, competitive positioning, and cleared proof points, ready before a call." },
-    { icon: "fa-shield-halved", title: "Competitive intel", desc: "Strengths, weaknesses, landmines, and talk track by competitor." },
+    { icon: "fa-shield-halved", title: "Competitive brief", action: "Competitive intel", desc: "Generate strengths, weaknesses, landmines, and a talk track — deep analysis lives on the Competitive intel page." },
   ],
   proposals: [
-    { icon: "fa-layer-group", title: "Feature catalog", desc: "See every recent feature by product, straight from release notes." },
-    { icon: "fa-shield-halved", title: "Competitive intel", desc: "Strengths, weaknesses, landmines, and talk track by competitor." },
+    { icon: "fa-layer-group", title: "Feature rundown", action: "Feature catalog", desc: "Generate a per-product feature summary — the live catalog is on the Feature catalog page." },
+    { icon: "fa-shield-halved", title: "Competitive brief", action: "Competitive intel", desc: "Generate strengths, weaknesses, landmines, and a talk track — deep analysis lives on the Competitive intel page." },
   ],
 };
 
@@ -194,7 +200,7 @@ export function Home() {
   // Competitor remains Competitive-intel-only.
   const needsIndustry = genCard !== null;
   const competitorOptions = GEN_COMPETITORS_BY_PRODUCT[genProduct] ?? [];
-  const needsCompetitor = genCard?.title === "Competitive intel" && competitorOptions.length > 0;
+  const needsCompetitor = actionOf(genCard) === "Competitive intel" && competitorOptions.length > 0;
   const genReady =
     genProduct !== "" &&
     genIndustry !== "" &&
@@ -275,7 +281,7 @@ export function Home() {
     }, 3500);
     try {
       const r = await apiPost<GenResult>("/api/quick-generate", {
-        action: genCard.title,
+        action: actionOf(genCard),
         product: genProduct,
         industry: genIndustry,
         contentType: needsContentType ? genType : undefined,
