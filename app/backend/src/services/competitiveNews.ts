@@ -22,6 +22,8 @@ export interface NewsItemRow {
   approved_by: string | null;
   approved_at: string | null;
   created_at: string;
+  category: string | null;
+  priority: "high" | "normal";
 }
 
 export const NEWS_CATEGORIES = [
@@ -133,17 +135,43 @@ export function startCompetitiveNewsPolling(): void {
   console.log("[competitive-news] daily polling scheduler armed (24h interval, gated on JINA_API_KEY)");
 }
 
+const LATEST_WINDOW_DAYS = 14;
+
+/** Pure filter — no DB access, so it's directly unit-testable. */
+export function filterNewsItems(
+  items: NewsItemRow[],
+  view: "latest" | "past" | "site_changes",
+  priority: "all" | "high",
+  now: Date
+): NewsItemRow[] {
+  const cutoff = now.getTime() - LATEST_WINDOW_DAYS * 24 * 3600 * 1000;
+  let result = items;
+  if (view === "site_changes") {
+    result = result.filter((i) => i.category === "Site Change");
+  } else {
+    result = result.filter((i) => i.category !== "Site Change");
+    result = result.filter((i) =>
+      view === "latest" ? new Date(i.discovered_at).getTime() >= cutoff : new Date(i.discovered_at).getTime() < cutoff
+    );
+  }
+  if (priority === "high") result = result.filter((i) => i.priority === "high");
+  return result;
+}
+
 /** Everyone sees every non-dismissed item — no approval gate. */
-export async function listNewsItems(): Promise<NewsItemRow[]> {
+export async function listNewsItems(
+  view: "latest" | "past" | "site_changes" = "latest",
+  priority: "all" | "high" = "all"
+): Promise<NewsItemRow[]> {
   const sb = supabase()!;
   const { data, error } = await sb
     .from("news_items")
     .select("*")
     .neq("status", "dismissed")
     .order("discovered_at", { ascending: false })
-    .limit(50);
+    .limit(200);
   if (error) throw new Error(error.message);
-  return (data ?? []) as NewsItemRow[];
+  return filterNewsItems((data ?? []) as NewsItemRow[], view, priority, new Date()).slice(0, 50);
 }
 
 /** Admin-only moderation: hide a bad scan. Nothing left to "approve". */
