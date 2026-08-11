@@ -15,6 +15,7 @@ import {
   TemplateDetail,
 } from "../lib/api";
 import { useAuth } from "../auth/AuthContext";
+import { ChatEditPanel } from "../components/ChatEditPanel";
 import { Comments } from "../components/Comments";
 import { TemplatePreview } from "../components/TemplatePreview";
 import { SlotFillPanel } from "../components/SlotFillPanel";
@@ -95,10 +96,11 @@ export function ArtifactEditor() {
   const [converting, setConverting] = useState(false);
   const [convertError, setConvertError] = useState<string | null>(null);
 
-  // Render-backed artifacts (slot-fill datasheets etc.): the styled template
-  // render + slot editing is the default surface (the template must stay
-  // visible); the free-form editor + AI chat is one tab away.
-  const [renderSurface, setRenderSurface] = useState<"editor" | "slots">("slots");
+  // Render-backed artifacts (slot-fill datasheets etc.): the default surface
+  // is the styled render WITH the AI chat beside it — chat edits rewrite the
+  // template's slot fills and the styled file re-renders. Manual slot editing
+  // is one tab away.
+  const [renderSurface, setRenderSurface] = useState<"preview" | "slots">("preview");
 
   // History + comments are compact, collapsed-by-default panels (they were
   // crowding the working surface).
@@ -285,52 +287,72 @@ export function ArtifactEditor() {
         <>
           <div className="tab-row" style={{ margin: "0 0 16px" }}>
             <button
+              className={renderSurface === "preview" ? "active" : ""}
+              onClick={() => setRenderSurface("preview")}
+            >
+              <i className="fa-solid fa-wand-magic-sparkles" style={{ marginRight: 6 }} /> Rendered
+              view &amp; AI edit
+            </button>
+            <button
               className={renderSurface === "slots" ? "active" : ""}
               onClick={() => setRenderSurface("slots")}
             >
-              <i className="fa-solid fa-table-cells-large" style={{ marginRight: 6 }} /> Template
-              &amp; slots
-            </button>
-            <button
-              className={renderSurface === "editor" ? "active" : ""}
-              onClick={() => setRenderSurface("editor")}
-            >
-              <i className="fa-solid fa-wand-magic-sparkles" style={{ marginRight: 6 }} /> Free-form
-              editor &amp; AI chat
+              <i className="fa-solid fa-table-cells-large" style={{ marginRight: 6 }} /> Manual
+              slots
             </button>
           </div>
 
-          {renderSurface === "editor" ? (
-            <>
-              <div
-                style={{
-                  marginBottom: 14,
-                  padding: "10px 14px",
-                  background: "#E1F0F2",
-                  borderRadius: "var(--r-md)",
-                  color: "var(--teal-dark)",
-                  fontSize: 12.5,
-                }}
-              >
-                <i className="fa-solid fa-circle-info" style={{ marginRight: 6 }} />
-                Free-form edits version the document text. The styled template render stays on the
-                Template &amp; slots tab — slot edits there re-render it.
+          {renderSurface === "preview" ? (
+            /* Styled render + AI chat side by side. Chat edits rewrite the
+               slot fills server-side and the re-rendered file reloads. */
+            <div
+              className={canEdit ? "grid" : undefined}
+              style={
+                canEdit
+                  ? { gridTemplateColumns: "minmax(0, 1fr) 360px", alignItems: "start", gap: 18, marginBottom: 18 }
+                  : { marginBottom: 18 }
+              }
+            >
+              <div className="card" style={{ marginBottom: 0 }}>
+                <div className="row-between" style={{ marginBottom: 10 }}>
+                  <h3 style={{ margin: 0, fontSize: 14, fontWeight: 500 }}>
+                    <i className="fa-solid fa-eye" style={{ marginRight: 8, color: "var(--teal-dark)" }} />
+                    Rendered artifact (v{artifact.current_version})
+                  </h3>
+                  {render.template_version !== null && (
+                    <span style={{ fontSize: 11.5, color: "var(--text-muted)" }}>
+                      template v{render.template_version}
+                    </span>
+                  )}
+                </div>
+                {render.warnings.length > 0 && (
+                  <div
+                    style={{
+                      marginBottom: 12,
+                      padding: "9px 13px",
+                      background: "#FCE8E8",
+                      borderRadius: "var(--r-md)",
+                      color: "#A32D2D",
+                      fontSize: 12.5,
+                    }}
+                  >
+                    <i className="fa-solid fa-triangle-exclamation" style={{ marginRight: 6 }} />
+                    {render.warnings.length} slot{render.warnings.length === 1 ? "" : "s"} still need
+                    {render.warnings.length === 1 ? "s" : ""} PMM input — ask the AI to draft them or
+                    fill them on the Manual slots tab.
+                  </div>
+                )}
+                <TemplatePreview format={render.format} payload={render.payload} title={artifact.title} />
               </div>
-              {canEdit ? (
-                <DocEditor
+              {canEdit && (
+                <ChatEditPanel
                   artifactId={artifact.id}
-                  contentHtml={html}
-                  currentVersion={artifact.current_version}
-                  onRefresh={load}
-                />
-              ) : (
-                <div
-                  className="prose"
-                  style={{ marginBottom: 18 }}
-                  dangerouslySetInnerHTML={{ __html: html }}
+                  mode="document"
+                  dirty={false}
+                  onApplied={() => void load()}
                 />
               )}
-            </>
+            </div>
           ) : (
           <>
           {render.warnings.length > 0 && (

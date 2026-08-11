@@ -541,10 +541,134 @@ artifactsRouter.post("/:id/chat-edit", requireAuth, async (req, res) => {
         .slice(-6)
     : [];
 
-  // Render-backed artifacts (slot-fill datasheets etc.) chat-edit through the
-  // document branch: every artifact edits like the deck. The version log is
-  // the source of truth; the render payload stays available on its own tab
-  // and re-rendering slots supersedes these edits (last write wins).
+  // Render branch: template-generated artifacts (slot-fill datasheets etc.)
+  // chat-edit through the SLOT pipeline — the model proposes new slot fills,
+  // reRenderWithFills re-renders the styled file deterministically, and the
+  // rendered view the user sees always reflects the chat edit.
+  const { data: renderRow } = await sb
+    .from("artifact_renders")
+    .select("slot_fills, template_id")
+    .eq("artifact_id", artifact.id)
+    .eq("version", artifact.current_version)
+    .maybeSingle();
+  if (renderRow?.template_id) {
+    const { data: tpl } = await sb
+      .from("templates")
+      .select("slots")
+      .eq("id", renderRow.template_id)
+      .maybeSingle();
+    const slots = ((tpl?.slots ?? []) as {
+      id: string;
+      label: string;
+      purpose: string;
+      max_chars: number;
+    }[]).filter((s) => s && typeof s.id === "string");
+    if (slots.length > 0) {
+      const fills = (renderRow.slot_fills ?? {}) as Record<string, string>;
+      const historyBlock =
+        turns.length > 0
+          ? `Recent conversation (context only):\n${turns
+              .map((t) => `${t.role === "user" ? "User" : "You"}: ${t.text}`)
+              .join("\n")}\n\n`
+          : "";
+      try {
+        const raw = await ask(
+          [
+            "You are editing a templated marketing asset by rewriting its text slots. Apply the user's instruction and return ONLY a JSON object:",
+            '{"summary": "≤120 chars, imperative past tense", "fills": {"<slot_id>": "new plain text", …}}',
+            "Rules:",
+            "- Include ONLY the slots you changed. Never invent customer names, quotes, or numbers not already present.",
+            "- Respect each slot's max_chars hard limit. Plain text only — no markdown, no HTML.",
+            historyBlock,
+            `=== SLOTS (id, label, purpose, max_chars, current text) ===\n${JSON.stringify(
+              slots.map((s) => ({
+                id: s.id,
+                label: s.label,
+                purpose: s.purpose,
+                max_chars: s.max_chars,
+                current: fills[s.id] ?? "",
+              }))
+            )}`,
+            `=== USER INSTRUCTION ===\n${message.trim()}`,
+          ]
+            .filter((s) => s !== "")
+            .join("\n\n"),
+          { maxTokens: 4000 }
+        );
+
+        let text = raw.trim();
+        const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+        if (fence) text = fence[1].trim();
+        const start = text.indexOf("{");
+        const end = text.lastIndexOf("}");
+        if (start === -1 || end <= start) throw new DeckAiParseError(["no JSON object in reply"]);
+        let outer: Record<string, unknown>;
+        try {
+          outer = JSON.parse(text.slice(start, end + 1)) as Record<string, unknown>;
+        } catch (parseErr) {
+          throw new DeckAiParseError([`JSON parse failed: ${(parseErr as Error).message}`]);
+        }
+        const summary =
+          typeof outer.summary === "string" && outer.summary.trim() !== ""
+            ? outer.summary.trim().slice(0, 120)
+            : "AI edit";
+        const byId = new Map(slots.map((s) => [s.id, s]));
+        const changed: Record<string, string> = {};
+        for (const [key, value] of Object.entries(
+          (outer.fills ?? {}) as Record<string, unknown>
+        )) {
+          const slot = byId.get(key);
+          if (!slot || typeof value !== "string") continue;
+          changed[key] = value.trim().slice(0, slot.max_chars);
+        }
+        if (Object.keys(changed).length === 0) {
+          return res.status(422).json({
+            error: "The AI did not identify any slot to change — try a more specific instruction.",
+          });
+        }
+
+        const { version } = await reRenderWithFills(
+          artifact.id,
+          changed,
+          `AI: ${summary}`,
+          req.user!.id
+        );
+        const { data: nv } = await sb
+          .from("artifact_versions")
+          .select("content_html")
+          .eq("artifact_id", artifact.id)
+          .eq("version", version)
+          .maybeSingle();
+        void logActivity("artifact", artifact.id, req.user!.id, "chat_edited", {
+          version,
+          summary,
+          slots: Object.keys(changed),
+        });
+        return res.status(201).json({
+          version,
+          summary,
+          guard: checkForbiddenWords(Object.values({ ...fills, ...changed }).join("\n")),
+          slides: null,
+          contentHtml: nv?.content_html ?? "",
+          renderUpdated: true,
+        });
+      } catch (err) {
+        if (err instanceof DeckAiParseError) {
+          return res.status(422).json({
+            error: "The AI reply could not be parsed into slot edits — no changes were saved.",
+            issues: err.issues,
+          });
+        }
+        if (err instanceof TemplateGenError) {
+          return res
+            .status(err.status)
+            .json(err.over ? { error: err.message, over: err.over } : { error: err.message });
+        }
+        return res.status(502).json({ error: (err as Error).message });
+      }
+    }
+  }
+
   const { data: current } = await sb
     .from("artifact_versions")
     .select("content_html, slides_json")
