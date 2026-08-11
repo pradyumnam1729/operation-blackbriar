@@ -316,10 +316,11 @@ competitiveRouter.get("/ci-reports/:id", requireAuth, async (req, res) => {
 
 // POST /api/competitive/ci-reports — generate a draft (admin-only).
 competitiveRouter.post("/ci-reports", requireAuth, requireAdmin, async (req, res) => {
-  const { competitorId, product, extraBrief } = req.body as {
+  const { competitorId, product, extraBrief, priorityUrls } = req.body as {
     competitorId?: string;
     product?: string;
     extraBrief?: string;
+    priorityUrls?: string[];
   };
   if (!competitorId) return res.status(400).json({ error: "competitorId is required" });
   if (!jinaConfigured()) {
@@ -330,6 +331,7 @@ competitiveRouter.post("/ci-reports", requireAuth, requireAdmin, async (req, res
       competitorId,
       product && ["Primus", "Masterworks"].includes(product) ? product : null,
       extraBrief?.trim() || null,
+      Array.isArray(priorityUrls) ? priorityUrls.filter((u) => typeof u === "string" && u.trim() !== "") : [],
       req.user!.id
     );
     res.status(201).json({ report });

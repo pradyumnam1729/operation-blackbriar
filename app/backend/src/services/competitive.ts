@@ -64,8 +64,22 @@ export async function findCompetitorInText(text: string): Promise<CompetitorRow 
 }
 
 /** Normalize so https://x.com and https://x.com/ don't become two sources. */
-function normalizeUrl(url: string): string {
+export function normalizeUrl(url: string): string {
   return url.trim().replace(/\/+$/, "");
+}
+
+/** Priority URLs not already covered by the competitor's saved sources, deduped. */
+export function excludeKnownUrls(priorityUrls: string[], existingUrls: string[]): string[] {
+  const known = new Set(existingUrls.map(normalizeUrl));
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const raw of priorityUrls) {
+    const url = normalizeUrl(raw);
+    if (url === "" || known.has(url) || seen.has(url)) continue;
+    seen.add(url);
+    result.push(url);
+  }
+  return result;
 }
 
 /** True only when a source that was already scraped successfully once now hashes differently. */
@@ -631,6 +645,7 @@ export async function generateCiReport(
   competitorId: string,
   productOverride: string | null,
   extraBrief: string | null,
+  priorityUrls: string[],
   userId: string
 ): Promise<CiReportRow> {
   const sb = supabase()!;
@@ -642,12 +657,23 @@ export async function generateCiReport(
   if (!competitor) throw new CompetitiveIntelError("Competitor not found", 404);
 
   const sources = await ensureSources(competitor as CompetitorRow);
-  if (sources.length === 0) {
+  if (sources.length === 0 && priorityUrls.length === 0) {
     throw new CompetitiveIntelError(
       `No scrapeable sources for ${competitor.name} yet. Add a source URL and retry.`,
       422
     );
   }
+  const extraUrls = excludeKnownUrls(priorityUrls, sources.map((s) => s.url));
+  const priorityBlocks: string[] = [];
+  for (const url of extraUrls) {
+    try {
+      const page = await readUrl(url);
+      priorityBlocks.push(`<priority_source url="${url}" title="${page.title}">\n${page.content.slice(0, 40_000)}\n</priority_source>`);
+    } catch (err) {
+      console.error(`priority URL scrape failed for ${url}:`, (err as Error).message);
+    }
+  }
+
   const productHint = productOverride ?? (competitor as CompetitorRow).aurigo_product;
   const chunks = await retrieveChunks(`${competitor.name} ${productHint ?? ""} competitive positioning`, 10);
 
@@ -664,8 +690,12 @@ export async function generateCiReport(
     `Write a CI (competitive intelligence) report on ${competitor.name}${productHint ? ` for Aurigo ${productHint}` : ""}.`,
     "Structure it with these markdown headings: ## Executive summary, ## Recent moves, ## Pricing & packaging signals, ## Aurigo counter-positioning.",
     extraBrief ? `Additional brief: ${extraBrief}` : "",
+    priorityBlocks.length > 0
+      ? `The sources below marked <priority_source> were specifically flagged by the PMM as must-consider for this report — give them real weight in your analysis, don't just mention they exist.`
+      : "",
     "=== SCRAPED COMPETITOR SOURCES ===",
     competitorContext,
+    priorityBlocks.length > 0 ? `=== PMM-FLAGGED PRIORITY SOURCES ===\n${priorityBlocks.join("\n\n")}` : "",
     chunks.length > 0 ? `=== AURIGO KNOWLEDGE BASE (ground truth) ===\n${chunksToContext(chunks)}` : "",
   ]
     .filter((s) => s !== "")
@@ -674,7 +704,8 @@ export async function generateCiReport(
   const md = await ask(prompt, { maxTokens: 6000 });
   // Transparency into what was actually scraped to build this report —
   // appended structurally, not left to the model to mention or omit.
-  const sourcesHtml = `<h2>Sources scraped</h2><ul>${sources
+  const allSourceUrls = [...sources.map((s) => ({ url: s.url, label: s.label })), ...extraUrls.map((url) => ({ url, label: url }))];
+  const sourcesHtml = `<h2>Sources scraped</h2><ul>${allSourceUrls
     .map((s) => `<li><a href="${s.url}" target="_blank" rel="noopener noreferrer">${s.label ?? s.url}</a></li>`)
     .join("")}</ul>`;
   const contentHtml = markdownToHtml(md) + sourcesHtml;
@@ -693,7 +724,7 @@ export async function generateCiReport(
     .select("*")
     .single();
   if (error || !row) throw new Error(error?.message ?? "Could not store the CI report");
-  void logActivity("ci_report", row.id, userId, "generated", { competitor: competitor.name });
+  void logActivity("ci_report", row.id, userId, "generated", { competitor: competitor.name, priorityUrlCount: extraUrls.length });
   return row as CiReportRow;
 }
 
