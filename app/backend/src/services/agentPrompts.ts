@@ -162,6 +162,9 @@ EVIDENCE RULES (non-negotiable):
 - Answer the actual question directly and briefly: a short feature table or a
   plain list of the top N differences, whichever fits the question. No filler.
 - Open with one line naming the Aurigo product compared and why.
+- HARD CAP: 180 words total (a table's cells count as words) unless the
+  question explicitly asks for exhaustive detail. Verdict first, support
+  after. Executives read the first line and scan the rest — write for that.
 - End with a Sources line listing the competitor URLs used.
 `;
 
@@ -195,8 +198,8 @@ M&A. "notable" for meaningful capability, packaging, or market-presence moves.
 "info" for everything else that still qualifies as a change.
 
 Title: one line, competitor-first, factual, no hype (e.g. "Kahua: new AI
-assistant page published"). Summary: 1-3 sentences on what changed and why it
-matters to Aurigo GTM, grounded strictly in the diff.`;
+assistant page published"). Summary: 1-2 sentences, max 40 words — what
+changed and why it matters to Aurigo GTM, grounded strictly in the diff.`;
 
 /** Locked contract suffix for competitive-event-summary — code-owned; a prompt
  *  override can change judgment philosophy but never the output shape. */
@@ -222,8 +225,11 @@ Trajectory ("rising" | "stable" | "fading") must be justified by the change
 events or dated source content — with no time-based evidence, use "stable"
 and say why in the rationale. EAM platforms Aurigo integrates with rather than
 competes against do not belong on this board; put them in skipped.
-Rationale: 1-2 sentences per competitor, citing what the evidence shows.
-watch_items: the 1-3 concrete signals that would change this competitor's tier.`;
+
+Brevity is a feature: this board is read in a QBR, not studied.
+Rationale: ONE sentence, max 20 words, verdict-first ("Direct AI-narrative
+rival; Noa now bundled in Enterprise."). watch_items: 1-3 signals, max 6
+words each. Summary: max 60 words — the one headline leadership must hear.`;
 
 /** `fw-swot` body (overridable analysis philosophy). Output shape is locked
  *  by the framework engine. */
@@ -236,8 +242,9 @@ Two evidence regimes, never mixed:
   evidence combined with the Aurigo knowledge base. These are labeled
   internal inference by the system — write them as Aurigo-perspective
   implications, not as competitor facts.
-Items are one sentence each, specific, no hype words. 3-5 items per quadrant
-maximum, fewer when evidence is thin.`;
+Items are ONE clause each, max 15 words, specific, no hype words. 3-5 items
+per quadrant maximum, fewer when evidence is thin. Summary: max 50 words.
+An executive should absorb the whole grid in 30 seconds.`;
 
 /** `fw-five-forces` body (overridable analysis philosophy). Output shape is
  *  locked by the framework engine. */
@@ -265,7 +272,9 @@ Force-specific guidance:
   evidence; barriers (compliance depth, references, procurement vehicles).
 - Substitutes: the status quo is the biggest one — spreadsheets, legacy ERP,
   in-house tools. Doing nothing wins most often in this market.
-Intensity (low/medium/high) per force, 2-5 factors each, fewer when honest.`;
+Intensity (low/medium/high) per force, 2-4 factors each, fewer when honest.
+Each factor is ONE clause, max 18 words — a labeled data point, not a
+paragraph. Summary: max 80 words, strategic verdict first.`;
 
 /** `fw-feature-matrix` body (overridable analysis philosophy). Output shape
  *  is locked by the framework engine. */
@@ -282,9 +291,10 @@ Rules of the matrix:
   the cell is "absent_from_sources" — which means exactly that, NOT "they
   don't have it". When sources are ambiguous, "not_confirmed".
 - Aurigo cells: ground in the Aurigo knowledge base; same statuses.
-- Notes: one short clause per cell, factual, no hype.
+- Notes: max 8 words per cell, factual, no hype. The status glyph carries the
+  message; the note only disambiguates.
 - Never pad rows to make Aurigo look better — a matrix that shows honest
-  gaps is what makes the confirmed rows credible.`;
+  gaps is what makes the confirmed rows credible. Summary: max 50 words.`;
 
 /** `competitive-digest` body (overridable editorial philosophy) — leadership
  *  framing per Master Instructions §9.2. */
@@ -302,9 +312,12 @@ Editorial rules:
   trust-building digest.
 - Frame for executives: what happened, why it matters to Aurigo, what (if
   anything) needs a decision. Metric language, brief, decision-oriented.
+- Per item: a bold headline of max 12 words, then max 30 words of so-what.
+  No preamble, no restating the window dates (the page shows them), no
+  methodology notes. WHOLE DIGEST: max 200 words.
 - End with an "Attention needed" line listing stale battlecards or unwatched
   tier-1 competitors, when present.
-Format: markdown with at most two heading levels.`;
+Format: markdown, bulleted items with bold lead-ins — no headings needed.`;
 
 /** Persona output framing — Master Instructions §9.2. Every answer is shaped
  *  for the asker's role and their metric language (§3.3). Lives here (not in

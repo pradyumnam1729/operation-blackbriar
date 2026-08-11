@@ -46,8 +46,9 @@ function rowToDigest(r: DigestRow): Digest {
   };
 }
 
-const DIGEST_SUFFIX = `Write the digest as markdown (at most two heading levels). Ground every item
-in the events and analyses above — if the window is empty, the whole digest is
+const DIGEST_SUFFIX = `Write the digest as bulleted markdown, max 200 words TOTAL. Bold headline
+(max 12 words) then max 30 words of so-what per item. Ground every item in
+the events and analyses above — if the window is empty, the whole digest is
 the one-sentence no-change statement plus any "Attention needed" line.`;
 
 export async function buildDigest(windowDays: number, userId: string): Promise<Digest> {

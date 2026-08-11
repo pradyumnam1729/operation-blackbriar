@@ -614,8 +614,8 @@ export async function buildPositioningMap(
     "- Place each competitor ONLY from facts present in its scraped sources. If the sources are too thin to place one honestly, leave it out of points and add it to skipped with a short reason. Never invent a placement.",
     "- size: evidence-weighted market presence on these axes, 20-100 — how strongly the available evidence supports this player's position (NOT company revenue).",
     "- quadrants: a 2-4 word label characterizing each quadrant of this map (top_left = low X / high Y, top_right = high X / high Y, bottom_left = low X / low Y, bottom_right = high X / low Y).",
-    "- note: one sentence explaining the placement, citing what the evidence actually says.",
-    '- summary: 3-5 sentences (markdown) on what the map reveals for Aurigo\'s position and open whitespace. Use "AI-native" as the only AI modifier and write "life cycle" as two words.',
+    "- note: the placement fact in max 15 words, citing what the evidence actually says — not an essay.",
+    '- summary: 2 sentences, max 60 words (markdown) — what the map reveals for Aurigo\'s position and the single most important whitespace. Use "AI-native" as the only AI modifier and write "life cycle" as two words.',
     "",
     competitorBlock,
     chunks.length > 0

@@ -169,7 +169,7 @@ async function recentEventsBlock(days: number): Promise<string> {
 const THREAT_TIERS_SUFFIX = `Respond with ONLY a JSON object — no prose before or after — shaped exactly:
 {"entries": [{"competitor": string, "tier": 1 | 2 | 3, "rationale": string, "trajectory": "rising" | "stable" | "fading", "watch_items": [string]}], "skipped": [{"name": string, "reason": string}], "summary": string}
 - One entry per competitor that has usable evidence. Skipped: competitors whose evidence cannot support an honest tier, or EAM platforms Aurigo integrates with.
-- summary: 2-4 sentences (markdown) on the board's headline for leadership. Use "AI-native" as the only AI modifier and write "life cycle" as two words.`;
+- summary: max 60 words (markdown), verdict first. rationale: max 20 words each. Use "AI-native" as the only AI modifier and write "life cycle" as two words.`;
 
 // ---------- SWOT ----------
 
@@ -177,7 +177,7 @@ const SWOT_SUFFIX = `Respond with ONLY a JSON object — no prose before or afte
 {"strengths": [{"text": string, "evidence_url": string}], "weaknesses": [{"text": string, "evidence_url": string}], "opportunities": [{"text": string}], "threats": [{"text": string}], "summary": string}
 - strengths/weaknesses: THEIR strengths and weaknesses, each citing the scraped source URL it came from. Omit items you cannot cite.
 - opportunities/threats: Aurigo-side implications (the system labels these internal inference; no evidence_url needed).
-- summary: 2-3 sentences (markdown). Use "AI-native" as the only AI modifier and write "life cycle" as two words.`;
+- summary: max 50 words (markdown). Items: max 15 words each. Use "AI-native" as the only AI modifier and write "life cycle" as two words.`;
 
 // ---------- five forces ----------
 
@@ -185,7 +185,7 @@ const FIVE_FORCES_SUFFIX = `Respond with ONLY a JSON object — no prose before 
 {"forces": {"rivalry": F, "buyer_power": F, "supplier_power": F, "new_entrants": F, "substitutes": F}, "summary": string}
 where F = {"intensity": "low" | "medium" | "high", "factors": [{"text": string, "basis": "scraped" | "internal" | "inference", "evidence_url": string when basis is "scraped"}]}
 - 2-5 factors per force, fewer when the evidence is thin.
-- summary: 3-5 sentences (markdown) on what the structure means for Aurigo's strategy. Use "AI-native" as the only AI modifier and write "life cycle" as two words.`;
+- summary: max 80 words (markdown), strategic verdict first. Factors: max 18 words each. Use "AI-native" as the only AI modifier and write "life cycle" as two words.`;
 
 // ---------- feature matrix ----------
 
@@ -193,7 +193,7 @@ const FEATURE_MATRIX_SUFFIX = `Respond with ONLY a JSON object — no prose befo
 {"rows": [{"capability": string, "aurigo": {"status": S, "note": string}, "competitors": {"<competitor name exactly as given>": {"status": S, "note": string, "evidence_url": string when status is "confirmed" or "partial"}}}], "summary": string}
 where S = "confirmed" | "partial" | "not_confirmed" | "absent_from_sources"
 - 8-15 rows. Competitor keys must match the names given in the evidence blocks exactly.
-- summary: 2-4 sentences (markdown) on where the honest gaps and honest wins are. Use "AI-native" as the only AI modifier and write "life cycle" as two words.`;
+- summary: max 50 words (markdown) on where the honest gaps and honest wins are. Notes: max 8 words per cell. Use "AI-native" as the only AI modifier and write "life cycle" as two words.`;
 
 // ---------- delta timeline (no model call) ----------
 

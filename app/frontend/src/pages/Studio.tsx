@@ -466,8 +466,8 @@ export function Studio() {
       )}
 
       {step >= 2 && (
-        <div className="grid grid-2" style={{ alignItems: "start" }}>
-          <div>
+        <div className="grid grid-2">
+          <div className="col-stack">
             <div className="card">
               <h3 style={{ margin: "0 0 12px", fontSize: 14, fontWeight: 500 }}>Brand templates</h3>
               {templates.length === 0 && (
@@ -532,7 +532,7 @@ export function Studio() {
             </div>
           </div>
 
-          <div className="card">
+          <div className="card card-fill">
             <div className="row-between" style={{ marginBottom: 10 }}>
               <h3 style={{ margin: 0, fontSize: 14, fontWeight: 500 }}>Output preview</h3>
               <span className="pill pill-draft">Draft</span>

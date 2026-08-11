@@ -525,7 +525,7 @@ export function ArtifactEditor() {
           </div>
 
           {slotsOpen && canEdit && renderTpl && (
-            <div className="grid grid-2" style={{ alignItems: "start" }}>
+            <div className="grid grid-2">
               <SlotFillPanel
                 key={artifact.current_version}
                 artifactId={artifact.id}
