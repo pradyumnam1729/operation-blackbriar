@@ -365,6 +365,43 @@ export function ArtifactEditor() {
             </div>
           )}
 
+          {canEdit && artifact.asset_type === "deck" && (
+            <div
+              style={{
+                marginBottom: 14,
+                padding: "12px 16px",
+                background: "#E1F0F2",
+                borderRadius: "var(--r-md)",
+                color: "var(--teal-dark)",
+                fontSize: 13,
+                fontWeight: 500,
+                display: "flex",
+                alignItems: "center",
+                gap: 12,
+                flexWrap: "wrap",
+              }}
+            >
+              <span style={{ flex: 1 }}>
+                <i className="fa-regular fa-file-powerpoint" style={{ marginRight: 8 }} />
+                This is a template-rendered deck. Convert it to structured slides for the
+                slide-by-slide editor and branded .pptx export.
+              </span>
+              <button className="btn btn-sm" disabled={converting} onClick={() => void runConvert()}>
+                {converting ? (
+                  <i className="fa-solid fa-spinner fa-spin" />
+                ) : (
+                  <i className="fa-solid fa-table-columns" />
+                )}
+                {converting ? "Converting…" : "Convert to slides"}
+              </button>
+            </div>
+          )}
+          {convertError !== null && artifact.asset_type === "deck" && (
+            <div style={{ ...errStrip, marginTop: 0, marginBottom: 14 }} role="alert">
+              {convertError} — your content is unchanged.
+            </div>
+          )}
+
           {/* toolbar — mirrors the deck toolbar */}
           <div className="card" style={{ padding: "12px 18px" }}>
             <div className="row-between" style={{ flexWrap: "wrap", gap: 10 }}>
@@ -389,7 +426,7 @@ export function ArtifactEditor() {
                     {render.warnings.length} slot{render.warnings.length === 1 ? "" : "s"} need input
                   </span>
                 )}
-                {canEdit && editableRegions === 0 && (
+                {canEdit && editableRegions === 0 && render.format !== "deck" && (
                   <button className="btn btn-sm" disabled={inlineSaving} onClick={() => void refreshRender()}>
                     <i className={`fa-solid ${inlineSaving ? "fa-spinner fa-spin" : "fa-rotate"}`} />{" "}
                     Enable inline editing
