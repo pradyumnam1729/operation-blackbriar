@@ -321,19 +321,28 @@ artifactsRouter.post("/:id/versions", requireAuth, async (req, res) => {
   let slidesJson: DeckDoc | null = null;
   let guardText: string;
   if (slides !== undefined) {
-    // Slides are a deck-only structure, and template slot-fill artifacts keep
-    // their render surface — never both worlds on one artifact (§0.1-8).
+    // Slides are a deck-only structure. Template-rendered artifacts only
+    // accept slides once converted (their CURRENT version carries slides_json)
+    // — a slot-fill artifact mid-render never silently switches worlds.
     if (artifact.asset_type !== "deck") {
       return res.status(409).json({ error: "Only deck artifacts accept structured slides" });
     }
-    const { count: renderCount } = await sb
-      .from("artifact_renders")
-      .select("id", { count: "exact", head: true })
-      .eq("artifact_id", artifact.id);
-    if ((renderCount ?? 0) > 0) {
-      return res
-        .status(409)
-        .json({ error: "Template-generated decks keep their slot-fill surface — slides are not accepted here" });
+    const { data: currentVer } = await sb
+      .from("artifact_versions")
+      .select("slides_json")
+      .eq("artifact_id", artifact.id)
+      .eq("version", artifact.current_version)
+      .maybeSingle();
+    if (!currentVer?.slides_json) {
+      const { count: renderCount } = await sb
+        .from("artifact_renders")
+        .select("id", { count: "exact", head: true })
+        .eq("artifact_id", artifact.id);
+      if ((renderCount ?? 0) > 0) {
+        return res.status(409).json({
+          error: "This template deck has no structured slides yet — use Convert to slides first",
+        });
+      }
     }
     const result = validateDeckDoc(slides);
     if ("issues" in result) {
@@ -781,15 +790,9 @@ artifactsRouter.post("/:id/convert-to-slides", requireAuth, async (req, res) => 
   if (current?.slides_json) {
     return res.status(409).json({ error: "This deck already has structured slides" });
   }
-  const { count: renderCount } = await sb
-    .from("artifact_renders")
-    .select("id", { count: "exact", head: true })
-    .eq("artifact_id", artifact.id);
-  if ((renderCount ?? 0) > 0) {
-    return res
-      .status(409)
-      .json({ error: "Template-generated decks keep their slot-fill surface — conversion is for legacy decks only" });
-  }
+  // Template-generated decks convert too (supersedes the earlier slot-fill
+  // deferral): the new slides version wins the editor dispatch; old rendered
+  // versions stay in history and rollback restores them.
 
   try {
     const { deck, summary } = await htmlToSlides(current?.content_html ?? "", artifact.title);
