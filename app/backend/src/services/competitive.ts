@@ -24,6 +24,12 @@ import { COMPETITIVE_EVIDENCE_RULES, COMPETITIVE_PRODUCT_MAP } from "./agentProm
 
 const STALE_DAYS = 30;
 
+// Fallback-discovery cooldown per competitor (QA S3): compare attempts for a
+// competitor whose fallback candidates also fail must not re-burn Jina calls
+// on every retry.
+const FALLBACK_COOLDOWN_MS = 15 * 60_000;
+const fallbackTriedAt = new Map<string, number>();
+
 // Aurigo product mapping — the routing brief given to the model verbatim.
 export const PRODUCT_MAP = COMPETITIVE_PRODUCT_MAP;
 
@@ -161,9 +167,30 @@ export async function ensureSources(competitor: CompetitorRow): Promise<SourceRo
   );
 
   // Fallback discovery: bot-protected official sites (Procore-class) can fail
-  // every initial source. Before giving up, search for alternative pages —
-  // review sites and secondary product pages usually scrape fine.
-  if (usable.length === 0) {
+  // every initial source. Before giving up, search for alternative pages.
+  // Guardrails (QA S3/N5): only the competitor's own domain or known review
+  // sites are accepted — a random news article must never become "the
+  // competitor's own source"; a 15-min cooldown stops every compare attempt
+  // from re-burning Jina calls; and the fallback never runs when the admin
+  // has deliberately disabled every existing source (kill switch respected).
+  const allDisabled =
+    (sources ?? []).length > 0 && (sources ?? []).every((s) => s.enabled === false);
+  const lastTry = fallbackTriedAt.get(competitor.id) ?? 0;
+  const coolingDown = Date.now() - lastTry < FALLBACK_COOLDOWN_MS;
+  if (usable.length === 0 && !allDisabled && !coolingDown) {
+    fallbackTriedAt.set(competitor.id, Date.now());
+    const ownDomain = competitor.website
+      ? new URL(competitor.website).hostname.replace(/^www\./, "").toLowerCase()
+      : null;
+    const acceptable = (url: string): boolean => {
+      try {
+        const host = new URL(url).hostname.replace(/^www\./, "").toLowerCase();
+        if (/(^|\.)g2\.com$|(^|\.)capterra\.com$|(^|\.)trustradius\.com$/.test(host)) return true;
+        return ownDomain !== null && (host === ownDomain || host.endsWith("." + ownDomain));
+      } catch {
+        return false;
+      }
+    };
     const tried = new Set((sources ?? []).map((s) => normalizeUrl(s.url)));
     const queries = [
       `${competitor.name} G2 reviews`,
@@ -177,7 +204,7 @@ export async function ensureSources(competitor: CompetitorRow): Promise<SourceRo
         for (const h of hits) {
           const url = normalizeUrl(h.url);
           if (tried.has(url) || candidates.includes(url)) continue;
-          if (/reddit\.com|wikipedia\.org|linkedin\.com|facebook\.com|youtube\.com/i.test(url)) continue;
+          if (!acceptable(url)) continue;
           candidates.push(url);
         }
       } catch (err) {
@@ -646,69 +673,7 @@ export async function getMapById(id: string): Promise<PositioningMap | null> {
   return data ? rowToMap(data as MapRow) : null;
 }
 
-export interface MapMove {
-  name: string;
-  type: "aurigo" | "competitor";
-  fromX: number;
-  fromY: number;
-  toX: number;
-  toY: number;
-  dx: number;
-  dy: number;
-}
-
-export interface MapMovement {
-  fromId: string;
-  toId: string;
-  fromDate: string;
-  toDate: string;
-  xAxis: PositioningAxis;
-  yAxis: PositioningAxis;
-  moves: MapMove[];
-  entered: string[];
-  exited: string[];
-}
-
-export class AxesMismatchError extends Error {
-  constructor() {
-    super(
-      "These two maps use different axes — movement between them is meaningless. Rebuild with pinned axes to get a comparable series."
-    );
-  }
-}
-
-/** Pure movement computation between two stored maps. Refuses cross-axis
- *  comparison (QA/blueprint: cross-axis movement is meaningless). */
-export function computeMovement(from: PositioningMap, to: PositioningMap): MapMovement {
-  if (from.xAxis.label !== to.xAxis.label || from.yAxis.label !== to.yAxis.label) {
-    throw new AxesMismatchError();
-  }
-  const fromByName = new Map(from.points.map((p) => [p.name, p]));
-  const toByName = new Map(to.points.map((p) => [p.name, p]));
-  const moves: MapMove[] = [];
-  for (const [name, tp] of toByName) {
-    const fp = fromByName.get(name);
-    if (!fp) continue;
-    moves.push({
-      name,
-      type: tp.type,
-      fromX: fp.x,
-      fromY: fp.y,
-      toX: tp.x,
-      toY: tp.y,
-      dx: Math.round((tp.x - fp.x) * 10) / 10,
-      dy: Math.round((tp.y - fp.y) * 10) / 10,
-    });
-  }
-  return {
-    fromId: from.id,
-    toId: to.id,
-    fromDate: from.createdAt,
-    toDate: to.createdAt,
-    xAxis: to.xAxis,
-    yAxis: to.yAxis,
-    moves: moves.sort((a, b) => Math.abs(b.dx) + Math.abs(b.dy) - (Math.abs(a.dx) + Math.abs(a.dy))),
-    entered: [...toByName.keys()].filter((n) => !fromByName.has(n)),
-    exited: [...fromByName.keys()].filter((n) => !toByName.has(n)),
-  };
-}
+// Movement computation is pure and lives in competitiveParsing.ts (tested);
+// re-exported here so routes keep one import surface.
+export { AxesMismatchError, computeMovement } from "./competitiveParsing";
+export type { MapMove, MapMovement } from "./competitiveParsing";

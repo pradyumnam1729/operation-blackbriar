@@ -540,7 +540,11 @@ export function CompetitiveIntel() {
         .catch(() => setMapHistory([]));
     }
     if (tab === "frameworks") {
-      apiGet<{ analysis: Analysis | null }>(`/api/competitive/frameworks/${fwKey}/latest${fwKey === "swot" && fwCompetitor ? `?competitorId=${fwCompetitor}` : ""}`)
+      if (fwKey === "swot" && !fwCompetitor) {
+        setFwAnalysis(null); // never show an arbitrary competitor's SWOT
+        return;
+      }
+      apiGet<{ analysis: Analysis | null }>(`/api/competitive/frameworks/${fwKey}/latest${fwKey === "swot" ? `?competitorId=${fwCompetitor}` : ""}`)
         .then((r) => setFwAnalysis(r.analysis))
         .catch(() => setFwAnalysis(null));
     }
@@ -675,6 +679,8 @@ export function CompetitiveIntel() {
         competitorIds: mapCompetitors.length > 0 ? mapCompetitors : undefined,
       });
       setPosMap(r.map);
+      setMovement(null);
+      setMovementNote("");
     } catch (e) {
       setMapError((e as Error).message);
     } finally {
@@ -1334,6 +1340,12 @@ export function CompetitiveIntel() {
 
           {!fwBusy && fwAnalysis && fwKey === "swot" && (
             <>
+              <p style={{ fontSize: 13, fontWeight: 600, margin: "0 0 10px" }}>
+                SWOT: {String(fwAnalysis.params.competitor ?? competitors.find((c) => c.id === fwCompetitor)?.name ?? "")}
+                <span style={{ fontWeight: 400, fontSize: 12, color: "var(--text-muted)", marginLeft: 8 }}>
+                  built {new Date(fwAnalysis.createdAt).toLocaleString()}
+                </span>
+              </p>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                 {([
                   ["strengths", "Their strengths", "scraped sources only"],

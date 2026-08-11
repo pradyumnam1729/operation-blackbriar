@@ -2,13 +2,15 @@ import { supabase } from "./db";
 import { ask } from "./claude";
 import { markdownToHtml } from "./html";
 import { chunksToContext, retrieveChunks } from "./ingestion";
-import { parseModelJson } from "./questionnaire";
+import { parseSwot, parseThreatTiers } from "./competitiveParsing";
 import {
   assertAgentEnabled,
   composeAgentPrompt,
   getAgentConfig,
   resolveModel,
 } from "./agents";
+
+export type { SwotItem, ThreatTierEntry } from "./competitiveParsing";
 
 // Framework engine (Phase 2 of the competitive ELT gap analysis). Every
 // framework shares one evidence discipline: competitor facts only from
@@ -66,7 +68,13 @@ interface CompetitorEvidence {
   name: string;
   category: string | null;
   context: string;
+  urls: string[];
 }
+
+/** Max sources per competitor in a framework prompt (QA S6): a full-registry
+ *  threat-tiers build over post-bootstrap source counts must not blow the
+ *  model context. Newest sources win. */
+const MAX_SOURCES_PER_COMPETITOR = 3;
 
 /** Competitor blocks from enabled+ok scraped sources only; evidence-less
  *  competitors land in skipped. The one assembly every framework consumes —
@@ -89,9 +97,10 @@ async function assembleCompetitorEvidence(
   const withEvidence: CompetitorEvidence[] = [];
   const skipped: { name: string; reason: string }[] = [];
   for (const c of scoped) {
-    const own = (srcs ?? []).filter(
-      (s) => s.competitor_id === c.id && s.content_md && s.enabled !== false
-    );
+    const own = (srcs ?? [])
+      .filter((s) => s.competitor_id === c.id && s.content_md && s.enabled !== false)
+      .sort((a, b) => String(b.scraped_at ?? "").localeCompare(String(a.scraped_at ?? "")))
+      .slice(0, MAX_SOURCES_PER_COMPETITOR);
     if (own.length === 0) {
       skipped.push({ name: c.name, reason: "no scraped sources yet — track it in the registry" });
       continue;
@@ -102,9 +111,24 @@ async function assembleCompetitorEvidence(
           `<source url="${s.url}" type="${s.source_type ?? "official"}" title="${s.label ?? ""}" scraped="${s.scraped_at ?? ""}">\n${(s.content_md ?? "").slice(0, perSourceCap)}\n</source>`
       )
       .join("\n");
-    withEvidence.push({ id: c.id, name: c.name, category: c.category, context });
+    withEvidence.push({
+      id: c.id,
+      name: c.name,
+      category: c.category,
+      context,
+      urls: own.map((s) => String(s.url).replace(/\/+$/, "")),
+    });
   }
   return { withEvidence, skipped };
+}
+
+/** Dedupe skipped-lists merged from the assembler and the model (QA N6). */
+function dedupeSkipped(
+  lists: { name: string; reason: string }[][]
+): { name: string; reason: string }[] {
+  const seen = new Map<string, { name: string; reason: string }>();
+  for (const list of lists) for (const s of list) if (!seen.has(s.name)) seen.set(s.name, s);
+  return [...seen.values()];
 }
 
 async function recentEventsBlock(days: number): Promise<string> {
@@ -126,112 +150,18 @@ async function recentEventsBlock(days: number): Promise<string> {
 
 // ---------- threat tiers ----------
 
-export interface ThreatTierEntry {
-  competitor: string;
-  tier: 1 | 2 | 3;
-  rationale: string;
-  trajectory: "rising" | "stable" | "fading";
-  watch_items: string[];
-}
-
 const THREAT_TIERS_SUFFIX = `Respond with ONLY a JSON object — no prose before or after — shaped exactly:
 {"entries": [{"competitor": string, "tier": 1 | 2 | 3, "rationale": string, "trajectory": "rising" | "stable" | "fading", "watch_items": [string]}], "skipped": [{"name": string, "reason": string}], "summary": string}
 - One entry per competitor that has usable evidence. Skipped: competitors whose evidence cannot support an honest tier, or EAM platforms Aurigo integrates with.
 - summary: 2-4 sentences (markdown) on the board's headline for leadership. Use "AI-native" as the only AI modifier and write "life cycle" as two words.`;
 
-function parseThreatTiers(raw: string): {
-  entries: ThreatTierEntry[];
-  skipped: { name: string; reason: string }[];
-  summary: string | null;
-} | null {
-  let parsed: Record<string, unknown>;
-  try {
-    parsed = parseModelJson<Record<string, unknown>>(raw);
-  } catch {
-    return null;
-  }
-  if (!Array.isArray(parsed.entries)) return null;
-  const entries: ThreatTierEntry[] = [];
-  for (const e of parsed.entries) {
-    const o = e as Record<string, unknown>;
-    const tier = Number(o.tier);
-    if (typeof o.competitor !== "string" || o.competitor.trim() === "") continue;
-    if (![1, 2, 3].includes(tier)) continue;
-    if (!["rising", "stable", "fading"].includes(o.trajectory as string)) continue;
-    entries.push({
-      competitor: o.competitor.trim(),
-      tier: tier as 1 | 2 | 3,
-      rationale: typeof o.rationale === "string" ? o.rationale : "",
-      trajectory: o.trajectory as "rising" | "stable" | "fading",
-      watch_items: Array.isArray(o.watch_items)
-        ? (o.watch_items as unknown[]).filter((w): w is string => typeof w === "string").slice(0, 3)
-        : [],
-    });
-  }
-  if (entries.length === 0) return null;
-  const skipped = Array.isArray(parsed.skipped)
-    ? (parsed.skipped as Record<string, unknown>[])
-        .filter((s) => typeof s?.name === "string")
-        .map((s) => ({
-          name: s.name as string,
-          reason: typeof s.reason === "string" ? s.reason : "insufficient evidence",
-        }))
-    : [];
-  return { entries, skipped, summary: typeof parsed.summary === "string" ? parsed.summary : null };
-}
-
 // ---------- SWOT ----------
-
-export interface SwotItem {
-  text: string;
-  evidence_url: string | null;
-}
 
 const SWOT_SUFFIX = `Respond with ONLY a JSON object — no prose before or after — shaped exactly:
 {"strengths": [{"text": string, "evidence_url": string}], "weaknesses": [{"text": string, "evidence_url": string}], "opportunities": [{"text": string}], "threats": [{"text": string}], "summary": string}
 - strengths/weaknesses: THEIR strengths and weaknesses, each citing the scraped source URL it came from. Omit items you cannot cite.
 - opportunities/threats: Aurigo-side implications (the system labels these internal inference; no evidence_url needed).
 - summary: 2-3 sentences (markdown). Use "AI-native" as the only AI modifier and write "life cycle" as two words.`;
-
-function parseSwot(raw: string): {
-  strengths: SwotItem[];
-  weaknesses: SwotItem[];
-  opportunities: SwotItem[];
-  threats: SwotItem[];
-  summary: string | null;
-} | null {
-  let parsed: Record<string, unknown>;
-  try {
-    parsed = parseModelJson<Record<string, unknown>>(raw);
-  } catch {
-    return null;
-  }
-  const quadrant = (v: unknown, requireUrl: boolean): SwotItem[] | null => {
-    if (!Array.isArray(v)) return null;
-    const items: SwotItem[] = [];
-    for (const entry of v) {
-      const o = entry as Record<string, unknown>;
-      if (typeof o?.text !== "string" || o.text.trim() === "") continue;
-      const url = typeof o.evidence_url === "string" && o.evidence_url.trim() !== "" ? o.evidence_url : null;
-      if (requireUrl && !url) continue; // uncited S/W items do not render — evidence rule
-      items.push({ text: o.text.trim(), evidence_url: url });
-    }
-    return items.slice(0, 5);
-  };
-  const strengths = quadrant(parsed.strengths, true);
-  const weaknesses = quadrant(parsed.weaknesses, true);
-  const opportunities = quadrant(parsed.opportunities, false);
-  const threats = quadrant(parsed.threats, false);
-  if (!strengths || !weaknesses || !opportunities || !threats) return null;
-  if (strengths.length + weaknesses.length + opportunities.length + threats.length === 0) return null;
-  return {
-    strengths,
-    weaknesses,
-    opportunities,
-    threats,
-    summary: typeof parsed.summary === "string" ? parsed.summary : null,
-  };
-}
 
 // ---------- delta timeline (no model call) ----------
 
@@ -340,7 +270,7 @@ export async function buildFramework(
       { entries: parsed.entries },
       parsed.summary,
       withEvidence.map((c) => ({ competitor: c.name })),
-      [...skipped, ...parsed.skipped],
+      dedupeSkipped([skipped, parsed.skipped]),
       userId
     );
   }
@@ -373,7 +303,9 @@ export async function buildFramework(
     maxTokens: 3000,
     model: resolveModel(cfg),
   });
-  const parsed = parseSwot(raw);
+  // Citations verified against the exact URLs that fed the prompt (QA S4):
+  // a fabricated evidence_url is dropped before it can render as a source link.
+  const parsed = parseSwot(raw, new Set(c.urls));
   if (!parsed) throw new Error("The model did not return a usable SWOT. Try again.");
   return store(
     "swot",

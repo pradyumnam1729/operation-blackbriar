@@ -574,6 +574,54 @@ competitiveRouter.get("/comparisons/:id", requireAuth, async (req, res) => {
   });
 });
 
+/** Append a CHECKED draft version to a canonical battlecard and advance
+ *  `current_version` (the pointer every consumer reads — QA B1). Rules:
+ *  - only the card's creator or a PMM admin may update it (QA S1);
+ *  - every write is checked — a failed insert reports failure, never a
+ *    silent success with a cleared staleness flag;
+ *  - a `final` card demotes to `in_review`: the new draft is visible, but the
+ *    card must pass PMM re-approval before it is final again (§8.4). */
+async function appendBattlecardVersion(
+  sb: NonNullable<ReturnType<typeof supabase>>,
+  artifactId: string,
+  contentHtml: string,
+  note: string,
+  user: { id: string; role: string }
+): Promise<{ ok: true; version: number } | { ok: false; status: number; error: string }> {
+  const { data: artifact } = await sb
+    .from("artifacts")
+    .select("id, current_version, status, created_by")
+    .eq("id", artifactId)
+    .maybeSingle();
+  if (!artifact) return { ok: false, status: 404, error: "Artifact not found" };
+  if (user.role !== "admin" && artifact.created_by !== user.id) {
+    return {
+      ok: false,
+      status: 403,
+      error: "Only the card's creator or a PMM admin can update the canonical battlecard.",
+    };
+  }
+  const newVersion = (Number(artifact.current_version) || 1) + 1;
+  const { error: vErr } = await sb.from("artifact_versions").insert({
+    artifact_id: artifactId,
+    version: newVersion,
+    content_html: contentHtml,
+    note,
+    created_by: user.id,
+  });
+  if (vErr) return { ok: false, status: 500, error: vErr.message };
+  const { error: aErr } = await sb
+    .from("artifacts")
+    .update({
+      current_version: newVersion,
+      updated_at: new Date().toISOString(),
+      ...(artifact.status === "final" ? { status: "in_review" } : {}),
+    })
+    .eq("id", artifactId);
+  if (aErr) return { ok: false, status: 500, error: aErr.message };
+  return { ok: true, version: newVersion };
+}
+
 /** Battlecard HTML from a stored comparison (shared by save + regenerate). */
 function battlecardHtml(
   title: string,
@@ -626,18 +674,15 @@ competitiveRouter.post("/comparisons/:id/battlecard", requireAuth, async (req, r
   }
 
   if (link?.artifact_id) {
-    const { count } = await sb
-      .from("artifact_versions")
-      .select("id", { count: "exact", head: true })
-      .eq("artifact_id", link.artifact_id);
-    await sb.from("artifact_versions").insert({
-      artifact_id: link.artifact_id,
-      version: (count ?? 0) + 1,
-      content_html: contentHtml,
-      note: "Updated from a new Competitive Intel comparison",
-      created_by: req.user!.id,
-    });
-    await sb
+    const appended = await appendBattlecardVersion(
+      sb,
+      link.artifact_id,
+      contentHtml,
+      "Updated from a new Competitive Intel comparison",
+      req.user!
+    );
+    if (!appended.ok) return res.status(appended.status).json({ error: appended.error });
+    const { error: linkErr } = await sb
       .from("battlecard_links")
       .update({
         question: cmp.question,
@@ -646,10 +691,12 @@ competitiveRouter.post("/comparisons/:id/battlecard", requireAuth, async (req, r
         updated_at: new Date().toISOString(),
       })
       .eq("artifact_id", link.artifact_id);
+    if (linkErr) return res.status(500).json({ error: linkErr.message });
     void logActivity("artifact", link.artifact_id, req.user!.id, "battlecard_updated", {
       comparison_id: cmp.id,
+      version: appended.version,
     });
-    return res.json({ artifactId: link.artifact_id, updated: true });
+    return res.json({ artifactId: link.artifact_id, updated: true, version: appended.version });
   }
 
   const { data: product } = cmp.aurigo_product
@@ -754,23 +801,23 @@ competitiveRouter.post("/battlecards/:artifactId/regenerate", requireAuth, async
     const productName = link.aurigo_product ? `Aurigo ${link.aurigo_product}` : "Aurigo";
     const title = `${productName} vs ${competitorName} — battlecard`;
     const contentHtml = battlecardHtml(title, question, result.answerHtml, result.sources);
-    const { count } = await sb
-      .from("artifact_versions")
-      .select("id", { count: "exact", head: true })
-      .eq("artifact_id", link.artifact_id);
-    await sb.from("artifact_versions").insert({
-      artifact_id: link.artifact_id,
-      version: (count ?? 0) + 1,
-      content_html: contentHtml,
-      note: "Regenerated after competitor change (draft — review before promoting)",
-      created_by: req.user!.id,
-    });
-    await sb
+    const appended = await appendBattlecardVersion(
+      sb,
+      link.artifact_id,
+      contentHtml,
+      "Regenerated after competitor change (draft — review before promoting)",
+      req.user!
+    );
+    if (!appended.ok) return res.status(appended.status).json({ error: appended.error });
+    const { error: linkErr } = await sb
       .from("battlecard_links")
       .update({ stale: false, stale_reason: null, updated_at: new Date().toISOString() })
       .eq("artifact_id", link.artifact_id);
-    void logActivity("artifact", link.artifact_id, req.user!.id, "battlecard_regenerated", {});
-    res.json({ artifactId: link.artifact_id });
+    if (linkErr) return res.status(500).json({ error: linkErr.message });
+    void logActivity("artifact", link.artifact_id, req.user!.id, "battlecard_regenerated", {
+      version: appended.version,
+    });
+    res.json({ artifactId: link.artifact_id, version: appended.version });
   } catch (err) {
     const status = err instanceof AgentError ? err.status : 502;
     res.status(status).json({ error: (err as Error).message });

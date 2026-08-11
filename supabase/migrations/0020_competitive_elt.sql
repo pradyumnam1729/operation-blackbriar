@@ -50,6 +50,11 @@ create table if not exists battlecard_links (
 create index if not exists battlecard_links_competitor_idx
   on battlecard_links (competitor_id);
 
+-- Canonical-card invariant enforced at the DB, not just by a racy lookup:
+-- at most one card per (competitor, product), with null product folded in.
+create unique index if not exists battlecard_links_canonical_idx
+  on battlecard_links (competitor_id, coalesce(aurigo_product, ''));
+
 alter table framework_analyses enable row level security;
 alter table digests enable row level security;
 alter table battlecard_links enable row level security;
