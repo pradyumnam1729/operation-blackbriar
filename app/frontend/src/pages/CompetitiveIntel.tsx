@@ -1339,16 +1339,17 @@ export function CompetitiveIntel() {
                 </div>
               </div>
 
+              {news.length === 0 && <div className="empty-note">No news yet.</div>}
               <div className="grid grid-3" style={{ marginTop: 12 }}>
                 {NEWS_CATEGORY_LABELS.map((category) => {
                   const items = news.filter((n) => n.category === category);
+                  if (items.length === 0) return null; // empty categories just clutter the grid
                   return (
                     <div key={category} className="card">
                       <h3 style={{ margin: "0 0 10px", fontSize: 14, fontWeight: 500 }}>
                         {category} <span style={{ color: "var(--text-muted)", fontWeight: 400 }}>{items.length}</span>
                       </h3>
                       <div style={{ maxHeight: 360, overflowY: "auto" }}>
-                        {items.length === 0 && <div className="empty-note">Nothing here yet.</div>}
                         {items.map((n) => (
                           <div key={n.id} style={{ padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
                             <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
