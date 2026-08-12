@@ -21,9 +21,17 @@ export interface GuardrailResult {
 }
 
 export function checkForbiddenWords(text: string): GuardrailResult {
-  const lower = text.toLowerCase();
+  // Mention vs. use: a quoted occurrence ("the retired \"public agencies\"
+  // phrasing is banned") is documentation or a verbatim customer quote, not a
+  // voice violation — terminology glossaries would otherwise block their own
+  // approval forever. Quoted spans are stripped before the scan; unquoted
+  // usage is still caught.
+  const unquoted = text
+    .replace(/"[^"\n]{1,200}"/g, " ")
+    .replace(/[“][^“”\n]{1,200}[”]/g, " ")
+    .toLowerCase();
   const violations = loadForbiddenWords().filter((w) =>
-    lower.includes(w.toLowerCase())
+    unquoted.includes(w.toLowerCase())
   );
   return { ok: violations.length === 0, violations };
 }

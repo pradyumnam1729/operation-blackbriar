@@ -127,7 +127,10 @@ function KnowledgeBaseSection() {
   return (
     <div className="card">
       <div className="row-between" style={{ marginBottom: 12 }}>
-        <h3 style={{ margin: 0, fontSize: 15, fontWeight: 500 }}>
+        <h3
+          style={{ margin: 0, fontSize: 15, fontWeight: 500 }}
+          title="Files are deduplicated and split into chunks. Only AI-enabled documents feed Ask Hive and asset generation."
+        >
           <i className="fa-solid fa-database" style={{ marginRight: 8, color: "var(--teal-dark)" }} />
           Knowledge base
         </h3>
@@ -145,11 +148,6 @@ function KnowledgeBaseSection() {
           </select>
         </div>
       </div>
-      <p style={{ margin: "0 0 12px", fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.6 }}>
-        Every synced or uploaded file is deduplicated and split into chunks with metadata. Only{" "}
-        <strong>AI enabled</strong> documents feed Ask Hive and asset generation.
-      </p>
-
       {kbError && (
         <div style={{ background: "#FCE8E8", color: "#A32D2D", borderRadius: "var(--r-md)", padding: "10px 14px", fontSize: 13, marginBottom: 12 }}>
           {kbError}
@@ -422,10 +420,17 @@ export function UploadsConsole() {
 
   return (
     <div>
-      <h1 className="pagetitle">Uploads console</h1>
-      <p className="pagesub">
-        Drop source material — PRDs, JTBDs, call transcripts, release notes. Files are deduplicated
-        and chunked into the knowledge base; promoting a file enables it for AI features.
+      <h1 className="pagetitle">
+        Uploads console{" "}
+        <span className="pill pill-lock" style={{ marginLeft: 6 }}>
+          <i className="fa-solid fa-lock" style={{ fontSize: 9 }} /> Admin only
+        </span>
+      </h1>
+      <p
+        className="pagesub"
+        title="Drop source material — PRDs, JTBDs, call transcripts, release notes. Files are deduplicated and chunked into the knowledge base; promoting a file enables it for AI features."
+      >
+        Drop source material — it is deduplicated and chunked into the knowledge base.
       </p>
       <KnowledgeBaseSection />
 
@@ -447,8 +452,11 @@ export function UploadsConsole() {
           <i className={`fa-solid ${uploading ? "fa-spinner fa-spin" : "fa-cloud-arrow-up"}`} />
           {uploading ? "Uploading…" : "Drag files here, or click to browse"}
           <br />
-          <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
-            PDF, DOCX, PPTX, TXT, MD, VTT, SRT — transcripts (.vtt/.srt) are marked sensitive automatically
+          <span
+            style={{ fontSize: 12, color: "var(--text-muted)" }}
+            title="Transcripts (.vtt/.srt) are marked sensitive automatically"
+          >
+            PDF · DOCX · PPTX · TXT · MD · VTT · SRT
           </span>
           <input
             ref={fileInput}
@@ -471,6 +479,7 @@ export function UploadsConsole() {
               fontSize: 13,
               color: "var(--text-secondary)",
             }}
+            title="Visible to the uploader and PMM admins only"
           >
             <input
               type="checkbox"
@@ -479,7 +488,7 @@ export function UploadsConsole() {
               style={{ width: "auto" }}
             />
             <i className="fa-solid fa-lock" style={{ color: "#A32D2D", fontSize: 11 }} />
-            Mark as sensitive (uploader + PMM only)
+            Mark as sensitive
           </label>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <span style={{ fontSize: 12.5, fontWeight: 500, color: "var(--text-secondary)" }}>
@@ -591,12 +600,20 @@ export function UploadsConsole() {
                     <i className="fa-solid fa-file" style={{ marginRight: 8, color: "var(--teal-dark)" }} />
                     <span style={{ fontWeight: 500 }}>{r.filename}</span>
                     {r.sensitive && (
-                      <span className="pill pill-lock" style={{ marginLeft: 8 }}>
+                      <span
+                        className="pill pill-lock"
+                        style={{ marginLeft: 8 }}
+                        title="Sensitive — visible to the uploader and PMM admins only"
+                      >
                         <i className="fa-solid fa-lock" style={{ fontSize: 9 }} /> Restricted
                       </span>
                     )}
                     {r.promoted && (
-                      <span className="pill pill-final" style={{ marginLeft: 8 }}>
+                      <span
+                        className="pill pill-final"
+                        style={{ marginLeft: 8 }}
+                        title="Promoted to the approved context library — available to AI features"
+                      >
                         In context
                       </span>
                     )}
@@ -625,7 +642,11 @@ export function UploadsConsole() {
                     {admin && !r.promoted && (
                       <>
                         {" "}
-                        <button className="btn btn-sm" onClick={() => startPromote(r)}>
+                        <button
+                          className="btn btn-sm"
+                          onClick={() => startPromote(r)}
+                          title="Make this file's content available to AI features — admin approval gate"
+                        >
                           <i className="fa-solid fa-arrow-up-right-dots" /> Promote
                         </button>
                       </>
@@ -643,7 +664,7 @@ export function UploadsConsole() {
           <div className="drawer" onClick={(e) => e.stopPropagation()}>
             <div className="row-between" style={{ marginBottom: 16 }}>
               <h3 style={{ margin: 0, fontSize: 16 }}>{preview.row.filename}</h3>
-              <button className="close" onClick={() => setPreview(null)}>
+              <button className="close" onClick={() => setPreview(null)} aria-label="Close">
                 <i className="fa-solid fa-xmark" />
               </button>
             </div>
@@ -670,8 +691,7 @@ export function UploadsConsole() {
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <h3>Promote to context doc</h3>
             <p>
-              <b>{promoteRow.filename}</b>&rsquo;s extracted content will become available to every agent in the
-              system. Requires admin approval — this is the explicit approval gate.
+              <b>{promoteRow.filename}</b> — extracted content becomes available to every agent.
             </p>
             <label>Title</label>
             <input value={promoteTitle} onChange={(e) => setPromoteTitle(e.target.value)} />
@@ -700,6 +720,7 @@ export function UploadsConsole() {
                 className="btn btn-primary"
                 onClick={confirmPromote}
                 disabled={promoting || promoteTitle.trim() === ""}
+                title="Approving is the explicit admin approval gate — content becomes available to every agent in the system."
               >
                 <i className="fa-solid fa-circle-check" />
                 {promoting ? "Promoting…" : "Approve & promote"}

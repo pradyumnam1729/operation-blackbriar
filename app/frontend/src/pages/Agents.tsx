@@ -16,12 +16,12 @@ import { AgentDrawer } from "../components/AgentDrawer";
 // here; the agentic Ask loop can delegate to any enabled one). Admin-only:
 // the nav hides the entry and the backend 403s regardless.
 
-const GROUPS: { id: "task" | "A" | "B" | "C" | "custom"; label: string; blurb: string }[] = [
-  { id: "custom", label: "Custom connected agents", blurb: "Your team's own agents, called over HTTP. Enabled agents are available to Ask Hive as delegation targets." },
-  { id: "task", label: "Pipeline task agents", blurb: "The AI steps this app runs — questionnaire extraction, messaging generation, template fill, ask, compare." },
-  { id: "A", label: "Intelligence agents · Group A", blurb: "Market, persona, competitive, win-loss, and evidence intelligence." },
-  { id: "B", label: "Activation agents · Group B", blurb: "Launches, enablement, adoption, and pricing activation." },
-  { id: "C", label: "Governance agents · Group C", blurb: "Messaging effectiveness, content governance, performance, prioritization." },
+const GROUPS: { id: "task" | "A" | "B" | "C" | "custom"; label: string }[] = [
+  { id: "custom", label: "Connected agents" },
+  { id: "task", label: "Pipeline agents" },
+  { id: "A", label: "Intelligence · Group A" },
+  { id: "B", label: "Activation · Group B" },
+  { id: "C", label: "Governance · Group C" },
 ];
 
 function groupAgents(agents: AgentSummary[], id: "task" | "A" | "B" | "C" | "custom"): AgentSummary[] {
@@ -30,12 +30,36 @@ function groupAgents(agents: AgentSummary[], id: "task" | "A" | "B" | "C" | "cus
   return agents.filter((a) => a.kind === "pmm" && a.grp === id);
 }
 
-/** Configured/base badge: override wins, then any other delta, then stock. */
-function configBadge(a: AgentSummary): { cls: string; label: string } {
-  if (a.overridden) return { cls: "pill-draft", label: "Overridden" };
-  if (a.has_custom_instructions || a.model !== null)
-    return { cls: "pill-review", label: "Configured" };
-  return { cls: "pill-archived", label: "Base" };
+/** Curated one-line summaries per agent key; fallback is the first sentence of the description. */
+const ONE_LINERS: Record<string, string> = {
+  "fq-extraction": "Extracts cited questionnaire answers from ingested sources",
+  "fq-merge": "Merges extraction candidates into one proposal per question",
+  "messaging-doc-generation": "Builds the messaging doc from approved answers",
+  "template-slot-fill": "Fills locked templates with approved messaging",
+  "ask-war-room": "Role-aware Q&A over the War Room",
+  "competitive-compare": "Answers competitor questions from scraped sources",
+  "ask-router": "Routes Ask requests to answers or artifacts",
+  "voice-of-market": "Turns market signals into GTM implications",
+  "icp-persona": "Refines segments and buyer personas from data",
+  "competitive-intel": "Tracks competitor moves, translates into positioning",
+  "win-loss": "Explains why deals are won or lost",
+  "customer-evidence": "Surfaces proof points and case-study candidates",
+  "product-to-market": "Converts product updates into buyer messaging",
+  "launch-orchestration": "Recommends launch tier and builds the plan",
+  "sales-enablement": "Builds battlecards, objection handling, deal narratives",
+  "adoption-expansion": "Finds adoption barriers and expansion opportunities",
+  "pricing-packaging": "Finds packaging gaps and pricing friction",
+  "messaging-effectiveness": "Measures whether approved messaging gets used",
+  "content-governance": "Flags outdated or inconsistent messaging in assets",
+  "gtm-performance": "Measures launch, enablement, and messaging impact",
+  "pmm-prioritization": "Ranks PMM work by impact and effort",
+};
+
+function oneLiner(a: AgentSummary): string {
+  const mapped = ONE_LINERS[a.key];
+  if (mapped !== undefined) return mapped;
+  const first = a.description.split(/(?<=\.)\s/)[0];
+  return first !== "" ? first : a.description;
 }
 
 const KIND_ICON: Record<string, string> = {
@@ -191,9 +215,7 @@ export function Agents() {
         <h1 className="pagetitle">Agents</h1>
         <div className="card">
           <div className="empty-note">
-            The Agents registry is where the PMM admin tunes the AI steps this app runs.
-            If an answer or asset needs a different emphasis, ask your PMM admin — changes
-            made here apply to every role at run time.
+            Admin only. Ask your PMM admin if an answer or asset needs different emphasis.
           </div>
         </div>
       </div>
@@ -201,9 +223,14 @@ export function Agents() {
   }
 
   const renderCard = (a: AgentSummary) => {
-    const badge = configBadge(a);
     const isCustom = a.kind === "custom";
     const test = testResults[a.key];
+    const customized = a.overridden || a.has_custom_instructions || a.model !== null;
+    const kindPill = isCustom
+      ? { cls: "pill-review", label: "Connected" }
+      : a.kind === "task"
+        ? { cls: "pill-archived", label: "Pipeline" }
+        : { cls: "pill-archived", label: `Group ${a.grp ?? ""}` };
     return (
       <div
         key={a.key}
@@ -223,9 +250,9 @@ export function Agents() {
         style={{
           display: "flex",
           flexDirection: "column",
-          gap: 10,
+          gap: 8,
           marginBottom: 0,
-          padding: "18px 18px 14px",
+          padding: "16px 16px 12px",
           cursor: isCustom ? "default" : "pointer",
           opacity: a.enabled ? 1 : 0.6,
           transition: "box-shadow .15s ease, transform .15s ease",
@@ -240,11 +267,11 @@ export function Agents() {
         }}
       >
         {/* header */}
-        <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <div
             style={{
-              width: 40,
-              height: 40,
+              width: 32,
+              height: 32,
               borderRadius: "var(--r-sm)",
               background: isCustom ? "#FDF6DC" : "#E1F0F2",
               color: isCustom ? "#8A6D00" : "var(--teal-dark)",
@@ -252,37 +279,31 @@ export function Agents() {
               alignItems: "center",
               justifyContent: "center",
               flexShrink: 0,
-              fontSize: 15,
+              fontSize: 13,
             }}
           >
             <i className={`fa-solid ${KIND_ICON[a.kind] ?? "fa-robot"}`} />
           </div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div
-              style={{
-                fontSize: 14.5,
-                fontWeight: 600,
-                color: "var(--text-primary)",
-                letterSpacing: "-0.01em",
-                lineHeight: 1.3,
-              }}
-            >
-              {a.name}
-            </div>
-            <div
-              style={{
-                fontFamily: "Consolas, monospace",
-                fontSize: 10.5,
-                color: "var(--text-muted)",
-                marginTop: 2,
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-              }}
-            >
-              {a.key}
-              {isCustom && a.endpoint_url ? ` · ${hostOf(a.endpoint_url)}` : ""}
-            </div>
+          <div
+            style={{
+              flex: 1,
+              minWidth: 0,
+              fontSize: 14.5,
+              fontWeight: 600,
+              color: "var(--text-primary)",
+              letterSpacing: "-0.01em",
+              lineHeight: 1.3,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+            title={
+              isCustom
+                ? `${a.name} · ${hostOf(a.endpoint_url)} · updated ${(a.updated_at ?? "").slice(0, 10)}`
+                : a.name
+            }
+          >
+            {a.name}
           </div>
           <button
             className={`pill ${a.enabled ? "pill-live" : "pill-lost"}`}
@@ -294,29 +315,27 @@ export function Agents() {
             }}
             title={
               a.enabled
-                ? "Click to disable — dependent runs stop with a message naming this tab"
-                : "Disabled: every dependent run fails fast. Click to enable."
+                ? "Disable — dependent runs stop immediately"
+                : "Enable this agent"
             }
           >
             {a.enabled ? "Enabled" : "Disabled"}
           </button>
         </div>
 
-        {/* description */}
+        {/* one-liner */}
         <div
           style={{
             fontSize: 12.5,
             lineHeight: 1.55,
             color: "var(--text-secondary)",
-            display: "-webkit-box",
-            WebkitLineClamp: 3,
-            WebkitBoxOrient: "vertical",
             overflow: "hidden",
-            minHeight: 40,
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
           }}
           title={a.description}
         >
-          {a.description}
+          {oneLiner(a)}
         </div>
 
         {/* test result (custom only) */}
@@ -341,58 +360,47 @@ export function Agents() {
             display: "flex",
             alignItems: "center",
             gap: 8,
-            flexWrap: "wrap",
             marginTop: "auto",
             paddingTop: 10,
             borderTop: "1px solid var(--border)",
           }}
         >
-          {isCustom ? (
-            <>
-              <span className="pill pill-review">HTTP agent</span>
-              <span style={{ fontSize: 11, color: "var(--text-muted)", flex: 1 }}>
-                Updated {a.updated_at.slice(0, 10)}
-              </span>
+          <span className={`pill ${kindPill.cls}`}>{kindPill.label}</span>
+          {customized && (
+            <i
+              className="fa-solid fa-sliders"
+              style={{ fontSize: 12, color: "var(--teal-dark)" }}
+              title="Customized — open to see details"
+              role="img"
+              aria-label="Customized"
+            />
+          )}
+          {isCustom && (
+            <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
               <button
                 className="btn btn-sm"
                 disabled={testing === a.key}
+                title="Test — one live call to the endpoint"
                 onClick={(e) => {
                   e.stopPropagation();
                   void testAgent(a);
                 }}
+                aria-label="Test agent"
               >
-                <i className={`fa-solid ${testing === a.key ? "fa-spinner fa-spin" : "fa-bolt"}`} />{" "}
-                Test
+                <i className={`fa-solid ${testing === a.key ? "fa-spinner fa-spin" : "fa-bolt"}`} />
               </button>
               <button
                 className="btn btn-danger btn-sm"
+                title="Disconnect and delete"
                 onClick={(e) => {
                   e.stopPropagation();
                   void removeAgent(a);
                 }}
+                aria-label="Disconnect and delete"
               >
                 <i className="fa-solid fa-trash" />
               </button>
-            </>
-          ) : (
-            <>
-              <span className={`pill ${badge.cls}`}>{badge.label}</span>
-              {a.has_custom_instructions && (
-                <span className="pill pill-review" title="Custom instructions appended on every run">
-                  +instructions
-                </span>
-              )}
-              <span
-                className={`pill ${a.model !== null ? "pill-live" : "pill-archived"}`}
-                title={a.model !== null ? "Custom model for this agent" : "Uses the PMM default model"}
-              >
-                {a.model ?? "Default model"}
-              </span>
-              <span style={{ fontSize: 11, color: "var(--text-muted)", marginLeft: "auto" }}>
-                {a.updated_at.slice(0, 10)}
-                {a.updated_by_name ? ` · ${a.updated_by_name}` : ""}
-              </span>
-            </>
+            </div>
           )}
         </div>
       </div>
@@ -412,8 +420,7 @@ export function Agents() {
             </span>
           </h1>
           <p className="pagesub">
-            The AI workforce behind Hive: the app's pipeline agents, the 14 PMM sub-agents, and
-            your team's own connected agents. Changes apply at run time; every save is logged.
+            Pipeline, PMM, and connected agents. Changes apply at run time.
           </p>
         </div>
         <button
@@ -421,7 +428,7 @@ export function Agents() {
           onClick={() => setShowConnect((s) => !s)}
         >
           <i className={`fa-solid ${showConnect ? "fa-xmark" : "fa-plug"}`} />
-          {showConnect ? "Cancel" : "Connect custom agent"}
+          {showConnect ? "Cancel" : "Connect agent"}
         </button>
       </div>
 
@@ -443,14 +450,20 @@ export function Agents() {
       {showConnect && (
         <div className="card">
           <h3 style={{ margin: "0 0 4px", fontSize: 15, fontWeight: 600 }}>Connect a custom agent</h3>
-          <p style={{ fontSize: 12.5, color: "var(--text-secondary)", margin: "0 0 14px", lineHeight: 1.55 }}>
-            Point Hive at any HTTP agent your team runs. Hive sends{" "}
-            <code style={{ fontSize: 11.5 }}>{'POST {"input", "context", "source": "hive"}'}</code>{" "}
-            and expects <code style={{ fontSize: 11.5 }}>{'{"output": "..."}'}</code> (or plain text)
-            back. Once enabled, Ask Hive can delegate matching questions to it — write the
-            description as the routing rule: it is exactly what the Ask agent reads to decide when
-            to call your agent.
+          <p style={{ fontSize: 12.5, color: "var(--text-secondary)", margin: "0 0 8px", lineHeight: 1.55 }}>
+            Ask Hive delegates matching questions based on the description you write.
           </p>
+          <details style={{ marginBottom: 14 }}>
+            <summary style={{ fontSize: 12.5, color: "var(--teal-dark)", cursor: "pointer" }}>
+              HTTP contract
+            </summary>
+            <p style={{ fontSize: 12.5, color: "var(--text-secondary)", margin: "6px 0 0", lineHeight: 1.55 }}>
+              Hive sends{" "}
+              <code style={{ fontSize: 11.5 }}>{'POST {"input", "context", "source": "hive"}'}</code>{" "}
+              and expects <code style={{ fontSize: 11.5 }}>{'{"output": "..."}'}</code> or plain
+              text.
+            </p>
+          </details>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             <div>
               <label style={inputStyle}>Agent name</label>
@@ -469,7 +482,7 @@ export function Agents() {
               />
             </div>
           </div>
-          <label>What does it do? (Ask Hive routes on this)</label>
+          <label>Description (Ask Hive routes on this)</label>
           <textarea
             value={form.description}
             onChange={(e) => setForm({ ...form, description: e.target.value })}
@@ -545,23 +558,21 @@ export function Agents() {
           if (rows.length === 0 && g.id !== "custom") return null;
           return (
             <div key={g.id} style={{ marginBottom: 26 }}>
-              <div className="section-label" style={{ marginBottom: 2 }}>
+              <div className="section-label" style={{ marginBottom: 10 }}>
                 {g.label}
                 <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0, color: "var(--text-muted)", marginLeft: 8 }}>
                   {rows.length}
                 </span>
               </div>
-              <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "0 0 12px" }}>{g.blurb}</p>
               {rows.length === 0 ? (
                 <div className="empty-note" style={{ paddingTop: 4 }}>
-                  No custom agents connected yet — use “Connect custom agent” above. Enabled agents
-                  become delegation targets for Ask Hive automatically.
+                  No connected agents yet — use Connect agent above.
                 </div>
               ) : (
                 <div
                   style={{
                     display: "grid",
-                    gridTemplateColumns: "repeat(auto-fill, minmax(310px, 1fr))",
+                    gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
                     gap: 14,
                   }}
                 >
