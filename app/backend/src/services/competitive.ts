@@ -753,6 +753,159 @@ export async function approveCiReport(id: string, userId: string): Promise<CiRep
   return row as CiReportRow;
 }
 
+export interface BattlecardGenResult {
+  artifactId: string;
+  status: "final" | "draft";
+  violations?: string[];
+}
+
+/** One approved CI report + one PMM-picked vertical + one battlecard template ->
+ * one published (or flagged-draft) artifact. Deliberately does NOT touch
+ * battlecard_links (the canonical-card table another workstream added) — the
+ * two pre-existing battlecard routes in this file don't populate it either, so
+ * this stays consistent with current behavior rather than introducing a second,
+ * half-applied invariant. The PMM's vertical/format choice on an approved
+ * report IS the human sign-off: passes the banned-words guard -> final
+ * immediately, visible to every role; fails -> draft with violations surfaced,
+ * never silently published non-compliant copy. */
+export async function generateCompetitiveBattlecard(
+  reportId: string,
+  templateId: string,
+  vertical: string,
+  userId: string
+): Promise<BattlecardGenResult> {
+  const sb = supabase()!;
+  const { data: reportData } = await sb
+    .from("ci_reports")
+    .select("id, title, status, content_html, aurigo_product, competitor_id, competitors(name)")
+    .eq("id", reportId)
+    .maybeSingle();
+  if (!reportData) throw new CompetitiveIntelError("CI report not found", 404);
+  const report = reportData as unknown as CiReportRow & { competitors: { name: string } | null };
+  if (report.status !== "final") {
+    throw new CompetitiveIntelError(
+      "This CI report must be approved before a battlecard can be generated from it.",
+      409
+    );
+  }
+  const competitorName = report.competitors?.name ?? "Competitor";
+  const ourProduct = report.aurigo_product ?? "Aurigo";
+
+  const { data: templateData } = await sb
+    .from("templates")
+    .select("id, name, format, body, slots, approved, asset_type")
+    .eq("id", templateId)
+    .maybeSingle();
+  if (!templateData || templateData.asset_type !== "battlecard" || !templateData.approved) {
+    throw new CompetitiveIntelError("Battlecard template not found or not approved", 404);
+  }
+  const slots = (templateData.slots ?? []) as TemplateSlot[];
+
+  const { data: product } = report.aurigo_product
+    ? await sb.from("products").select("id").ilike("name", `${report.aurigo_product}%`).limit(1).maybeSingle()
+    : { data: null };
+
+  const slotLines = slots
+    .map((s) => {
+      const shape =
+        s.render === "lines"
+          ? `One item per line, at most ${s.max_lines ?? 1} lines.`
+          : "Single line of plain text.";
+      return `- ${s.id}: ${s.purpose}. HARD LIMIT ${s.max_chars} characters — count them; shorter is fine, longer is rejected. ${shape}`;
+    })
+    .join("\n");
+  const firstSlotId = slots[0]?.id ?? "slot_id";
+  const prompt = [
+    PRODUCT_MAP,
+    EVIDENCE_RULES,
+    `Fill a sales battlecard comparing Aurigo ${ourProduct} against ${competitorName}, targeted at the "${vertical}" vertical.`,
+    "Base every claim about the competitor ONLY on the CI report below. Base every claim about Aurigo on the CI report's counter-positioning plus the product map above. Never invent facts, numbers, or quotes not present in the report.",
+    "Slots to fill:",
+    slotLines,
+    "",
+    'Return ONLY valid JSON — no fences, no commentary: {"fills": {"' + firstSlotId + '": "...", ... one key per slot id listed above}}',
+    "",
+    "=== CI REPORT ===",
+    htmlToText(report.content_html),
+  ].join("\n\n");
+
+  let fills: Record<string, string>;
+  try {
+    fills = await askFills(prompt, "", undefined);
+  } catch (err) {
+    throw new CompetitiveIntelError(`Slot filling failed: ${(err as Error).message}. Nothing was created.`, 502);
+  }
+
+  const { ok, over } = validateFills(slots, fills);
+  if (over.length > 0) {
+    let retried: Record<string, string> = {};
+    try {
+      retried = await askFills(buildTrimPrompt(over, fills), "", undefined);
+    } catch {
+      retried = {};
+    }
+    const overSlots = slots.filter((s) => over.some((o) => o.slot_id === s.id));
+    const second = validateFills(overSlots, retried);
+    for (const o of over) {
+      ok[o.slot_id] = (second.ok[o.slot_id] ?? "").trim();
+    }
+  }
+
+  const { payload } = renderTemplate(templateData.format as "html", templateData.body as string, slots, ok);
+
+  const digestParts = [`<h1>${report.title} — ${vertical}</h1>`];
+  for (const slot of slots) {
+    digestParts.push(`<h3>${slot.label}</h3><p>${(ok[slot.id] ?? "").replace(/\r?\n/g, "<br>") || "<em>(empty)</em>"}</p>`);
+  }
+  const digestHtml = cleanHtml(digestParts.join("\n"));
+
+  const guard = checkForbiddenWords(htmlToText(digestHtml));
+  const status: "final" | "draft" = guard.ok ? "final" : "draft";
+
+  const { data: artifact, error } = await sb
+    .from("artifacts")
+    .insert({
+      title: `${templateData.name}: ${ourProduct} vs ${competitorName} (${vertical})`,
+      asset_type: "battlecard",
+      product_id: product?.id ?? null,
+      competitor_id: report.competitor_id,
+      vertical,
+      persona: "Sales",
+      status,
+      created_by: userId,
+    })
+    .select("id")
+    .single();
+  if (error || !artifact) throw new Error(error?.message ?? "Could not save the battlecard");
+
+  await sb.from("artifact_versions").insert({
+    artifact_id: artifact.id,
+    version: 1,
+    content_html: digestHtml,
+    note: `Generated from CI report "${report.title}" for the ${vertical} vertical`,
+    created_by: userId,
+  });
+  await sb.from("artifact_renders").insert({
+    artifact_id: artifact.id,
+    version: 1,
+    format: templateData.format,
+    payload,
+    slot_fills: ok,
+    warnings: [],
+    template_id: templateData.id,
+    template_version: 1,
+    ci_report_id: report.id,
+    created_by: userId,
+  });
+  void logActivity("artifact", artifact.id, userId, "battlecard_from_ci_report_template", {
+    ci_report_id: report.id,
+    template_id: templateData.id,
+    vertical,
+  });
+
+  return { artifactId: artifact.id, status, violations: guard.ok ? undefined : guard.violations };
+}
+
 // ---------------------------------------------------------------------------
 // Market threats / new entrants: AI-drafted with a confidence score and a
 // rationale, admin-approved before regular users see them.

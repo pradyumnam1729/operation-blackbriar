@@ -369,6 +369,17 @@ const SUGGESTIONS = [
 
 const NEWS_CATEGORY_LABELS = ["News", "Press Release", "Acquisition", "AI Direction", "Bidding & RFP", "Webinar & Event"];
 
+const VERTICALS_BY_PRODUCT: Record<string, string[]> = {
+  Primus: ["Data center", "Energy & utility", "Manufacturing", "Life sciences"],
+  Masterworks: ["DOT", "Transit", "Airport", "Public works"],
+};
+
+type BattlecardFormat = "insights" | "detailed";
+const BATTLECARD_FORMAT_LABELS: Record<BattlecardFormat, string> = {
+  insights: "Quick Insights Sheet",
+  detailed: "Detailed Battlecard",
+};
+
 interface PositioningAxis {
   label: string;
   low: string;
@@ -594,13 +605,9 @@ export function CompetitiveIntel() {
   const [info, setInfo] = useState("");
   const [showAdd, setShowAdd] = useState(false);
   const [addForm, setAddForm] = useState({ name: "", website: "", category: "", aurigoProduct: "" });
-  const [trackName, setTrackName] = useState("");
-  const [trackBusy, setTrackBusy] = useState(false);
-  const [trackError, setTrackError] = useState("");
-  const [trackDone, setTrackDone] = useState("");
   const [sourceUrlFor, setSourceUrlFor] = useState<{ id: string; url: string } | null>(null);
   const [tab, setTab] = useState<
-    "overview" | "compare" | "map" | "frameworks" | "deltas" | "battlecards" | "reports" | "news" | "threats"
+    "overview" | "compare" | "map" | "frameworks" | "deltas" | "battlecards"
   >("compare");
 
   // Overview (ELT), frameworks, and deltas — ported from the watch lineage.
@@ -608,6 +615,10 @@ export function CompetitiveIntel() {
   const [eventsSummary, setEventsSummary] = useState<EventsSummaryT | null>(null);
   const [overviewBusy, setOverviewBusy] = useState("");
   const [fwKey, setFwKey] = useState<"threat-tiers" | "swot" | "delta-timeline" | "five-forces" | "feature-matrix">("threat-tiers");
+  // Market threats live inside the Frameworks tab as a relocated section, not
+  // a framework type — its data shape (name/confidence) doesn't match the
+  // others (competitor/tier), so it's a separate view, not a 6th fwKey.
+  const [frameworksView, setFrameworksView] = useState<"analysis" | "entrants">("analysis");
   const [fwAnalysis, setFwAnalysis] = useState<Analysis | null>(null);
   const [fwBusy, setFwBusy] = useState(false);
   const [fwError, setFwError] = useState("");
@@ -621,15 +632,31 @@ export function CompetitiveIntel() {
   // Battlecards originated from this page (comparison- or CI-report-sourced).
   const [battlecards, setBattlecards] = useState<BattlecardRow[]>([]);
 
-  // CI Reports
+  // CI Reports — folded into the Battlecards tab: a report is just the
+  // intermediate step behind a simple "New battlecard" CTA, not its own
+  // browsable surface.
   const [reports, setReports] = useState<CiReportRow[]>([]);
+  const [showNewReportForm, setShowNewReportForm] = useState(false);
   const [reportCompetitorId, setReportCompetitorId] = useState("");
   const [reportProduct, setReportProduct] = useState("");
   const [reportBrief, setReportBrief] = useState("");
   const [reportPriorityUrls, setReportPriorityUrls] = useState("");
   const [reportBusy, setReportBusy] = useState(false);
   const [reportError, setReportError] = useState("");
-  const [openReport, setOpenReport] = useState<{ id: string; title: string; contentHtml: string } | null>(null);
+  const [openReport, setOpenReport] = useState<{
+    id: string;
+    title: string;
+    contentHtml: string;
+    status: "draft" | "final" | "archived";
+    aurigoProduct: string | null;
+  } | null>(null);
+
+  // Vertical + format picker, shown inline once the open report is final.
+  const [bcVertical, setBcVertical] = useState("");
+  const [bcFormats, setBcFormats] = useState<Record<BattlecardFormat, boolean>>({ insights: true, detailed: true });
+  const [bcBusy, setBcBusy] = useState(false);
+  const [bcError, setBcError] = useState("");
+  const [bcResults, setBcResults] = useState<{ format: BattlecardFormat; artifactId: string; status: string; violations?: string[] }[]>([]);
 
   // Daily news
   const [news, setNews] = useState<NewsItemRow[]>([]);
@@ -637,6 +664,9 @@ export function CompetitiveIntel() {
   const [newsError, setNewsError] = useState("");
   const [newsView, setNewsView] = useState<"latest" | "past">("latest");
   const [newsPriority, setNewsPriority] = useState<"all" | "high">("all");
+  // Overview shows a compact strip by default — the full filterable dashboard
+  // (admin tracking, category grid) only appears once expanded.
+  const [newsExpanded, setNewsExpanded] = useState(false);
 
   // Market threats
   const [threats, setThreats] = useState<MarketThreatRow[]>([]);
@@ -861,31 +891,6 @@ export function CompetitiveIntel() {
     }
   };
 
-  const buildDigestNow = async () => {
-    setOverviewBusy("digest");
-    setError("");
-    try {
-      await apiPost("/api/competitive/digest", { windowDays: 7 });
-      await loadOverview();
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setOverviewBusy("");
-    }
-  };
-
-  const saveDigest = async (id: string) => {
-    setOverviewBusy("save");
-    try {
-      const r = await apiPost<{ artifactId: string }>(`/api/competitive/digests/${id}/save-as-artifact`);
-      navigate(`/library/${r.artifactId}`);
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setOverviewBusy("");
-    }
-  };
-
   const regenerateBattlecard = async (artifactId: string) => {
     setOverviewBusy(artifactId);
     setError("");
@@ -1053,24 +1058,6 @@ export function CompetitiveIntel() {
     }
   };
 
-  /** News-tab shortcut for the same registry add — PMM just names a competitor
-   *  and it's in scope for tomorrow's daily scan, no need to leave the tab. */
-  const trackCompetitor = async () => {
-    setTrackBusy(true);
-    setTrackError("");
-    setTrackDone("");
-    try {
-      await apiPost("/api/competitive/competitors", { name: trackName });
-      setTrackDone(`Tracking ${trackName.trim()} — news will start showing up after tomorrow's scan.`);
-      setTrackName("");
-      await load();
-    } catch (e) {
-      setTrackError((e as Error).message);
-    } finally {
-      setTrackBusy(false);
-    }
-  };
-
   const addSourceUrl = async () => {
     if (!sourceUrlFor) return;
     setBusy(true);
@@ -1107,17 +1094,28 @@ export function CompetitiveIntel() {
     setReportBusy(true);
     setReportError("");
     try {
-      await apiPost("/api/competitive/ci-reports", {
-        competitorId: reportCompetitorId,
-        product: reportProduct || undefined,
-        extraBrief: reportBrief.trim() || undefined,
-        priorityUrls: reportPriorityUrls
-          .split("\n")
-          .map((u) => u.trim())
-          .filter((u) => u !== ""),
-      });
+      const r = await apiPost<{ report: { id: string; title: string; content_html: string; status: "draft" | "final" | "archived"; aurigo_product: string | null } }>(
+        "/api/competitive/ci-reports",
+        {
+          competitorId: reportCompetitorId,
+          product: reportProduct || undefined,
+          extraBrief: reportBrief.trim() || undefined,
+          priorityUrls: reportPriorityUrls
+            .split("\n")
+            .map((u) => u.trim())
+            .filter((u) => u !== ""),
+        }
+      );
       setReportBrief("");
       setReportPriorityUrls("");
+      setShowNewReportForm(false);
+      setOpenReport({
+        id: r.report.id,
+        title: r.report.title,
+        contentHtml: r.report.content_html,
+        status: r.report.status,
+        aurigoProduct: r.report.aurigo_product,
+      });
       await load();
     } catch (e) {
       setReportError((e as Error).message);
@@ -1129,10 +1127,18 @@ export function CompetitiveIntel() {
   const viewReport = async (id: string) => {
     setReportError("");
     try {
-      const r = await apiGet<{ report: { id: string; title: string; content_html: string } }>(
-        `/api/competitive/ci-reports/${id}`
-      );
-      setOpenReport({ id: r.report.id, title: r.report.title, contentHtml: r.report.content_html });
+      const r = await apiGet<{
+        report: { id: string; title: string; content_html: string; status: "draft" | "final" | "archived"; aurigo_product: string | null };
+      }>(`/api/competitive/ci-reports/${id}`);
+      setOpenReport({
+        id: r.report.id,
+        title: r.report.title,
+        contentHtml: r.report.content_html,
+        status: r.report.status,
+        aurigoProduct: r.report.aurigo_product,
+      });
+      setBcResults([]);
+      setBcVertical("");
     } catch (e) {
       setReportError((e as Error).message);
     }
@@ -1143,7 +1149,7 @@ export function CompetitiveIntel() {
     setReportError("");
     try {
       await apiPost(`/api/competitive/ci-reports/${id}/approve`);
-      setOpenReport(null);
+      setOpenReport((prev) => (prev ? { ...prev, status: "final" } : prev));
       await load();
     } catch (e) {
       setReportError((e as Error).message);
@@ -1152,16 +1158,23 @@ export function CompetitiveIntel() {
     }
   };
 
-  const battlecardFromReport = async (id: string) => {
-    setReportBusy(true);
-    setReportError("");
+  const generateBattlecards = async (reportId: string) => {
+    const formats = (Object.keys(bcFormats) as BattlecardFormat[]).filter((f) => bcFormats[f]);
+    if (!bcVertical || formats.length === 0) return;
+    setBcBusy(true);
+    setBcError("");
+    setBcResults([]);
     try {
-      const r = await apiPost<{ artifactId: string }>(`/api/competitive/ci-reports/${id}/battlecard`);
-      navigate(`/library/${r.artifactId}`);
+      const r = await apiPost<{ results: { format: BattlecardFormat; artifactId: string; status: string; violations?: string[] }[] }>(
+        `/api/competitive/ci-reports/${reportId}/battlecards`,
+        { vertical: bcVertical, formats }
+      );
+      setBcResults(r.results);
+      await load();
     } catch (e) {
-      setReportError((e as Error).message);
+      setBcError((e as Error).message);
     } finally {
-      setReportBusy(false);
+      setBcBusy(false);
     }
   };
 
@@ -1241,6 +1254,9 @@ export function CompetitiveIntel() {
         <button className={tab === "compare" ? "active" : ""} onClick={() => setTab("compare")}>
           <i className="fa-solid fa-chess" style={{ marginRight: 6 }} /> Compare &amp; registry
         </button>
+        <button className={tab === "battlecards" ? "active" : ""} onClick={() => setTab("battlecards")}>
+          <i className="fa-solid fa-shield-halved" style={{ marginRight: 6 }} /> Battlecards
+        </button>
         <button className={tab === "map" ? "active" : ""} onClick={() => setTab("map")}>
           <i className="fa-solid fa-map-location-dot" style={{ marginRight: 6 }} /> Positioning map
         </button>
@@ -1255,23 +1271,124 @@ export function CompetitiveIntel() {
             </span>
           )}
         </button>
-        <button className={tab === "battlecards" ? "active" : ""} onClick={() => setTab("battlecards")}>
-          <i className="fa-solid fa-shield-halved" style={{ marginRight: 6 }} /> Battlecards
-        </button>
-        <button className={tab === "reports" ? "active" : ""} onClick={() => setTab("reports")}>
-          <i className="fa-solid fa-file-shield" style={{ marginRight: 6 }} /> CI reports
-        </button>
-        <button className={tab === "news" ? "active" : ""} onClick={() => setTab("news")}>
-          <i className="fa-solid fa-newspaper" style={{ marginRight: 6 }} /> Daily news
-        </button>
-        <button className={tab === "threats" ? "active" : ""} onClick={() => setTab("threats")}>
-          <i className="fa-solid fa-triangle-exclamation" style={{ marginRight: 6 }} /> Market threats
-        </button>
       </div>
 
-      {/* ---------- overview (ELT) tab: uniform 2×2 dashboard ---------- */}
+      {/* ---------- overview (ELT) tab ---------- */}
       {tab === "overview" && (
-        <div className="grid grid-2" style={{ alignItems: "stretch", marginBottom: 18 }}>
+        <>
+        {/* ---------- Daily news: a compact strip by default, full dashboard on demand ---------- */}
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div className="row-between" style={{ marginBottom: newsExpanded ? 12 : 0 }}>
+            <h3 style={{ margin: 0, fontSize: 14, fontWeight: 500, display: "flex", alignItems: "center", gap: 8 }}>
+              <i className="fa-solid fa-newspaper" style={{ color: "var(--teal-dark)" }} />
+              Daily news
+              {news.length > 0 && (
+                <span style={{ fontSize: 11.5, color: "var(--text-muted)", fontWeight: 400 }}>
+                  · updated {new Date(Math.max(...news.map((n) => new Date(n.discovered_at).getTime()))).toLocaleDateString()}
+                </span>
+              )}
+            </h3>
+            <button className="btn btn-sm" onClick={() => setNewsExpanded((v) => !v)}>
+              {newsExpanded ? "Show less" : "View all"} <i className={`fa-solid fa-chevron-${newsExpanded ? "up" : "down"}`} style={{ marginLeft: 4 }} />
+            </button>
+          </div>
+          {newsError && <div style={{ ...errBox, marginTop: 10 }}>{newsError}</div>}
+
+          {!newsExpanded &&
+            (news.length === 0 ? (
+              <div className="empty-note">No news yet.</div>
+            ) : (
+              <div>
+                {[...news]
+                  .sort((a, b) => new Date(b.discovered_at).getTime() - new Date(a.discovered_at).getTime())
+                  .slice(0, 5)
+                  .map((n) => (
+                    <div key={n.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", borderBottom: "1px solid var(--border)", fontSize: 12.5 }}>
+                      <span
+                        title={n.priority === "high" ? "High priority" : "Normal priority"}
+                        style={{ width: 6, height: 6, borderRadius: "50%", background: n.priority === "high" ? "#c0392b" : "var(--text-muted)", flexShrink: 0 }}
+                      />
+                      <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: 500 }}>{n.headline}</span>
+                      {n.category && (
+                        <span className="pill" style={{ fontSize: 10.5, flexShrink: 0 }}>
+                          {n.category}
+                        </span>
+                      )}
+                      <span style={{ fontSize: 11, color: "var(--text-muted)", flexShrink: 0 }}>{new Date(n.discovered_at).toLocaleDateString()}</span>
+                    </div>
+                  ))}
+              </div>
+            ))}
+
+          {newsExpanded && (
+            <>
+              <div style={{ display: "flex", gap: 16, alignItems: "center", justifyContent: "space-between", flexWrap: "wrap" }}>
+                <div style={{ display: "flex", gap: 6 }}>
+                  {(["latest", "past"] as const).map((v) => (
+                    <button key={v} className={`btn btn-sm ${newsView === v ? "btn-primary" : ""}`} onClick={() => setNewsView(v)}>
+                      {v === "latest" ? "Latest" : "Past news"}
+                    </button>
+                  ))}
+                </div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  {(["all", "high"] as const).map((p) => (
+                    <button key={p} className={`btn btn-sm ${newsPriority === p ? "btn-primary" : ""}`} onClick={() => setNewsPriority(p)}>
+                      {p === "all" ? "All" : "High priority"}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="grid grid-3" style={{ marginTop: 12 }}>
+                {NEWS_CATEGORY_LABELS.map((category) => {
+                  const items = news.filter((n) => n.category === category);
+                  return (
+                    <div key={category} className="card">
+                      <h3 style={{ margin: "0 0 10px", fontSize: 14, fontWeight: 500 }}>
+                        {category} <span style={{ color: "var(--text-muted)", fontWeight: 400 }}>{items.length}</span>
+                      </h3>
+                      <div style={{ maxHeight: 360, overflowY: "auto" }}>
+                        {items.length === 0 && <div className="empty-note">Nothing here yet.</div>}
+                        {items.map((n) => (
+                          <div key={n.id} style={{ padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                              <span
+                                title={n.priority === "high" ? "High priority" : "Normal priority"}
+                                style={{ width: 7, height: 7, borderRadius: "50%", background: n.priority === "high" ? "#c0392b" : "var(--text-muted)", display: "inline-block" }}
+                              />
+                              <span style={{ fontWeight: 500, fontSize: 13 }}>{n.headline}</span>
+                              {isAdmin && (
+                                <button
+                                  className="btn btn-sm"
+                                  style={{ marginLeft: "auto" }}
+                                  disabled={newsBusyId === n.id}
+                                  onClick={() => void dismissNews(n.id)}
+                                  title="Hide a bad scan"
+                                >
+                                  <i className="fa-solid fa-xmark" />
+                                </button>
+                              )}
+                            </div>
+                            <div className="prose" style={{ border: "none", boxShadow: "none", padding: 0, fontSize: 12 }} dangerouslySetInnerHTML={{ __html: n.summary_html }} />
+                            <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{new Date(n.discovered_at).toLocaleDateString()}</span>
+                            {n.source_url && (
+                              <a href={n.source_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, marginLeft: 8 }}>
+                                <i className="fa-solid fa-arrow-up-right-from-square" style={{ fontSize: 9, marginRight: 3 }} />
+                                source
+                              </a>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
+        </div>
+
+        <div className="grid grid-3" style={{ alignItems: "stretch", marginBottom: 18 }}>
           {/* threat board */}
           <div className="card" style={DASH_CARD}>
             <div className="row-between" style={DASH_HEAD}>
@@ -1284,7 +1401,7 @@ export function CompetitiveIntel() {
                   </span>
                 )}
               </h3>
-              <button className="btn btn-sm" onClick={() => { setTab("frameworks"); setFwKey("threat-tiers"); }}>
+              <button className="btn btn-sm" onClick={() => { setTab("frameworks"); setFrameworksView("analysis"); setFwKey("threat-tiers"); }}>
                 <i className="fa-solid fa-arrows-rotate" /> Rebuild in Frameworks
               </button>
             </div>
@@ -1380,39 +1497,8 @@ export function CompetitiveIntel() {
               )}
             </div>
           </div>
-
-          {/* digest */}
-          <div className="card" style={DASH_CARD}>
-            <div className="row-between" style={DASH_HEAD}>
-              <h3 style={{ margin: 0, fontSize: 15, fontWeight: 500 }}>
-                <i className="fa-solid fa-newspaper" style={{ color: "var(--teal-dark)", marginRight: 8 }} />
-                Competitive digest
-              </h3>
-              <div style={{ display: "flex", gap: 8 }}>
-                <button className="btn btn-primary btn-sm" disabled={overviewBusy === "digest"} onClick={() => void buildDigestNow()}>
-                  <i className={`fa-solid ${overviewBusy === "digest" ? "fa-spinner fa-spin" : "fa-wand-magic-sparkles"}`} /> Build 7-day digest
-                </button>
-                {overview?.lastDigest && (
-                  <button className="btn btn-sm" disabled={overviewBusy === "save"} onClick={() => void saveDigest(overview.lastDigest!.id)} title="Save to the artifact library as a draft">
-                    <i className="fa-solid fa-box-archive" /> Save as draft
-                  </button>
-                )}
-              </div>
-            </div>
-            <div style={DASH_BODY}>
-              {overview?.lastDigest ? (
-                <>
-                  <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "0 0 8px" }}>
-                    {overview.lastDigest.windowStart.slice(0, 10)} → {overview.lastDigest.windowEnd.slice(0, 10)} · built {new Date(overview.lastDigest.createdAt).toLocaleString()}
-                  </p>
-                  <div className="prose" style={{ border: "none", boxShadow: "none", padding: 0 }} dangerouslySetInnerHTML={{ __html: overview.lastDigest.contentHtml }} />
-                </>
-              ) : (
-                <div className="empty-note">No digest yet. Build one — an explicit "nothing material changed" is a valid digest.</div>
-              )}
-            </div>
-          </div>
         </div>
+        </>
       )}
 
       {tab === "compare" && (
@@ -1708,8 +1794,9 @@ export function CompetitiveIntel() {
       </>
       )}
 
-      {/* ---------- frameworks tab ---------- */}
+      {/* ---------- frameworks tab (market threats relocated here as "entrants") ---------- */}
       {tab === "frameworks" && (
+        <>
         <div className="card">
           <div className="row-between" style={{ marginBottom: 10, flexWrap: "wrap", gap: 10 }}>
             <div className="step-pills" style={{ margin: 0 }}>
@@ -1720,35 +1807,51 @@ export function CompetitiveIntel() {
                 ["five-forces", "Five Forces"],
                 ["feature-matrix", "Capability matrix"],
               ] as const).map(([k, label]) => (
-                <button key={k} type="button" className={`step-pill ${fwKey === k ? "active" : ""}`} onClick={() => { setFwKey(k); setFwAnalysis(null); setFwError(""); }}>
+                <button
+                  key={k}
+                  type="button"
+                  className={`step-pill ${frameworksView === "analysis" && fwKey === k ? "active" : ""}`}
+                  onClick={() => { setFrameworksView("analysis"); setFwKey(k); setFwAnalysis(null); setFwError(""); }}
+                >
                   {label}
                 </button>
               ))}
-            </div>
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              {fwKey === "swot" && (
-                <select value={fwCompetitor} onChange={(e) => setFwCompetitor(e.target.value)}>
-                  <option value="">Pick a competitor…</option>
-                  {competitors.map((c) => (
-                    <option key={c.id} value={c.id}>{c.name}</option>
-                  ))}
-                </select>
-              )}
-              <button className="btn btn-primary btn-sm" disabled={fwBusy || (fwKey === "swot" && !fwCompetitor)} onClick={() => void buildFrameworkNow()}>
-                <i className={`fa-solid ${fwBusy ? "fa-spinner fa-spin" : "fa-wand-magic-sparkles"}`} /> {fwAnalysis ? "Rebuild" : "Build"}
+              <button
+                type="button"
+                className={`step-pill ${frameworksView === "entrants" ? "active" : ""}`}
+                onClick={() => setFrameworksView("entrants")}
+              >
+                New entrants
               </button>
-              {fwAnalysis && (
-                <button
-                  className="btn btn-sm"
-                  disabled={fwBusy}
-                  title="Save this analysis to the PMM workspace as a draft"
-                  onClick={() => void saveFramework()}
-                >
-                  <i className="fa-solid fa-floppy-disk" /> Save as draft
-                </button>
-              )}
             </div>
+            {frameworksView === "analysis" && (
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                {fwKey === "swot" && (
+                  <select value={fwCompetitor} onChange={(e) => setFwCompetitor(e.target.value)}>
+                    <option value="">Pick a competitor…</option>
+                    {competitors.map((c) => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                )}
+                <button className="btn btn-primary btn-sm" disabled={fwBusy || (fwKey === "swot" && !fwCompetitor)} onClick={() => void buildFrameworkNow()}>
+                  <i className={`fa-solid ${fwBusy ? "fa-spinner fa-spin" : "fa-wand-magic-sparkles"}`} /> {fwAnalysis ? "Rebuild" : "Build"}
+                </button>
+                {fwAnalysis && (
+                  <button
+                    className="btn btn-sm"
+                    disabled={fwBusy}
+                    title="Save this analysis to the PMM workspace as a draft"
+                    onClick={() => void saveFramework()}
+                  >
+                    <i className="fa-solid fa-floppy-disk" /> Save as draft
+                  </button>
+                )}
+              </div>
+            )}
           </div>
+          {frameworksView === "analysis" && (
+            <>
           <p style={{ fontSize: 12.5, color: "var(--text-secondary)", margin: "0 0 12px" }}>
             Same evidence discipline as everything here: competitor facts only from scraped sources,
             Aurigo facts only from the knowledge base; thin evidence means fewer items, never padding.
@@ -1948,7 +2051,94 @@ export function CompetitiveIntel() {
               {fwKey === "swot" ? "Pick a competitor and build." : "No analysis stored yet — build one."}
             </div>
           )}
+            </>
+          )}
         </div>
+
+        {frameworksView === "entrants" && (
+          <>
+            {isAdmin && (
+              <div className="card">
+                <h3 style={{ margin: "0 0 12px", fontSize: 15, fontWeight: 500 }}>Draft a threat / new entrant</h3>
+                <div className="grid grid-3">
+                  <input placeholder="Name" value={threatForm.name} onChange={(e) => setThreatForm({ ...threatForm, name: e.target.value })} />
+                  <select value={threatForm.product} onChange={(e) => setThreatForm({ ...threatForm, product: e.target.value })}>
+                    <option value="">Aurigo product (optional)</option>
+                    <option value="Primus">Primus</option>
+                    <option value="Masterworks">Masterworks</option>
+                  </select>
+                  <input placeholder="Source URL (optional)" value={threatForm.url} onChange={(e) => setThreatForm({ ...threatForm, url: e.target.value })} />
+                </div>
+                <p style={{ marginTop: 10, marginBottom: 0 }}>
+                  <button className="btn btn-primary btn-sm" onClick={() => void draftThreat()} disabled={threatBusy || threatForm.name.trim() === ""}>
+                    <i className={`fa-solid ${threatBusy ? "fa-spinner fa-spin" : "fa-wand-magic-sparkles"}`} />{" "}
+                    {threatBusy ? "Researching…" : "AI-draft assessment"}
+                  </button>
+                </p>
+                {threatError && <div style={{ ...errBox, marginTop: 12 }}>{threatError}</div>}
+              </div>
+            )}
+
+            <div className="card">
+              <div className="row-between" style={{ marginBottom: 12, flexWrap: "wrap", gap: 12 }}>
+                <h3 style={{ margin: 0, fontSize: 15, fontWeight: 500 }}>
+                  {isAdmin ? "All threats & entrants" : "Approved threats & entrants"}
+                </h3>
+                <div style={{ display: "flex", gap: 6 }}>
+                  {(["all", "Masterworks", "Primus"] as const).map((p) => (
+                    <button
+                      key={p}
+                      className={`btn btn-sm ${threatProductFilter === p ? "btn-primary" : ""}`}
+                      onClick={() => setThreatProductFilter(p)}
+                    >
+                      {p === "all" ? "All" : p}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {(() => {
+                const filtered =
+                  threatProductFilter === "all" ? threats : threats.filter((t) => t.aurigo_product === threatProductFilter);
+                if (filtered.length === 0) {
+                  return <div className="empty-note">Nothing flagged yet.</div>;
+                }
+                return filtered.map((t) => (
+                <div key={t.id} style={{ padding: "10px 6px", borderBottom: "1px solid var(--border)" }}>
+                  <div className="row-between" style={{ marginBottom: 6 }}>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                      <span style={{ fontWeight: 500, fontSize: 13.5 }}>{t.name}</span>
+                      {t.aurigo_product && <span className="pill pill-live">{t.aurigo_product}</span>}
+                      <span
+                        className={`pill ${t.confidence >= 70 ? "pill-lost" : t.confidence >= 40 ? "pill-review" : "pill-pending"}`}
+                        title="Confidence this is a real, current threat"
+                      >
+                        {Math.round(t.confidence)}% confidence
+                      </span>
+                      {isAdmin && <span className={`pill ${t.status === "final" ? "pill-final" : "pill-draft"}`}>{t.status}</span>}
+                    </div>
+                    {isAdmin && t.status === "draft" && (
+                      <button className="btn btn-sm btn-primary" disabled={threatBusy} onClick={() => void approveThreat(t.id)}>
+                        <i className="fa-solid fa-circle-check" /> Approve
+                      </button>
+                    )}
+                  </div>
+                  <div className="prose" style={{ border: "none", boxShadow: "none", padding: 0, fontSize: 12.5, marginBottom: 6 }} dangerouslySetInnerHTML={{ __html: t.summary_html }} />
+                  <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+                    <b>Why flagged:</b> {t.rationale}
+                  </div>
+                  {t.source_url && (
+                    <a href={t.source_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12 }}>
+                      <i className="fa-solid fa-arrow-up-right-from-square" style={{ fontSize: 10, marginRight: 4 }} />
+                      source
+                    </a>
+                  )}
+                </div>
+                ));
+              })()}
+            </div>
+          </>
+        )}
+      </>
       )}
 
       {/* ---------- deltas tab ---------- */}
@@ -2224,334 +2414,198 @@ export function CompetitiveIntel() {
       )}
 
       {/* ---------- battlecards tab ---------- */}
+      {/* ---------- Battlecards tab (CI reports folded in) ---------- */}
       {tab === "battlecards" && (
-        <div className="card">
-          <h3 style={{ margin: "0 0 12px", fontSize: 15, fontWeight: 500 }}>Battlecards</h3>
-          {battlecards.length === 0 && (
-            <div className="empty-note">
-              None yet — save a comparison or an approved CI report as a battlecard to see it here.
-            </div>
-          )}
-          {battlecards.map((b) => (
-            <div key={b.id} className="rowhover" style={{ display: "flex", gap: 10, alignItems: "center", padding: "8px 6px", borderBottom: "1px solid var(--border)", cursor: "pointer" }} onClick={() => navigate(`/library/${b.id}`)}>
-              <span className={`pill ${b.status === "final" ? "pill-final" : b.status === "archived" ? "pill-archived" : "pill-draft"}`}>{b.status}</span>
-              <span style={{ flex: 1, fontSize: 13.5, fontWeight: 500 }}>{b.title}</span>
-              <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{new Date(b.updated_at).toLocaleDateString()}</span>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* ---------- CI reports tab ---------- */}
-      {tab === "reports" && (
         <>
           {isAdmin && (
             <div className="card">
-              <h3 style={{ margin: "0 0 12px", fontSize: 15, fontWeight: 500 }}>Generate a CI report</h3>
-              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 4 }}>
-                <select
-                  value={reportProduct}
-                  onChange={(e) => {
-                    setReportProduct(e.target.value);
-                    // Selected competitor may no longer belong to the new product — clear it.
-                    const c = competitors.find((x) => x.id === reportCompetitorId);
-                    if (c && e.target.value && c.aurigo_product !== e.target.value) setReportCompetitorId("");
-                  }}
-                >
-                  <option value="">Pick Aurigo product…</option>
-                  <option value="Primus">Primus</option>
-                  <option value="Masterworks">Masterworks</option>
-                </select>
-                {(() => {
-                  const logo = lineLogo(reportProduct);
-                  return logo ? <img src={logo} alt="" style={{ height: 22, width: "auto", alignSelf: "center" }} /> : null;
-                })()}
-                <select
-                  value={reportCompetitorId}
-                  onChange={(e) => setReportCompetitorId(e.target.value)}
-                >
-                  <option value="">Pick a competitor…</option>
-                  {competitors
-                    .filter((c) => !reportProduct || c.aurigo_product === reportProduct)
-                    .map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                        {c.aurigo_product ? ` (${c.aurigo_product})` : ""}
-                      </option>
-                    ))}
-                </select>
-              </div>
-              <p style={{ margin: "0 0 10px", fontSize: 11.5, color: "var(--text-secondary)" }}>
-                Pick the Aurigo product first — the competitor list narrows to that product's tracked competitors.
-              </p>
-              <input
-                placeholder="Extra brief (optional) — angle to emphasize, deal context…"
-                value={reportBrief}
-                onChange={(e) => setReportBrief(e.target.value)}
-              />
-              <textarea
-                placeholder="Priority URLs (optional) — one per line, e.g. a specific pricing page or press release to weight heavily in this report"
-                value={reportPriorityUrls}
-                onChange={(e) => setReportPriorityUrls(e.target.value)}
-                rows={3}
-                style={{ width: "100%", marginTop: 8 }}
-              />
-              <p style={{ marginTop: 10, marginBottom: 0 }}>
-                <button
-                  className="btn btn-primary btn-sm"
-                  onClick={() => void generateReport()}
-                  disabled={reportBusy || !reportCompetitorId || !jinaOk}
-                >
-                  <i className={`fa-solid ${reportBusy ? "fa-spinner fa-spin" : "fa-wand-magic-sparkles"}`} />{" "}
-                  {reportBusy ? "Generating…" : "Generate report"}
+              {!openReport && !showNewReportForm && (
+                <button className="btn btn-primary btn-sm" onClick={() => setShowNewReportForm(true)}>
+                  <i className="fa-solid fa-plus" /> New battlecard
                 </button>
-              </p>
-              {reportError && <div style={{ ...errBox, marginTop: 12 }}>{reportError}</div>}
-            </div>
-          )}
+              )}
 
-          <div className="card">
-            <h3 style={{ margin: "0 0 12px", fontSize: 15, fontWeight: 500 }}>
-              {isAdmin ? "All reports" : "Approved CI reports"}
-            </h3>
-            {reports.length === 0 && <div className="empty-note">No CI reports yet.</div>}
-            {reports.map((r) => (
-              <div key={r.id} className="rowhover" style={{ display: "flex", gap: 10, alignItems: "center", padding: "8px 6px", borderBottom: "1px solid var(--border)" }}>
-                <span className={`pill ${r.status === "final" ? "pill-final" : "pill-draft"}`}>{r.status}</span>
-                <span style={{ flex: 1, fontSize: 13.5, fontWeight: 500 }}>{r.title}</span>
-                <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{new Date(r.created_at).toLocaleDateString()}</span>
-                <button className="btn btn-sm" onClick={() => void viewReport(r.id)}>
-                  <i className="fa-solid fa-eye" /> View
-                </button>
-                {r.status === "final" && (
-                  <button className="btn btn-sm btn-primary" onClick={() => void battlecardFromReport(r.id)} disabled={reportBusy}>
-                    <i className="fa-solid fa-shield-halved" /> Generate battlecard
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
-
-          {openReport && (
-            <div className="card">
-              <div className="row-between" style={{ marginBottom: 10 }}>
-                <h3 style={{ margin: 0, fontSize: 15, fontWeight: 500 }}>{openReport.title}</h3>
-                <div style={{ display: "flex", gap: 8 }}>
-                  {isAdmin && (
-                    <button className="btn btn-primary btn-sm" onClick={() => void approveReport(openReport.id)} disabled={reportBusy}>
-                      <i className="fa-solid fa-circle-check" /> Approve
+              {!openReport && showNewReportForm && (
+                <>
+                  <h3 style={{ margin: "0 0 12px", fontSize: 15, fontWeight: 500 }}>New battlecard</h3>
+                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 4 }}>
+                    <select
+                      value={reportProduct}
+                      onChange={(e) => {
+                        setReportProduct(e.target.value);
+                        const c = competitors.find((x) => x.id === reportCompetitorId);
+                        if (c && e.target.value && c.aurigo_product !== e.target.value) setReportCompetitorId("");
+                      }}
+                    >
+                      <option value="">Pick Aurigo product…</option>
+                      <option value="Primus">Primus</option>
+                      <option value="Masterworks">Masterworks</option>
+                    </select>
+                    {(() => {
+                      const logo = lineLogo(reportProduct);
+                      return logo ? <img src={logo} alt="" style={{ height: 22, width: "auto", alignSelf: "center" }} /> : null;
+                    })()}
+                    <select value={reportCompetitorId} onChange={(e) => setReportCompetitorId(e.target.value)}>
+                      <option value="">Pick a competitor…</option>
+                      {competitors
+                        .filter((c) => !reportProduct || c.aurigo_product === reportProduct)
+                        .map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}
+                            {c.aurigo_product ? ` (${c.aurigo_product})` : ""}
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+                  <p style={{ margin: "0 0 10px", fontSize: 11.5, color: "var(--text-secondary)" }}>
+                    Pick the Aurigo product first — the competitor list narrows to that product's tracked competitors.
+                  </p>
+                  <input
+                    placeholder="Extra brief (optional) — angle to emphasize, deal context…"
+                    value={reportBrief}
+                    onChange={(e) => setReportBrief(e.target.value)}
+                  />
+                  <textarea
+                    placeholder="Priority URLs (optional) — one per line, e.g. a specific pricing page or press release to weight heavily in this report"
+                    value={reportPriorityUrls}
+                    onChange={(e) => setReportPriorityUrls(e.target.value)}
+                    rows={3}
+                    style={{ width: "100%", marginTop: 8 }}
+                  />
+                  <p style={{ marginTop: 10, marginBottom: 0, display: "flex", gap: 8 }}>
+                    <button
+                      className="btn btn-primary btn-sm"
+                      onClick={() => void generateReport()}
+                      disabled={reportBusy || !reportCompetitorId || !jinaOk}
+                    >
+                      <i className={`fa-solid ${reportBusy ? "fa-spinner fa-spin" : "fa-wand-magic-sparkles"}`} />{" "}
+                      {reportBusy ? "Generating…" : "Generate"}
                     </button>
-                  )}
-                  <button className="btn btn-sm" onClick={() => setOpenReport(null)}>
-                    <i className="fa-solid fa-xmark" /> Close
-                  </button>
-                </div>
-              </div>
-              <div className="prose" style={{ border: "none", boxShadow: "none", padding: 0 }} dangerouslySetInnerHTML={{ __html: openReport.contentHtml }} />
-            </div>
-          )}
-        </>
-      )}
+                    <button className="btn btn-sm" onClick={() => setShowNewReportForm(false)}>
+                      Cancel
+                    </button>
+                  </p>
+                  {reportError && <div style={{ ...errBox, marginTop: 12 }}>{reportError}</div>}
+                </>
+              )}
 
-      {/* ---------- Daily news tab ---------- */}
-      {tab === "news" && (
-        <>
-          {newsError && <div style={errBox}>{newsError}</div>}
+              {openReport && (
+                <>
+                  <div className="row-between" style={{ marginBottom: 10 }}>
+                    <h3 style={{ margin: 0, fontSize: 15, fontWeight: 500 }}>
+                      {openReport.title} <span className={`pill ${openReport.status === "final" ? "pill-final" : "pill-draft"}`}>{openReport.status}</span>
+                    </h3>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      {openReport.status === "draft" && (
+                        <button className="btn btn-primary btn-sm" onClick={() => void approveReport(openReport.id)} disabled={reportBusy}>
+                          <i className="fa-solid fa-circle-check" /> Approve
+                        </button>
+                      )}
+                      <button
+                        className="btn btn-sm"
+                        onClick={() => {
+                          setOpenReport(null);
+                          setBcResults([]);
+                          setBcError("");
+                        }}
+                      >
+                        <i className="fa-solid fa-xmark" /> Close
+                      </button>
+                    </div>
+                  </div>
+                  <div className="prose" style={{ border: "none", boxShadow: "none", padding: 0 }} dangerouslySetInnerHTML={{ __html: openReport.contentHtml }} />
+                  {reportError && <div style={{ ...errBox, marginTop: 12 }}>{reportError}</div>}
 
-          {news.length > 0 && (
-            <div style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 8 }}>
-              Last updated{" "}
-              {new Date(Math.max(...news.map((n) => new Date(n.discovered_at).getTime()))).toLocaleString(undefined, {
-                dateStyle: "medium",
-                timeStyle: "short",
-              })}
-            </div>
-          )}
-
-          {isAdmin && (
-            <div className="card" style={{ marginBottom: 12 }}>
-              <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                <span style={{ fontSize: 12.5, color: "var(--text-secondary)" }}>Track a new competitor:</span>
-                <input
-                  style={{ maxWidth: 220 }}
-                  placeholder="e.g. Procore"
-                  value={trackName}
-                  onChange={(e) => setTrackName(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && trackName.trim() !== "" && void trackCompetitor()}
-                />
-                <button className="btn btn-primary btn-sm" onClick={() => void trackCompetitor()} disabled={trackBusy || trackName.trim() === ""}>
-                  <i className={`fa-solid ${trackBusy ? "fa-spinner fa-spin" : "fa-plus"}`} /> {trackBusy ? "Adding…" : "Track"}
-                </button>
-              </div>
-              {trackError && <div style={{ ...errBox, marginTop: 10 }}>{trackError}</div>}
-              {trackDone && <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 8 }}>{trackDone}</div>}
-            </div>
-          )}
-
-          <div className="card" style={{ display: "flex", gap: 16, alignItems: "center", justifyContent: "space-between", flexWrap: "wrap" }}>
-            <div style={{ display: "flex", gap: 6 }}>
-              {(["latest", "past"] as const).map((v) => (
-                <button
-                  key={v}
-                  className={`btn btn-sm ${newsView === v ? "btn-primary" : ""}`}
-                  onClick={() => setNewsView(v)}
-                >
-                  {v === "latest" ? "Latest" : "Past news"}
-                </button>
-              ))}
-            </div>
-            <div style={{ display: "flex", gap: 6 }}>
-              {(["all", "high"] as const).map((p) => (
-                <button
-                  key={p}
-                  className={`btn btn-sm ${newsPriority === p ? "btn-primary" : ""}`}
-                  onClick={() => setNewsPriority(p)}
-                >
-                  {p === "all" ? "All" : "High priority"}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="grid grid-3" style={{ marginTop: 12 }}>
-            {NEWS_CATEGORY_LABELS.map((category) => {
-              const items = news.filter((n) => n.category === category);
-              return (
-                <div key={category} className="card">
-                  <h3 style={{ margin: "0 0 10px", fontSize: 14, fontWeight: 500 }}>
-                    {category} <span style={{ color: "var(--text-muted)", fontWeight: 400 }}>{items.length}</span>
-                  </h3>
-                  <div style={{ maxHeight: 360, overflowY: "auto" }}>
-                  {items.length === 0 && <div className="empty-note">Nothing here yet.</div>}
-                  {items.map((n) => (
-                    <div key={n.id} style={{ padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
-                        <span
-                          title={n.priority === "high" ? "High priority" : "Normal priority"}
-                          style={{
-                            width: 7,
-                            height: 7,
-                            borderRadius: "50%",
-                            background: n.priority === "high" ? "#c0392b" : "var(--text-muted)",
-                            display: "inline-block",
-                          }}
-                        />
-                        <span style={{ fontWeight: 500, fontSize: 13 }}>{n.headline}</span>
-                        {isAdmin && (
-                          <button
-                            className="btn btn-sm"
-                            style={{ marginLeft: "auto" }}
-                            disabled={newsBusyId === n.id}
-                            onClick={() => void dismissNews(n.id)}
-                            title="Hide a bad scan"
-                          >
-                            <i className="fa-solid fa-xmark" />
-                          </button>
-                        )}
+                  {openReport.status === "final" && (
+                    <div style={{ marginTop: 16, paddingTop: 14, borderTop: "1px solid var(--border)" }}>
+                      <h4 style={{ margin: "0 0 10px", fontSize: 13.5, fontWeight: 500 }}>Generate battlecard</h4>
+                      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 10 }}>
+                        <select value={bcVertical} onChange={(e) => setBcVertical(e.target.value)}>
+                          <option value="">Pick a vertical…</option>
+                          {(openReport.aurigoProduct && VERTICALS_BY_PRODUCT[openReport.aurigoProduct]
+                            ? VERTICALS_BY_PRODUCT[openReport.aurigoProduct]
+                            : [...VERTICALS_BY_PRODUCT.Primus, ...VERTICALS_BY_PRODUCT.Masterworks]
+                          ).map((v) => (
+                            <option key={v} value={v}>
+                              {v}
+                            </option>
+                          ))}
+                        </select>
+                        {(Object.keys(BATTLECARD_FORMAT_LABELS) as BattlecardFormat[]).map((f) => (
+                          <label key={f} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
+                            <input
+                              type="checkbox"
+                              checked={bcFormats[f]}
+                              onChange={(e) => setBcFormats((prev) => ({ ...prev, [f]: e.target.checked }))}
+                            />
+                            {BATTLECARD_FORMAT_LABELS[f]}
+                          </label>
+                        ))}
                       </div>
-                      <div
-                        className="prose"
-                        style={{ border: "none", boxShadow: "none", padding: 0, fontSize: 12 }}
-                        dangerouslySetInnerHTML={{ __html: n.summary_html }}
-                      />
-                      <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{new Date(n.discovered_at).toLocaleDateString()}</span>
-                      {n.source_url && (
-                        <a href={n.source_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, marginLeft: 8 }}>
-                          <i className="fa-solid fa-arrow-up-right-from-square" style={{ fontSize: 9, marginRight: 3 }} />
-                          source
-                        </a>
+                      <button
+                        className="btn btn-primary btn-sm"
+                        onClick={() => void generateBattlecards(openReport.id)}
+                        disabled={bcBusy || !bcVertical || !Object.values(bcFormats).some(Boolean)}
+                      >
+                        <i className={`fa-solid ${bcBusy ? "fa-spinner fa-spin" : "fa-shield-halved"}`} />{" "}
+                        {bcBusy ? "Generating…" : "Generate battlecard(s)"}
+                      </button>
+                      {bcError && <div style={{ ...errBox, marginTop: 12 }}>{bcError}</div>}
+                      {bcResults.length > 0 && (
+                        <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 6 }}>
+                          {bcResults.map((r) => (
+                            <div key={r.artifactId} style={{ fontSize: 12.5, display: "flex", gap: 8, alignItems: "center" }}>
+                              <span className={`pill ${r.status === "final" ? "pill-final" : "pill-draft"}`}>{r.status}</span>
+                              <span>{BATTLECARD_FORMAT_LABELS[r.format]}</span>
+                              {r.violations && r.violations.length > 0 && (
+                                <span style={{ color: "#A32D2D" }}>Banned words: {r.violations.join(", ")}</span>
+                              )}
+                              <button className="btn btn-sm" onClick={() => navigate(`/library/${r.artifactId}`)}>
+                                Open
+                              </button>
+                            </div>
+                          ))}
+                        </div>
                       )}
                     </div>
-                  ))}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </>
-      )}
+                  )}
+                </>
+              )}
 
-      {/* ---------- Market threats tab ---------- */}
-      {tab === "threats" && (
-        <>
-          {isAdmin && (
-            <div className="card">
-              <h3 style={{ margin: "0 0 12px", fontSize: 15, fontWeight: 500 }}>Draft a threat / new entrant</h3>
-              <div className="grid grid-3">
-                <input placeholder="Name" value={threatForm.name} onChange={(e) => setThreatForm({ ...threatForm, name: e.target.value })} />
-                <select value={threatForm.product} onChange={(e) => setThreatForm({ ...threatForm, product: e.target.value })}>
-                  <option value="">Aurigo product (optional)</option>
-                  <option value="Primus">Primus</option>
-                  <option value="Masterworks">Masterworks</option>
-                </select>
-                <input placeholder="Source URL (optional)" value={threatForm.url} onChange={(e) => setThreatForm({ ...threatForm, url: e.target.value })} />
-              </div>
-              <p style={{ marginTop: 10, marginBottom: 0 }}>
-                <button className="btn btn-primary btn-sm" onClick={() => void draftThreat()} disabled={threatBusy || threatForm.name.trim() === ""}>
-                  <i className={`fa-solid ${threatBusy ? "fa-spinner fa-spin" : "fa-wand-magic-sparkles"}`} />{" "}
-                  {threatBusy ? "Researching…" : "AI-draft assessment"}
-                </button>
-              </p>
-              {threatError && <div style={{ ...errBox, marginTop: 12 }}>{threatError}</div>}
+              {!openReport && !showNewReportForm && reports.length > 0 && (
+                <div style={{ marginTop: 14 }}>
+                  <p style={{ margin: "0 0 8px", fontSize: 11.5, color: "var(--text-secondary)" }}>
+                    Reports — review a draft, or pick a new vertical for an already-approved one
+                  </p>
+                  {reports.map((r) => (
+                    <div key={r.id} className="rowhover" style={{ display: "flex", gap: 10, alignItems: "center", padding: "6px 4px", borderBottom: "1px solid var(--border)" }}>
+                      <span className={`pill ${r.status === "final" ? "pill-final" : "pill-draft"}`}>{r.status}</span>
+                      <span style={{ flex: 1, fontSize: 13, fontWeight: 500 }}>{r.title}</span>
+                      <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{new Date(r.created_at).toLocaleDateString()}</span>
+                      <button className="btn btn-sm" onClick={() => void viewReport(r.id)}>
+                        {r.status === "final" ? "Generate battlecard" : "Review"}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
           <div className="card">
-            <div className="row-between" style={{ marginBottom: 12, flexWrap: "wrap", gap: 12 }}>
-              <h3 style={{ margin: 0, fontSize: 15, fontWeight: 500 }}>
-                {isAdmin ? "All threats & entrants" : "Approved threats & entrants"}
-              </h3>
-              <div style={{ display: "flex", gap: 6 }}>
-                {(["all", "Masterworks", "Primus"] as const).map((p) => (
-                  <button
-                    key={p}
-                    className={`btn btn-sm ${threatProductFilter === p ? "btn-primary" : ""}`}
-                    onClick={() => setThreatProductFilter(p)}
-                  >
-                    {p === "all" ? "All" : p}
-                  </button>
-                ))}
+            <h3 style={{ margin: "0 0 12px", fontSize: 15, fontWeight: 500 }}>Battlecards</h3>
+            {battlecards.length === 0 && (
+              <div className="empty-note">
+                None yet — save a comparison or an approved CI report as a battlecard to see it here.
               </div>
-            </div>
-            {(() => {
-              const filtered =
-                threatProductFilter === "all" ? threats : threats.filter((t) => t.aurigo_product === threatProductFilter);
-              if (filtered.length === 0) {
-                return <div className="empty-note">Nothing flagged yet.</div>;
-              }
-              return filtered.map((t) => (
-              <div key={t.id} style={{ padding: "10px 6px", borderBottom: "1px solid var(--border)" }}>
-                <div className="row-between" style={{ marginBottom: 6 }}>
-                  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                    <span style={{ fontWeight: 500, fontSize: 13.5 }}>{t.name}</span>
-                    {t.aurigo_product && <span className="pill pill-live">{t.aurigo_product}</span>}
-                    <span
-                      className={`pill ${t.confidence >= 70 ? "pill-lost" : t.confidence >= 40 ? "pill-review" : "pill-pending"}`}
-                      title="Confidence this is a real, current threat"
-                    >
-                      {Math.round(t.confidence)}% confidence
-                    </span>
-                    {isAdmin && <span className={`pill ${t.status === "final" ? "pill-final" : "pill-draft"}`}>{t.status}</span>}
-                  </div>
-                  {isAdmin && t.status === "draft" && (
-                    <button className="btn btn-sm btn-primary" disabled={threatBusy} onClick={() => void approveThreat(t.id)}>
-                      <i className="fa-solid fa-circle-check" /> Approve
-                    </button>
-                  )}
-                </div>
-                <div className="prose" style={{ border: "none", boxShadow: "none", padding: 0, fontSize: 12.5, marginBottom: 6 }} dangerouslySetInnerHTML={{ __html: t.summary_html }} />
-                <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
-                  <b>Why flagged:</b> {t.rationale}
-                </div>
-                {t.source_url && (
-                  <a href={t.source_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12 }}>
-                    <i className="fa-solid fa-arrow-up-right-from-square" style={{ fontSize: 10, marginRight: 4 }} />
-                    source
-                  </a>
-                )}
+            )}
+            {battlecards.map((b) => (
+              <div key={b.id} className="rowhover" style={{ display: "flex", gap: 10, alignItems: "center", padding: "8px 6px", borderBottom: "1px solid var(--border)", cursor: "pointer" }} onClick={() => navigate(`/library/${b.id}`)}>
+                <span className={`pill ${b.status === "final" ? "pill-final" : b.status === "archived" ? "pill-archived" : "pill-draft"}`}>{b.status}</span>
+                <span style={{ flex: 1, fontSize: 13.5, fontWeight: 500 }}>{b.title}</span>
+                <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{new Date(b.updated_at).toLocaleDateString()}</span>
               </div>
-              ));
-            })()}
+            ))}
           </div>
         </>
       )}

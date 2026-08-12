@@ -26,6 +26,17 @@ export interface NewsItemRow {
   priority: "high" | "normal";
 }
 
+export /** News categories don't map 1:1 onto competitor_sources.source_type — collapse
+ *  to the closest valid value (competitor_sources_source_type_ck, 0019_competitive_watch.sql). */
+const CATEGORY_SOURCE_TYPE: Record<string, string> = {
+  News: "news",
+  "Press Release": "news",
+  "AI Direction": "news",
+  Acquisition: "news",
+  "Webinar & Event": "other",
+  "Bidding & RFP": "procurement",
+};
+
 export const NEWS_CATEGORIES = [
   "News",
   "Press Release",
@@ -108,6 +119,23 @@ export async function scanCompetitorNews(competitor: CompetitorRow): Promise<num
       priority: c.priority,
       status: "approved",
     });
+    // Mirrors the watch engine's sweep-discovery pattern (researchRuns.ts) so a
+    // news find shows up in the Competitor registry's "N scraped" count too —
+    // ignoreDuplicates so re-discovering an already-tracked URL is a no-op.
+    if (c.source_url) {
+      await sb.from("competitor_sources").upsert(
+        {
+          competitor_id: competitor.id,
+          url: c.source_url.replace(/\/+$/, ""),
+          label: c.headline,
+          source_type: (c.category && CATEGORY_SOURCE_TYPE[c.category]) || "news",
+          discovered_by: "sweep",
+          status: "ok",
+          scraped_at: new Date().toISOString(),
+        },
+        { onConflict: "competitor_id,url", ignoreDuplicates: true }
+      );
+    }
   }
   return candidates.length;
 }

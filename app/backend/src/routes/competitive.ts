@@ -11,6 +11,7 @@ import {
   draftMarketThreat,
   ensureSources,
   generateCiReport,
+  generateCompetitiveBattlecard,
   getLatestPositioningMap,
 } from "../services/competitive";
 import { dismissNewsItem, listNewsItems } from "../services/competitiveNews";
@@ -31,6 +32,37 @@ const isAdmin = (req: { user?: { role: string } }) => req.user?.role === "admin"
 // Competitive Intelligence API. Any authenticated role can compare and add
 // competitors (sales adds one mid-deal); deletion is admin-only.
 export const competitiveRouter = Router();
+
+/** Enrolls a competitor in the background watch engine (competitor_watches +
+ * an initial research run) — the same action as the manual "Track" button.
+ * Called automatically on add so nobody has to remember a second step, and
+ * available standalone for backfilling competitors added before this existed. */
+async function startWatch(competitorId: string, userId: string): Promise<void> {
+  if (!jinaConfigured()) return; // silent: watch is a nice-to-have on top of a successful add
+  const sb = supabase()!;
+  const cadenceHours = 168; // weekly default — conservative
+  const { error: watchErr } = await sb.from("competitor_watches").upsert(
+    {
+      competitor_id: competitorId,
+      enabled: true,
+      cadence_hours: cadenceHours,
+      next_run_at: new Date(Date.now() + cadenceHours * 3_600_000).toISOString(),
+      created_by: userId,
+    },
+    { onConflict: "competitor_id" }
+  );
+  if (watchErr) {
+    console.error(`startWatch: could not upsert competitor_watches for ${competitorId}:`, watchErr.message);
+    return;
+  }
+  try {
+    await enqueueRun(competitorId, "bootstrap", "user", userId);
+    nudgeScheduler();
+    void logActivity("competitor", competitorId, userId, "watch_started", { kind: "bootstrap" });
+  } catch (err) {
+    console.error(`startWatch: enqueueRun failed for ${competitorId}:`, (err as Error).message);
+  }
+}
 
 // GET /api/competitive/competitors — registry with source freshness.
 competitiveRouter.get("/competitors", requireAuth, async (_req, res) => {
@@ -75,6 +107,7 @@ competitiveRouter.post("/competitors", requireAuth, requireAdmin, async (req, re
     .single();
   if (error) return res.status(500).json({ error: error.message });
   void logActivity("competitor", data.id, req.user!.id, "competitor_added", { name });
+  void startWatch(data.id, req.user!.id); // auto-enroll — no separate "Track" click needed
   res.json({ id: data.id });
 });
 
@@ -407,6 +440,39 @@ competitiveRouter.post("/ci-reports/:id/battlecard", requireAuth, async (req, re
     ci_report_id: report.id,
   });
   res.json({ artifactId: artifact.id });
+});
+
+const BATTLECARD_TEMPLATE_IDS: Record<"insights" | "detailed", string> = {
+  insights: "33333333-3333-3333-3333-333333330001",
+  detailed: "33333333-3333-3333-3333-333333330002",
+};
+
+// POST /api/competitive/ci-reports/:id/battlecards — PMM picks a vertical + one or
+// both branded formats; each generates and auto-publishes (or flags violations on)
+// its own artifact. Admin-only, re-runnable indefinitely on any final report.
+competitiveRouter.post("/ci-reports/:id/battlecards", requireAuth, requireAdmin, async (req, res) => {
+  const { vertical, formats } = req.body as { vertical?: string; formats?: ("insights" | "detailed")[] };
+  if (!vertical?.trim()) return res.status(400).json({ error: "vertical is required" });
+  const picked = Array.isArray(formats) ? formats.filter((f) => f === "insights" || f === "detailed") : [];
+  if (picked.length === 0) return res.status(400).json({ error: "Pick at least one format" });
+  try {
+    const results = await Promise.all(
+      picked.map(async (format) => {
+        const result = await generateCompetitiveBattlecard(
+          req.params.id,
+          BATTLECARD_TEMPLATE_IDS[format],
+          vertical.trim(),
+          req.user!.id
+        );
+        return { format, ...result };
+      })
+    );
+    res.json({ results });
+  } catch (err) {
+    const status = err instanceof CompetitiveIntelError ? err.status : 502;
+    const violations = err instanceof CompetitiveIntelError ? err.violations : undefined;
+    res.status(status).json({ error: (err as Error).message, violations });
+  }
 });
 
 // ---------------------------------------------------------------------------
