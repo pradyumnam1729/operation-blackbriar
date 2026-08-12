@@ -1041,11 +1041,16 @@ tbody tr:last-child td {
 /* persona switch */
 .persona-switch {
   display: inline-flex;
-  background: var(--bg-page);
+  background: linear-gradient(135deg, rgba(70,178,190,0.18) 0%, rgba(255,255,255,0.52) 100%);
+  backdrop-filter: blur(14px) saturate(1.6);
+  -webkit-backdrop-filter: blur(14px) saturate(1.6);
   border-radius: var(--r-pill);
   padding: 4px;
   gap: 2px;
-  border: 1px solid var(--border);
+  border: 1px solid rgba(70,178,190,0.28);
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.7) inset,
+    0 2px 12px rgba(1,95,116,0.08);
 }
 .persona-switch button {
   border: none;
@@ -1053,13 +1058,17 @@ tbody tr:last-child td {
   padding: 8px 17px;
   border-radius: var(--r-pill);
   font-size: 13px;
-  color: var(--text-secondary);
+  font-weight: 500;
+  color: var(--teal-darkest);
+  transition: color 0.15s;
 }
 .persona-switch button.active {
-  background: var(--teal-dark);
+  background: linear-gradient(145deg, #015f74 0%, #017a93 100%);
   color: #fff;
   font-weight: 600;
-  box-shadow: var(--shadow-1);
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.18) inset,
+    0 2px 8px rgba(1,95,116,0.32);
 }
 .persona-label {
   font-size: 12px;
