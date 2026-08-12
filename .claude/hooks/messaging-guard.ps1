@@ -23,7 +23,7 @@ $words = Get-Content $listPath | Where-Object { $_.Trim() -ne "" }
 
 # Per-line, so a style-guide glossary row documenting a retired/banned term
 # ("| learn more | replaces the retired 'know more' |") isn't itself a violation.
-$docMarkers = "avoid|retired|replaces|banned|never say|don't say|not \""
+$docMarkers = 'avoid|retired|replaces|banned|never say|don''t say|not "'
 $lines = Get-Content $filePath
 $hits = @()
 foreach ($line in $lines) {

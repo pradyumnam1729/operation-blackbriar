@@ -53,7 +53,7 @@ jobs:
           # itself rather than using it — e.g. a style-guide glossary row like
           # "| learn more | replaces the retired 'know more' |".
           $words = Get-Content .claude/hooks/forbidden-words.txt | Where-Object { $_.Trim() -ne "" }
-          $docMarkers = "avoid|retired|replaces|banned|never say|don't say|not \""
+          $docMarkers = 'avoid|retired|replaces|banned|never say|don''t say|not "'
           $files = Get-ChildItem GTM-War-Room -Recurse -Filter *.md |
             Where-Object { $_.FullName -notmatch 'gtm-rules|brand-voice|HANDOVER' }
           $fail = $false
