@@ -44,8 +44,9 @@ competitiveRouter.get("/competitors", requireAuth, async (_req, res) => {
   });
 });
 
-// POST /api/competitive/competitors — add a competitor to the registry.
-competitiveRouter.post("/competitors", requireAuth, async (req, res) => {
+// POST /api/competitive/competitors — add a competitor to the registry. PMM-only:
+// this drives what the daily news/threat schedulers track, not a general-user action.
+competitiveRouter.post("/competitors", requireAuth, requireAdmin, async (req, res) => {
   const { name, website, category, aurigoProduct } = req.body as {
     name?: string;
     website?: string;
@@ -77,8 +78,8 @@ competitiveRouter.delete("/competitors/:id", requireAuth, requireAdmin, async (r
   res.json({ ok: true });
 });
 
-// POST /api/competitive/competitors/:id/sources — add a source URL manually.
-competitiveRouter.post("/competitors/:id/sources", requireAuth, async (req, res) => {
+// POST /api/competitive/competitors/:id/sources — add a source URL manually. PMM-only.
+competitiveRouter.post("/competitors/:id/sources", requireAuth, requireAdmin, async (req, res) => {
   const { url } = req.body as { url?: string };
   if (!url?.trim() || !/^https?:\/\//i.test(url.trim())) {
     return res.status(400).json({ error: "A full http(s) URL is required" });
@@ -94,8 +95,8 @@ competitiveRouter.post("/competitors/:id/sources", requireAuth, async (req, res)
   res.json({ ok: true });
 });
 
-// POST /api/competitive/competitors/:id/refresh — discover + (re)scrape sources now.
-competitiveRouter.post("/competitors/:id/refresh", requireAuth, async (req, res) => {
+// POST /api/competitive/competitors/:id/refresh — discover + (re)scrape sources now. PMM-only.
+competitiveRouter.post("/competitors/:id/refresh", requireAuth, requireAdmin, async (req, res) => {
   const sb = supabase()!;
   const { data: competitor } = await sb
     .from("competitors")

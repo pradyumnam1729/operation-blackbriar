@@ -57,7 +57,7 @@ export function parseNewsCandidates(raw: string): NewsCandidate[] {
   return parsed
     .map((p) => p as Record<string, unknown>)
     .filter((p) => typeof p.headline === "string" && typeof p.summary === "string")
-    .slice(0, 3)
+    .slice(0, 5)
     .map((p) => ({
       headline: p.headline as string,
       summary: p.summary as string,
@@ -67,16 +67,24 @@ export function parseNewsCandidates(raw: string): NewsCandidate[] {
     }));
 }
 
-/** One competitor, one scan: search + summarize into 0-3 candidate news items. */
+/** One competitor, one scan: search + summarize into 0-5 candidate news items.
+ * Two search intents, since a single generic query only ever surfaces
+ * News/Press Release/Acquisition content — Bidding & RFP and Webinar & Event
+ * need their own targeted query or they never get anything to classify. */
 export async function scanCompetitorNews(competitor: CompetitorRow): Promise<number> {
   const sb = supabase()!;
-  const hits = await searchWeb(`${competitor.name} news announcement release update`, 8);
+  const [generalHits, eventHits] = await Promise.all([
+    searchWeb(`${competitor.name} news announcement release update`, 8),
+    searchWeb(`${competitor.name} RFP bid contract award webinar conference event`, 6),
+  ]);
+  const seen = new Set<string>();
+  const hits = [...generalHits, ...eventHits].filter((h) => (seen.has(h.url) ? false : (seen.add(h.url), true)));
   if (hits.length === 0) return 0;
 
   const hitsBlock = hits.map((h) => `${h.title} — ${h.url}\n${h.description}`).join("\n\n");
   const prompt = [
     `Here are recent search results about "${competitor.name}", a competitor in the construction / capital program management software market.`,
-    "Identify up to 3 items that are genuinely newsworthy for a competitive-intel feed (product launches, funding, leadership changes, partnerships, notable losses/wins) — skip generic listicles, old content, or unrelated results.",
+    "Identify up to 5 items that are genuinely newsworthy for a competitive-intel feed (product launches, funding, leadership changes, partnerships, notable losses/wins, RFP/bid activity, webinars or events) — skip generic listicles, old content, or unrelated results.",
     `For each item, classify "category" as exactly one of: ${NEWS_CATEGORIES.join(", ")}.`,
     'Set "priority" to "high" only if this materially affects Aurigo\'s competitive position (e.g. a direct feature launch that overlaps Aurigo, a major funding round, an acquisition); otherwise "normal".',
     "Respond with ONLY a JSON array, no prose before or after:",

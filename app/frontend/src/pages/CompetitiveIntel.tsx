@@ -87,7 +87,7 @@ const SUGGESTIONS = [
   "Where does e-Builder beat us, honestly?",
 ];
 
-const NEWS_CATEGORY_LABELS = ["News", "Press Release", "Acquisition", "AI Direction", "Bidding & RFP", "Webinar & Event", "Site Change"];
+const NEWS_CATEGORY_LABELS = ["News", "Press Release", "Acquisition", "AI Direction", "Bidding & RFP", "Webinar & Event"];
 
 interface PositioningAxis {
   label: string;
@@ -314,6 +314,10 @@ export function CompetitiveIntel() {
   const [info, setInfo] = useState("");
   const [showAdd, setShowAdd] = useState(false);
   const [addForm, setAddForm] = useState({ name: "", website: "", category: "", aurigoProduct: "" });
+  const [trackName, setTrackName] = useState("");
+  const [trackBusy, setTrackBusy] = useState(false);
+  const [trackError, setTrackError] = useState("");
+  const [trackDone, setTrackDone] = useState("");
   const [sourceUrlFor, setSourceUrlFor] = useState<{ id: string; url: string } | null>(null);
   const [tab, setTab] = useState<"compare" | "battlecards" | "map" | "reports" | "news" | "threats">("compare");
 
@@ -334,11 +338,12 @@ export function CompetitiveIntel() {
   const [news, setNews] = useState<NewsItemRow[]>([]);
   const [newsBusyId, setNewsBusyId] = useState("");
   const [newsError, setNewsError] = useState("");
-  const [newsView, setNewsView] = useState<"latest" | "past" | "site_changes">("latest");
+  const [newsView, setNewsView] = useState<"latest" | "past">("latest");
   const [newsPriority, setNewsPriority] = useState<"all" | "high">("all");
 
   // Market threats
   const [threats, setThreats] = useState<MarketThreatRow[]>([]);
+  const [threatProductFilter, setThreatProductFilter] = useState<"all" | "Masterworks" | "Primus">("all");
   const [threatForm, setThreatForm] = useState({ name: "", product: "", url: "" });
   const [threatBusy, setThreatBusy] = useState(false);
   const [threatError, setThreatError] = useState("");
@@ -552,6 +557,24 @@ export function CompetitiveIntel() {
       setError((e as Error).message);
     } finally {
       setBusy(false);
+    }
+  };
+
+  /** News-tab shortcut for the same registry add — PMM just names a competitor
+   *  and it's in scope for tomorrow's daily scan, no need to leave the tab. */
+  const trackCompetitor = async () => {
+    setTrackBusy(true);
+    setTrackError("");
+    setTrackDone("");
+    try {
+      await apiPost("/api/competitive/competitors", { name: trackName });
+      setTrackDone(`Tracking ${trackName.trim()} — news will start showing up after tomorrow's scan.`);
+      setTrackName("");
+      await load();
+    } catch (e) {
+      setTrackError((e as Error).message);
+    } finally {
+      setTrackBusy(false);
     }
   };
 
@@ -852,12 +875,14 @@ export function CompetitiveIntel() {
       <div className="card">
         <div className="row-between" style={{ marginBottom: 12 }}>
           <h3 style={{ margin: 0, fontSize: 15, fontWeight: 500 }}>Competitor registry</h3>
-          <button className="btn btn-sm" onClick={() => setShowAdd((s) => !s)}>
-            <i className="fa-solid fa-plus" /> Add competitor
-          </button>
+          {isAdmin && (
+            <button className="btn btn-sm" onClick={() => setShowAdd((s) => !s)}>
+              <i className="fa-solid fa-plus" /> Add competitor
+            </button>
+          )}
         </div>
 
-        {showAdd && (
+        {isAdmin && showAdd && (
           <div style={{ background: "var(--bg-page)", borderRadius: "var(--r-md)", padding: 14, marginBottom: 14 }}>
             <div className="grid grid-4">
               <input placeholder="Name" value={addForm.name} onChange={(e) => setAddForm({ ...addForm, name: e.target.value })} />
@@ -925,16 +950,18 @@ export function CompetitiveIntel() {
                       )}
                     </td>
                     <td style={{ whiteSpace: "nowrap" }}>
-                      <button className="btn btn-sm" onClick={() => void refreshSources(c.id)} disabled={busyRow === c.id || !jinaOk} title="Discover + re-scrape sources">
-                        <i className={`fa-solid ${busyRow === c.id ? "fa-spinner fa-spin" : "fa-rotate"}`} /> Refresh
-                      </button>{" "}
-                      <button className="btn btn-sm" onClick={() => setSourceUrlFor({ id: c.id, url: "" })} title="Add a specific source URL">
-                        <i className="fa-solid fa-link" />
-                      </button>{" "}
                       {isAdmin && (
-                        <button className="btn btn-danger btn-sm" onClick={() => void removeCompetitor(c)} disabled={busyRow === c.id}>
-                          <i className="fa-solid fa-trash" />
-                        </button>
+                        <>
+                          <button className="btn btn-sm" onClick={() => void refreshSources(c.id)} disabled={busyRow === c.id || !jinaOk} title="Discover + re-scrape sources">
+                            <i className={`fa-solid ${busyRow === c.id ? "fa-spinner fa-spin" : "fa-rotate"}`} /> Refresh
+                          </button>{" "}
+                          <button className="btn btn-sm" onClick={() => setSourceUrlFor({ id: c.id, url: "" })} title="Add a specific source URL">
+                            <i className="fa-solid fa-link" />
+                          </button>{" "}
+                          <button className="btn btn-danger btn-sm" onClick={() => void removeCompetitor(c)} disabled={busyRow === c.id}>
+                            <i className="fa-solid fa-trash" />
+                          </button>
+                        </>
                       )}
                     </td>
                   </tr>
@@ -944,7 +971,7 @@ export function CompetitiveIntel() {
           </table>
         </div>
 
-        {sourceUrlFor && (
+        {isAdmin && sourceUrlFor && (
           <div style={{ display: "flex", gap: 8, marginTop: 12, alignItems: "center" }}>
             <input
               style={{ maxWidth: 420 }}
@@ -1305,15 +1332,45 @@ export function CompetitiveIntel() {
         <>
           {newsError && <div style={errBox}>{newsError}</div>}
 
+          {news.length > 0 && (
+            <div style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 8 }}>
+              Last updated{" "}
+              {new Date(Math.max(...news.map((n) => new Date(n.discovered_at).getTime()))).toLocaleString(undefined, {
+                dateStyle: "medium",
+                timeStyle: "short",
+              })}
+            </div>
+          )}
+
+          {isAdmin && (
+            <div className="card" style={{ marginBottom: 12 }}>
+              <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                <span style={{ fontSize: 12.5, color: "var(--text-secondary)" }}>Track a new competitor:</span>
+                <input
+                  style={{ maxWidth: 220 }}
+                  placeholder="e.g. Procore"
+                  value={trackName}
+                  onChange={(e) => setTrackName(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && trackName.trim() !== "" && void trackCompetitor()}
+                />
+                <button className="btn btn-primary btn-sm" onClick={() => void trackCompetitor()} disabled={trackBusy || trackName.trim() === ""}>
+                  <i className={`fa-solid ${trackBusy ? "fa-spinner fa-spin" : "fa-plus"}`} /> {trackBusy ? "Adding…" : "Track"}
+                </button>
+              </div>
+              {trackError && <div style={{ ...errBox, marginTop: 10 }}>{trackError}</div>}
+              {trackDone && <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 8 }}>{trackDone}</div>}
+            </div>
+          )}
+
           <div className="card" style={{ display: "flex", gap: 16, alignItems: "center", justifyContent: "space-between", flexWrap: "wrap" }}>
             <div style={{ display: "flex", gap: 6 }}>
-              {(["latest", "past", "site_changes"] as const).map((v) => (
+              {(["latest", "past"] as const).map((v) => (
                 <button
                   key={v}
                   className={`btn btn-sm ${newsView === v ? "btn-primary" : ""}`}
                   onClick={() => setNewsView(v)}
                 >
-                  {v === "latest" ? "Latest" : v === "past" ? "Past news" : "Site Changes"}
+                  {v === "latest" ? "Latest" : "Past news"}
                 </button>
               ))}
             </div>
@@ -1331,39 +1388,14 @@ export function CompetitiveIntel() {
           </div>
 
           <div className="grid grid-3" style={{ marginTop: 12 }}>
-            <div className="card">
-              <div style={{ fontSize: 22, fontWeight: 600 }}>{battlecards.filter((b) => b.status === "final").length}</div>
-              <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>Battlecards published</div>
-            </div>
-            <div className="card">
-              <div style={{ fontSize: 22, fontWeight: 600 }}>
-                {threats.filter((t) => t.status === "draft").length + reports.filter((r) => r.status === "draft").length}
-              </div>
-              <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>Pending review</div>
-            </div>
-            <div className="card">
-              <div style={{ fontSize: 22, fontWeight: 600 }}>
-                {
-                  news.filter(
-                    (n) =>
-                      n.category === "Site Change" &&
-                      Date.now() - new Date(n.discovered_at).getTime() < 7 * 24 * 3600 * 1000
-                  ).length
-                }
-              </div>
-              <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>Site changes (7d)</div>
-            </div>
-          </div>
-
-          <div className="grid grid-3" style={{ marginTop: 12 }}>
             {NEWS_CATEGORY_LABELS.map((category) => {
-              const items = news.filter((n) => (newsView === "site_changes" ? true : n.category === category));
-              if (newsView === "site_changes" && category !== "Site Change") return null;
+              const items = news.filter((n) => n.category === category);
               return (
                 <div key={category} className="card">
                   <h3 style={{ margin: "0 0 10px", fontSize: 14, fontWeight: 500 }}>
                     {category} <span style={{ color: "var(--text-muted)", fontWeight: 400 }}>{items.length}</span>
                   </h3>
+                  <div style={{ maxHeight: 360, overflowY: "auto" }}>
                   {items.length === 0 && <div className="empty-note">Nothing here yet.</div>}
                   {items.map((n) => (
                     <div key={n.id} style={{ padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
@@ -1405,6 +1437,7 @@ export function CompetitiveIntel() {
                       )}
                     </div>
                   ))}
+                  </div>
                 </div>
               );
             })}
@@ -1438,11 +1471,29 @@ export function CompetitiveIntel() {
           )}
 
           <div className="card">
-            <h3 style={{ margin: "0 0 12px", fontSize: 15, fontWeight: 500 }}>
-              {isAdmin ? "All threats & entrants" : "Approved threats & entrants"}
-            </h3>
-            {threats.length === 0 && <div className="empty-note">Nothing flagged yet.</div>}
-            {threats.map((t) => (
+            <div className="row-between" style={{ marginBottom: 12, flexWrap: "wrap", gap: 12 }}>
+              <h3 style={{ margin: 0, fontSize: 15, fontWeight: 500 }}>
+                {isAdmin ? "All threats & entrants" : "Approved threats & entrants"}
+              </h3>
+              <div style={{ display: "flex", gap: 6 }}>
+                {(["all", "Masterworks", "Primus"] as const).map((p) => (
+                  <button
+                    key={p}
+                    className={`btn btn-sm ${threatProductFilter === p ? "btn-primary" : ""}`}
+                    onClick={() => setThreatProductFilter(p)}
+                  >
+                    {p === "all" ? "All" : p}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {(() => {
+              const filtered =
+                threatProductFilter === "all" ? threats : threats.filter((t) => t.aurigo_product === threatProductFilter);
+              if (filtered.length === 0) {
+                return <div className="empty-note">Nothing flagged yet.</div>;
+              }
+              return filtered.map((t) => (
               <div key={t.id} style={{ padding: "10px 6px", borderBottom: "1px solid var(--border)" }}>
                 <div className="row-between" style={{ marginBottom: 6 }}>
                   <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -1473,7 +1524,8 @@ export function CompetitiveIntel() {
                   </a>
                 )}
               </div>
-            ))}
+              ));
+            })()}
           </div>
         </>
       )}

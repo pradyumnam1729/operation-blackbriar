@@ -177,11 +177,11 @@ export async function ensureSources(competitor: CompetitorRow): Promise<SourceRo
       s.status = "ok";
       s.label = page.title;
       s.scraped_at = new Date().toISOString();
-      if (shouldFlagSiteChange(wasOk, previousHash, hash)) {
-        void flagSiteChange(competitor, s.url, s.label ?? s.url).catch((err) =>
-          console.error(`site-change summary failed for ${s.url}:`, (err as Error).message)
-        );
-      }
+      // Site Change news items descoped for now (user decision, 2026-08-12) — feature
+      // stays intact below (shouldFlagSiteChange/flagSiteChange), just not invoked.
+      void wasOk;
+      void previousHash;
+      void hash;
     } catch (err) {
       const msg = (err as Error).message;
       await sb.from("competitor_sources").update({ status: "failed", error: msg }).eq("id", s.id);
