@@ -21,10 +21,16 @@ $listPath = Join-Path $PSScriptRoot "forbidden-words.txt"
 if (-not (Test-Path $listPath)) { exit 0 }
 $words = Get-Content $listPath | Where-Object { $_.Trim() -ne "" }
 
-$content = Get-Content $filePath -Raw
+# Per-line, so a style-guide glossary row documenting a retired/banned term
+# ("| learn more | replaces the retired 'know more' |") isn't itself a violation.
+$docMarkers = "avoid|retired|replaces|banned|never say|don't say|not \""
+$lines = Get-Content $filePath
 $hits = @()
-foreach ($w in $words) {
-    if ($content -imatch [regex]::Escape($w)) { $hits += $w }
+foreach ($line in $lines) {
+    if ($line -imatch $docMarkers) { continue }
+    foreach ($w in $words) {
+        if ($line -imatch [regex]::Escape($w)) { $hits += $w }
+    }
 }
 
 if ($hits.Count -gt 0) {

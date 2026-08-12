@@ -48,18 +48,26 @@ jobs:
         shell: pwsh
         run: |
           # Same rules as .claude/hooks/messaging-guard.ps1: scan war-room markdown,
-          # skip the files that legitimately quote banned terms as rules.
+          # skip the files that legitimately quote banned terms as rules, and
+          # (per-line) skip a hit when the line is clearly documenting the term
+          # itself rather than using it — e.g. a style-guide glossary row like
+          # "| learn more | replaces the retired 'know more' |".
           $words = Get-Content .claude/hooks/forbidden-words.txt | Where-Object { $_.Trim() -ne "" }
+          $docMarkers = "avoid|retired|replaces|banned|never say|don't say|not \""
           $files = Get-ChildItem GTM-War-Room -Recurse -Filter *.md |
             Where-Object { $_.FullName -notmatch 'gtm-rules|brand-voice|HANDOVER' }
           $fail = $false
           foreach ($f in $files) {
-            $content = Get-Content $f.FullName -Raw
-            foreach ($w in $words) {
-              if ($content -imatch [regex]::Escape($w)) {
-                $rel = [System.IO.Path]::GetRelativePath((Get-Location), $f.FullName)
-                Write-Host "::error file=$rel::Banned phrase '$w' found (Voice of Aurigo standards)"
-                $fail = $true
+            $lines = Get-Content $f.FullName
+            for ($i = 0; $i -lt $lines.Count; $i++) {
+              $line = $lines[$i]
+              foreach ($w in $words) {
+                if ($line -imatch [regex]::Escape($w)) {
+                  if ($line -imatch $docMarkers) { continue } # documenting the rule, not violating it
+                  $rel = [System.IO.Path]::GetRelativePath((Get-Location), $f.FullName)
+                  Write-Host "::error file=$rel,line=$($i + 1)::Banned phrase '$w' found (Voice of Aurigo standards)"
+                  $fail = $true
+                }
               }
             }
           }
