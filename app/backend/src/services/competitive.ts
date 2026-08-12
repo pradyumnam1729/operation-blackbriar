@@ -760,14 +760,14 @@ export interface BattlecardGenResult {
 }
 
 /** One approved CI report + one PMM-picked vertical + one battlecard template ->
- * one published (or flagged-draft) artifact. Deliberately does NOT touch
+ * one draft artifact in the PMM workspace. Deliberately does NOT touch
  * battlecard_links (the canonical-card table another workstream added) — the
  * two pre-existing battlecard routes in this file don't populate it either, so
  * this stays consistent with current behavior rather than introducing a second,
- * half-applied invariant. The PMM's vertical/format choice on an approved
- * report IS the human sign-off: passes the banned-words guard -> final
- * immediately, visible to every role; fails -> draft with violations surfaced,
- * never silently published non-compliant copy. */
+ * half-applied invariant. Always lands as "draft" — even when it passes the
+ * banned-words guard — so a PMM admin explicitly promotes it to in_review/final
+ * (CLAUDE.md non-negotiable #3: nothing ships without PMM approval). The guard
+ * result is still surfaced via `violations` so reviewers see it up front. */
 export async function generateCompetitiveBattlecard(
   reportId: string,
   templateId: string,
@@ -782,9 +782,13 @@ export async function generateCompetitiveBattlecard(
     .maybeSingle();
   if (!reportData) throw new CompetitiveIntelError("CI report not found", 404);
   const report = reportData as unknown as CiReportRow & { competitors: { name: string } | null };
-  if (report.status !== "final") {
+  // A separate report-approval step is no longer required before building a
+  // battlecard from it — the battlecard itself always lands as "draft" and
+  // goes through PMM review, so that's the one review gate now. Archived
+  // reports are the only ones off-limits (superseded/stale evidence).
+  if (report.status === "archived") {
     throw new CompetitiveIntelError(
-      "This CI report must be approved before a battlecard can be generated from it.",
+      "This CI report is archived and can no longer be used to generate a battlecard.",
       409
     );
   }
@@ -860,7 +864,7 @@ export async function generateCompetitiveBattlecard(
   const digestHtml = cleanHtml(digestParts.join("\n"));
 
   const guard = checkForbiddenWords(htmlToText(digestHtml));
-  const status: "final" | "draft" = guard.ok ? "final" : "draft";
+  const status: "final" | "draft" = "draft";
 
   const { data: artifact, error } = await sb
     .from("artifacts")

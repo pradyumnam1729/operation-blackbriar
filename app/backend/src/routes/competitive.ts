@@ -101,7 +101,7 @@ competitiveRouter.post("/competitors", requireAuth, requireAdmin, async (req, re
       name: name.trim(),
       website: website?.trim() || null,
       category: category?.trim() || null,
-      aurigo_product: aurigoProduct && ["Primus", "Masterworks"].includes(aurigoProduct) ? aurigoProduct : null,
+      aurigo_product: aurigoProduct && ["Primus", "Masterworks", "Essentials"].includes(aurigoProduct) ? aurigoProduct : null,
     })
     .select("id")
     .single();
@@ -177,7 +177,7 @@ competitiveRouter.post("/compare", requireAuth, async (req, res) => {
     const result = await compare(
       question.trim(),
       competitorId ?? null,
-      product && ["Primus", "Masterworks"].includes(product) ? product : null,
+      product && ["Primus", "Masterworks", "Essentials"].includes(product) ? product : null,
       req.user!.id
     );
     res.json(result);
@@ -371,7 +371,7 @@ competitiveRouter.post("/ci-reports", requireAuth, requireAdmin, async (req, res
   try {
     const report = await generateCiReport(
       competitorId,
-      product && ["Primus", "Masterworks"].includes(product) ? product : null,
+      product && ["Primus", "Masterworks", "Essentials"].includes(product) ? product : null,
       extraBrief?.trim() || null,
       Array.isArray(priorityUrls) ? priorityUrls.filter((u) => typeof u === "string" && u.trim() !== "") : [],
       req.user!.id
@@ -525,7 +525,7 @@ competitiveRouter.post("/threats/draft", requireAuth, requireAdmin, async (req, 
   try {
     const threat = await draftMarketThreat(
       name.trim(),
-      product && ["Primus", "Masterworks"].includes(product) ? product : null,
+      product && ["Primus", "Masterworks", "Essentials"].includes(product) ? product : null,
       url?.trim() || null,
       req.user!.id
     );

@@ -26,6 +26,18 @@ import {
 // best-effort (a dead process loses in-flight runs; boot recovery re-queues).
 
 const TICK_MS = 60_000;
+// Scheduled (automatic) watch refreshes only enqueue inside this daily
+// window — the PMM team doesn't want competitors scraped round the clock.
+// User-initiated runs (via nudgeScheduler) and working an already-queued run
+// are NOT gated by this — only the "enqueue due scheduled watches" step is.
+const WATCH_WINDOW_START_MIN = 10 * 60 + 30; // 10:30
+const WATCH_WINDOW_END_MIN = 11 * 60 + 30; // 11:30
+
+function withinWatchWindow(): boolean {
+  const now = new Date();
+  const minutes = now.getHours() * 60 + now.getMinutes();
+  return minutes >= WATCH_WINDOW_START_MIN && minutes < WATCH_WINDOW_END_MIN;
+}
 // A full run can legitimately take several minutes (40 reads × 1.5 s spacing
 // + model calls); 30 min is safely past that. The sweep only fires when the
 // single-flight worker is idle, so an in-flight run in THIS process can never
@@ -460,23 +472,25 @@ async function tick(): Promise<void> {
     const spentToday = await jinaSpentToday();
     const overBudget = spentToday >= DAILY_BUDGET;
 
-    // Enqueue refreshes for due watches.
-    const now = new Date().toISOString();
-    const { data: due } = await sb
-      .from("competitor_watches")
-      .select("competitor_id, cadence_hours")
-      .eq("enabled", true)
-      .or(`next_run_at.is.null,next_run_at.lte.${now}`);
-    for (const w of due ?? []) {
-      if (overBudget) {
-        console.log("competitive watch: daily Jina budget reached — skipping scheduled runs");
-        break;
-      }
-      await enqueueRun(w.competitor_id, "refresh", "schedule", null);
-      await sb
+    // Enqueue refreshes for due watches — only within the daily watch window.
+    if (withinWatchWindow()) {
+      const now = new Date().toISOString();
+      const { data: due } = await sb
         .from("competitor_watches")
-        .update({ next_run_at: new Date(Date.now() + w.cadence_hours * 3_600_000).toISOString() })
-        .eq("competitor_id", w.competitor_id);
+        .select("competitor_id, cadence_hours")
+        .eq("enabled", true)
+        .or(`next_run_at.is.null,next_run_at.lte.${now}`);
+      for (const w of due ?? []) {
+        if (overBudget) {
+          console.log("competitive watch: daily Jina budget reached — skipping scheduled runs");
+          break;
+        }
+        await enqueueRun(w.competitor_id, "refresh", "schedule", null);
+        await sb
+          .from("competitor_watches")
+          .update({ next_run_at: new Date(Date.now() + w.cadence_hours * 3_600_000).toISOString() })
+          .eq("competitor_id", w.competitor_id);
+      }
     }
 
     // Work the queue: oldest queued run first, one per tick.
@@ -522,5 +536,5 @@ export function startResearchScheduler(): void {
       if (error) console.error("run boot recovery failed:", error.message);
     });
   timer = setInterval(() => void tick(), TICK_MS);
-  console.log("competitive watch scheduler started (tick 60s)");
+  console.log("competitive watch scheduler started (tick 60s, scheduled refreshes gated to 10:30-11:30am)");
 }

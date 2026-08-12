@@ -372,6 +372,10 @@ const NEWS_CATEGORY_LABELS = ["News", "Press Release", "Acquisition", "AI Direct
 const VERTICALS_BY_PRODUCT: Record<string, string[]> = {
   Primus: ["Data center", "Energy & utility", "Manufacturing", "Life sciences"],
   Masterworks: ["DOT", "Transit", "Airport", "Public works"],
+  // Essentials targets the same public-owner segments as Masterworks at a
+  // mid-market scale; product-wiki.md flags no dedicated Essentials volume
+  // exists yet, so these are inherited pending a dedicated breakdown.
+  Essentials: ["Local government", "County & regional agency", "Special district"],
 };
 
 type BattlecardFormat = "insights" | "detailed";
@@ -1144,20 +1148,6 @@ export function CompetitiveIntel() {
     }
   };
 
-  const approveReport = async (id: string) => {
-    setReportBusy(true);
-    setReportError("");
-    try {
-      await apiPost(`/api/competitive/ci-reports/${id}/approve`);
-      setOpenReport((prev) => (prev ? { ...prev, status: "final" } : prev));
-      await load();
-    } catch (e) {
-      setReportError((e as Error).message);
-    } finally {
-      setReportBusy(false);
-    }
-  };
-
   const generateBattlecards = async (reportId: string) => {
     const formats = (Object.keys(bcFormats) as BattlecardFormat[]).filter((f) => bcFormats[f]);
     if (!bcVertical || formats.length === 0) return;
@@ -1247,7 +1237,7 @@ export function CompetitiveIntel() {
         </div>
       )}
 
-      <div className="tab-row" style={{ margin: "4px 0 16px" }}>
+      <div className="tab-row glass" style={{ margin: "4px 0 16px" }}>
         <button className={tab === "overview" ? "active" : ""} onClick={() => setTab("overview")}>
           <i className="fa-solid fa-gauge-high" style={{ marginRight: 6 }} /> Overview
         </button>
@@ -1632,6 +1622,7 @@ export function CompetitiveIntel() {
                 <option value="">Maps to (auto)</option>
                 <option>Primus</option>
                 <option>Masterworks</option>
+                <option>Essentials</option>
               </select>
             </div>
             <p style={{ marginBottom: 0 }}>
@@ -2441,6 +2432,7 @@ export function CompetitiveIntel() {
                       <option value="">Pick Aurigo product…</option>
                       <option value="Primus">Primus</option>
                       <option value="Masterworks">Masterworks</option>
+                      <option value="Essentials">Essentials</option>
                     </select>
                     {(() => {
                       const logo = lineLogo(reportProduct);
@@ -2497,11 +2489,6 @@ export function CompetitiveIntel() {
                       {openReport.title} <span className={`pill ${openReport.status === "final" ? "pill-final" : "pill-draft"}`}>{openReport.status}</span>
                     </h3>
                     <div style={{ display: "flex", gap: 8 }}>
-                      {openReport.status === "draft" && (
-                        <button className="btn btn-primary btn-sm" onClick={() => void approveReport(openReport.id)} disabled={reportBusy}>
-                          <i className="fa-solid fa-circle-check" /> Approve
-                        </button>
-                      )}
                       <button
                         className="btn btn-sm"
                         onClick={() => {
@@ -2517,7 +2504,7 @@ export function CompetitiveIntel() {
                   <div className="prose" style={{ border: "none", boxShadow: "none", padding: 0 }} dangerouslySetInnerHTML={{ __html: openReport.contentHtml }} />
                   {reportError && <div style={{ ...errBox, marginTop: 12 }}>{reportError}</div>}
 
-                  {openReport.status === "final" && (
+                  {openReport.status !== "archived" && (
                     <div style={{ marginTop: 16, paddingTop: 14, borderTop: "1px solid var(--border)" }}>
                       <h4 style={{ margin: "0 0 10px", fontSize: 13.5, fontWeight: 500 }}>Generate battlecard</h4>
                       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 10 }}>
@@ -2584,7 +2571,7 @@ export function CompetitiveIntel() {
                       <span style={{ flex: 1, fontSize: 13, fontWeight: 500 }}>{r.title}</span>
                       <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{new Date(r.created_at).toLocaleDateString()}</span>
                       <button className="btn btn-sm" onClick={() => void viewReport(r.id)}>
-                        {r.status === "final" ? "Generate battlecard" : "Review"}
+                        {r.status === "archived" ? "View" : "Generate battlecard"}
                       </button>
                     </div>
                   ))}

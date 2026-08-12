@@ -1044,6 +1044,29 @@ tbody tr:last-child td {
   box-shadow: var(--shadow-1);
 }
 
+/* Apple liquid-glass variant (same treatment as .persona-switch) */
+.tab-row.glass {
+  background: linear-gradient(135deg, rgba(70,178,190,0.18) 0%, rgba(255,255,255,0.52) 100%);
+  backdrop-filter: blur(14px) saturate(1.6);
+  -webkit-backdrop-filter: blur(14px) saturate(1.6);
+  border: 1px solid rgba(70,178,190,0.28);
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.7) inset,
+    0 2px 12px rgba(1,95,116,0.08);
+}
+.tab-row.glass button {
+  color: var(--teal-darkest);
+  transition: color 0.15s;
+}
+.tab-row.glass button.active {
+  background: linear-gradient(145deg, #015f74 0%, #017a93 100%);
+  color: #fff;
+  font-weight: 600;
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.18) inset,
+    0 2px 8px rgba(1,95,116,0.32);
+}
+
 /* page-level underline tabs (PMM Workspace — blueprint workspace-tabs §7) */
 .tabs {
   display: flex;
