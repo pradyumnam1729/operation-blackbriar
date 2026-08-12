@@ -65,7 +65,8 @@ jobs:
                 if ($line -imatch [regex]::Escape($w)) {
                   if ($line -imatch $docMarkers) { continue } # documenting the rule, not violating it
                   $rel = [System.IO.Path]::GetRelativePath((Get-Location), $f.FullName)
-                  Write-Host "::error file=$rel,line=$($i + 1)::Banned phrase '$w' found (Voice of Aurigo standards)"
+                  $lineNum = $i + 1
+                  Write-Host "::error file=$rel,line=$lineNum::Banned phrase '$w' found (Voice of Aurigo standards)"
                   $fail = $true
                 }
               }
