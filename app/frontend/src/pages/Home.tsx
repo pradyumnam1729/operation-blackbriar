@@ -547,10 +547,9 @@ export function Home() {
               <div className="av">
                 <i className="fa-solid fa-wand-magic-sparkles" style={{ fontSize: 11 }} />
               </div>
-              <div className="msg" style={{ color: "var(--text-muted)" }}>
-                Gathering evidence — searching the knowledge base, catalog, and competitive
-                sources as needed…
-              </div>
+              <span className="shining-text" style={{ padding: "10px 0", display: "block" }}>
+                Gathering evidence — searching the knowledge base, catalog, and competitive sources as needed…
+              </span>
             </div>
           )}
         </div>

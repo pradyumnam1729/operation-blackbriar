@@ -40,7 +40,7 @@ const ROLE_LABELS: Record<string, string> = {
 
 function HiveMark() {
   return (
-    <svg viewBox="0 0 90 84" width="30" height="28">
+    <svg viewBox="0 0 90 84" width="42" height="39">
       <polygon points="45,4 78,23 78,61 45,80 12,61 12,23" fill="none" stroke="#8FBFC9" strokeWidth="3" />
       <polygon points="30,15 41.3,21.5 41.3,34.5 30,41 18.7,34.5 18.7,21.5" fill="#46B2BE" />
       <polygon points="60,15 71.3,21.5 71.3,34.5 60,41 48.7,34.5 48.7,21.5" fill="#0B4D5C" />
