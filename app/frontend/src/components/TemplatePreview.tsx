@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { TemplateFormat } from "../lib/api";
+import { TemplateFormat, TemplateOrientation } from "../lib/api";
 
 // The one rendering primitive for template payloads (blueprint §4.2), reused by
 // the Template Library page and the artifact editor. Payloads render in a
@@ -11,6 +11,8 @@ import { TemplateFormat } from "../lib/api";
 
 interface Props {
   format: TemplateFormat;
+  /** Only distinguishes html/email canvas proportions; other formats are fixed. */
+  orientation?: TemplateOrientation;
   payload: string;
   /** Basis for the download filename; falls back to "artifact". */
   title?: string;
@@ -91,7 +93,7 @@ const MIME: Record<TemplateFormat, string> = {
   markdown: "text/markdown",
 };
 
-function frameStyle(format: TemplateFormat): React.CSSProperties {
+function frameStyle(format: TemplateFormat, orientation: TemplateOrientation): React.CSSProperties {
   const base: React.CSSProperties = {
     width: "100%",
     border: "1px solid var(--border)",
@@ -101,11 +103,13 @@ function frameStyle(format: TemplateFormat): React.CSSProperties {
   if (format === "svg") return { ...base, aspectRatio: "1200/628" };
   if (format === "deck") return { ...base, height: 620 }; // slides stack — taller, scrolls
   if (format === "markdown") return { ...base, height: 460 };
-  return { ...base, aspectRatio: "816/1056" }; // html / email — US Letter proportions
+  // html / email — US Letter proportions, portrait unless the template opts into landscape.
+  return { ...base, aspectRatio: orientation === "landscape" ? "1056/816" : "816/1056" };
 }
 
 export function TemplatePreview({
   format,
+  orientation = "portrait",
   payload,
   title,
   hideDownload,
@@ -160,7 +164,7 @@ export function TemplatePreview({
         sandbox={editable ? "allow-scripts" : ""}
         srcDoc={srcDoc}
         title="Rendered template preview"
-        style={frameStyle(format)}
+        style={frameStyle(format, orientation)}
       />
       {!hideDownload && (
         <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8 }}>

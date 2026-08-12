@@ -1,11 +1,13 @@
 import crypto from "crypto";
 import { supabase } from "./db";
 import { ask } from "./claude";
-import { markdownToHtml, htmlToText } from "./html";
+import { cleanHtml, markdownToHtml, htmlToText } from "./html";
 import { chunksToContext, retrieveChunks } from "./ingestion";
 import { readUrl, searchWeb } from "./jina";
 import { checkForbiddenWords } from "./guardrails";
 import { logActivity } from "./activity";
+import { TemplateSlot, renderTemplate, validateFills } from "./templateRender";
+import { askFills, buildTrimPrompt } from "./templateGenerate";
 import {
   assertAgentEnabled,
   composeAgentPrompt,

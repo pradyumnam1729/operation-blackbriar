@@ -137,7 +137,7 @@ function PreviewDrawer({ summary, admin, onClose, onEdit, onGenerate }: PreviewD
         {loading && <div className="empty-note">Rendering preview…</div>}
 
         {!loading && preview && (
-          <TemplatePreview format={preview.format} payload={preview.payload} hideDownload />
+          <TemplatePreview format={preview.format} orientation={preview.orientation} payload={preview.payload} hideDownload />
         )}
         {!loading && !preview && (
           <div className="empty-note">

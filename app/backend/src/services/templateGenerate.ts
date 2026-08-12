@@ -178,7 +178,7 @@ interface FillEnvelope {
 }
 
 /** ask() + parseModelJson (reused from questionnaire.ts) with one repair retry. */
-async function askFills(
+export async function askFills(
   prompt: string,
   extraContext: string,
   model?: string

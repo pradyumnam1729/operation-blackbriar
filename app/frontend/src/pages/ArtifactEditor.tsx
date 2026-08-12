@@ -540,6 +540,7 @@ export function ArtifactEditor() {
               )}
               <TemplatePreview
                 format={render.format}
+                orientation={renderTpl?.orientation}
                 payload={render.payload}
                 title={artifact.title}
                 editable={canEdit}

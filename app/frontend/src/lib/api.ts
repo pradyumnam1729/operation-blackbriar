@@ -321,6 +321,7 @@ export const approveMessagingDoc = (id: string) =>
 // ---- Template Library (layout-locked, slot-based templates) ----
 
 export type TemplateFormat = "html" | "svg" | "deck" | "email" | "markdown";
+export type TemplateOrientation = "portrait" | "landscape";
 export type FunnelStage = "awareness" | "consideration" | "decision" | "expansion";
 
 export interface TemplateSlot {
@@ -339,6 +340,7 @@ export interface TemplateSummary {
   name: string;
   asset_type: string;
   format: TemplateFormat | null;
+  orientation: TemplateOrientation;
   product_line: string | null;
   preview_color: string | null;
   audience: string | null;
@@ -383,6 +385,7 @@ export interface RenderWarning {
 
 export interface TemplatePreviewPayload {
   format: TemplateFormat;
+  orientation: TemplateOrientation;
   payload: string;
 }
 

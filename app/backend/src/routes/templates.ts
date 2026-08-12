@@ -42,13 +42,14 @@ function checkTemplateBodyWords(
 }
 
 const LIST_COLS =
-  "id, name, asset_type, format, product_line, preview_color, audience, persona, funnel_stage, exemplar_path, template_version, approved, body";
+  "id, name, asset_type, format, orientation, product_line, preview_color, audience, persona, funnel_stage, exemplar_path, template_version, approved, body";
 
 interface TemplateListRow {
   id: string;
   name: string;
   asset_type: string;
   format: string | null;
+  orientation: string;
   product_line: string | null;
   preview_color: string | null;
   audience: string | null;
@@ -275,7 +276,7 @@ templatesRouter.get("/:id/preview", requireAuth, async (req, res) => {
   const sb = supabase()!;
   const { data, error } = await sb
     .from("templates")
-    .select("id, approved, format, body, slots")
+    .select("id, approved, format, orientation, body, slots")
     .eq("id", req.params.id)
     .maybeSingle();
   if (error) return res.status(500).json({ error: error.message });
@@ -293,7 +294,7 @@ templatesRouter.get("/:id/preview", requireAuth, async (req, res) => {
       slots,
       placeholderFills(slots)
     );
-    res.json({ format: data.format, payload });
+    res.json({ format: data.format, orientation: data.orientation, payload });
   } catch (err) {
     res.status(422).json({ error: (err as Error).message });
   }
