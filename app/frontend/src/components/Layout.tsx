@@ -15,7 +15,8 @@ const MAIN_NAV: NavItem[] = [
   { to: "/features", label: "Feature catalog", icon: "fa-layer-group" },
   { to: "/competitive", label: "Competitive intel", icon: "fa-chess" },
   { to: "/requests", label: "Requests & intake", icon: "fa-upload" },
-  { to: "/studio", label: "Asset studio", icon: "fa-wand-magic-sparkles" },
+  // PMM-only: generation is admin work; other roles use the Asset library.
+  { to: "/studio", label: "Asset studio", icon: "fa-wand-magic-sparkles", adminOnly: true },
   { to: "/templates", label: "Template library", icon: "fa-object-group", adminOnly: true },
   // Open to all roles — labeled "PMM workspace" for admins, "Asset library"
   // for everyone else (the finalized-assets surface they use).
