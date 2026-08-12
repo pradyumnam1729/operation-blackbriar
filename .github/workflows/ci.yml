@@ -66,7 +66,8 @@ jobs:
                   if ($line -imatch $docMarkers) { continue } # documenting the rule, not violating it
                   $rel = [System.IO.Path]::GetRelativePath((Get-Location), $f.FullName)
                   $lineNum = $i + 1
-                  Write-Host "::error file=$rel,line=$lineNum::Banned phrase '$w' found (Voice of Aurigo standards)"
+                  $msg = '::error file=' + $rel + ',line=' + $lineNum + '::Banned phrase ' + $w + ' found (Voice of Aurigo standards)'
+                  Write-Host $msg
                   $fail = $true
                 }
               }
