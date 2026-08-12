@@ -1,9 +1,11 @@
+import crypto from "crypto";
 import { supabase } from "./db";
 import { ask } from "./claude";
-import { markdownToHtml } from "./html";
+import { markdownToHtml, htmlToText } from "./html";
 import { chunksToContext, retrieveChunks } from "./ingestion";
 import { readUrl, searchWeb } from "./jina";
-import { contentHash } from "./researchRuns";
+import { checkForbiddenWords } from "./guardrails";
+import { logActivity } from "./activity";
 import {
   assertAgentEnabled,
   composeAgentPrompt,
@@ -11,6 +13,12 @@ import {
   resolveModel,
 } from "./agents";
 import { COMPETITIVE_EVIDENCE_RULES, COMPETITIVE_PRODUCT_MAP } from "./agentPrompts";
+
+export class CompetitiveIntelError extends Error {
+  constructor(message: string, readonly status: number, readonly violations: string[] = []) {
+    super(message);
+  }
+}
 
 // Competitive Intelligence engine. Competitor facts come ONLY from scraped
 // sources (Jina Reader); Aurigo facts come ONLY from the knowledge base
@@ -23,12 +31,6 @@ import { COMPETITIVE_EVIDENCE_RULES, COMPETITIVE_PRODUCT_MAP } from "./agentProm
 // structure appended by composeAgentPrompt (Agents blueprint §2.2-3).
 
 const STALE_DAYS = 30;
-
-// Fallback-discovery cooldown per competitor (QA S3): compare attempts for a
-// competitor whose fallback candidates also fail must not re-burn Jina calls
-// on every retry.
-const FALLBACK_COOLDOWN_MS = 15 * 60_000;
-const fallbackTriedAt = new Map<string, number>();
 
 // Aurigo product mapping — the routing brief given to the model verbatim.
 export const PRODUCT_MAP = COMPETITIVE_PRODUCT_MAP;
@@ -62,8 +64,27 @@ export async function findCompetitorInText(text: string): Promise<CompetitorRow 
 }
 
 /** Normalize so https://x.com and https://x.com/ don't become two sources. */
-function normalizeUrl(url: string): string {
+export function normalizeUrl(url: string): string {
   return url.trim().replace(/\/+$/, "");
+}
+
+/** Priority URLs not already covered by the competitor's saved sources, deduped. */
+export function excludeKnownUrls(priorityUrls: string[], existingUrls: string[]): string[] {
+  const known = new Set(existingUrls.map(normalizeUrl));
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const raw of priorityUrls) {
+    const url = normalizeUrl(raw);
+    if (url === "" || known.has(url) || seen.has(url)) continue;
+    seen.add(url);
+    result.push(url);
+  }
+  return result;
+}
+
+/** True only when a source that was already scraped successfully once now hashes differently. */
+export function shouldFlagSiteChange(wasOk: boolean, previousHash: string | null, newHash: string): boolean {
+  return wasOk && previousHash !== null && previousHash !== newHash;
 }
 
 /** Discover 2-3 source URLs for a competitor: official site/product page + a review page. */
@@ -98,9 +119,9 @@ interface SourceRow {
   url: string;
   label: string | null;
   content_md: string | null;
+  content_hash?: string | null;
   status: string;
   scraped_at: string | null;
-  enabled?: boolean;
 }
 
 /** Make sure the competitor has scraped, fresh sources. Returns usable sources. */
@@ -108,7 +129,7 @@ export async function ensureSources(competitor: CompetitorRow): Promise<SourceRo
   const sb = supabase()!;
   let { data: sources } = await sb
     .from("competitor_sources")
-    .select("id, url, label, content_md, status, scraped_at, enabled")
+    .select("id, url, label, content_md, content_hash, status, scraped_at")
     .eq("competitor_id", competitor.id);
 
   if (!sources || sources.length === 0) {
@@ -117,29 +138,30 @@ export async function ensureSources(competitor: CompetitorRow): Promise<SourceRo
       await sb
         .from("competitor_sources")
         .upsert(
-          { competitor_id: competitor.id, url, status: "pending", discovered_by: "discovery" },
+          { competitor_id: competitor.id, url, status: "pending" },
           { onConflict: "competitor_id,url" }
         );
     }
     const re = await sb
       .from("competitor_sources")
-      .select("id, url, label, content_md, status, scraped_at, enabled")
+      .select("id, url, label, content_md, content_hash, status, scraped_at")
       .eq("competitor_id", competitor.id);
     sources = re.data;
   }
 
   const staleCutoff = Date.now() - STALE_DAYS * 24 * 3600 * 1000;
   for (const s of sources ?? []) {
-    if (s.enabled === false) continue; // admin-disabled sources are never scraped
     const needsScrape =
       s.status !== "ok" ||
       !s.content_md ||
       !s.scraped_at ||
       new Date(s.scraped_at).getTime() < staleCutoff;
     if (!needsScrape) continue;
+    const wasOk = s.status === "ok";
+    const previousHash = (s as { content_hash?: string | null }).content_hash ?? null;
     try {
       const page = await readUrl(s.url);
-      const hash = contentHash(page.content); // shared helper — see researchRuns.ts (QA SF-1)
+      const hash = crypto.createHash("sha256").update(page.content).digest("hex");
       await sb
         .from("competitor_sources")
         .update({
@@ -155,6 +177,11 @@ export async function ensureSources(competitor: CompetitorRow): Promise<SourceRo
       s.status = "ok";
       s.label = page.title;
       s.scraped_at = new Date().toISOString();
+      // Site Change news items descoped for now (user decision, 2026-08-12) — feature
+      // stays intact below (shouldFlagSiteChange/flagSiteChange), just not invoked.
+      void wasOk;
+      void previousHash;
+      void hash;
     } catch (err) {
       const msg = (err as Error).message;
       await sb.from("competitor_sources").update({ status: "failed", error: msg }).eq("id", s.id);
@@ -162,84 +189,25 @@ export async function ensureSources(competitor: CompetitorRow): Promise<SourceRo
       console.error(`scrape failed for ${s.url}: ${msg}`);
     }
   }
-  let usable: SourceRow[] = ((sources ?? []) as SourceRow[]).filter(
-    (s) => s.enabled !== false && s.status === "ok" && s.content_md
-  );
+  return (sources ?? []).filter((s) => s.status === "ok" && s.content_md);
+}
 
-  // Fallback discovery: bot-protected official sites (Procore-class) can fail
-  // every initial source. Before giving up, search for alternative pages.
-  // Guardrails (QA S3/N5): only the competitor's own domain or known review
-  // sites are accepted — a random news article must never become "the
-  // competitor's own source"; a 15-min cooldown stops every compare attempt
-  // from re-burning Jina calls; and the fallback never runs when the admin
-  // has deliberately disabled every existing source (kill switch respected).
-  const allDisabled =
-    (sources ?? []).length > 0 && (sources ?? []).every((s) => s.enabled === false);
-  const lastTry = fallbackTriedAt.get(competitor.id) ?? 0;
-  const coolingDown = Date.now() - lastTry < FALLBACK_COOLDOWN_MS;
-  if (usable.length === 0 && !allDisabled && !coolingDown) {
-    fallbackTriedAt.set(competitor.id, Date.now());
-    const ownDomain = competitor.website
-      ? new URL(competitor.website).hostname.replace(/^www\./, "").toLowerCase()
-      : null;
-    const acceptable = (url: string): boolean => {
-      try {
-        const host = new URL(url).hostname.replace(/^www\./, "").toLowerCase();
-        if (/(^|\.)g2\.com$|(^|\.)capterra\.com$|(^|\.)trustradius\.com$/.test(host)) return true;
-        return ownDomain !== null && (host === ownDomain || host.endsWith("." + ownDomain));
-      } catch {
-        return false;
-      }
-    };
-    const tried = new Set((sources ?? []).map((s) => normalizeUrl(s.url)));
-    const queries = [
-      `${competitor.name} G2 reviews`,
-      `${competitor.name} construction software product overview`,
-      `${competitor.name} platform capabilities`,
-    ];
-    const candidates: string[] = [];
-    for (const q of queries) {
-      try {
-        const hits = await searchWeb(q, 5);
-        for (const h of hits) {
-          const url = normalizeUrl(h.url);
-          if (tried.has(url) || candidates.includes(url)) continue;
-          if (!acceptable(url)) continue;
-          candidates.push(url);
-        }
-      } catch (err) {
-        console.error(`fallback search failed for ${competitor.name}:`, (err as Error).message);
-      }
-    }
-    for (const url of candidates.slice(0, 4)) {
-      if (usable.length >= 2) break;
-      try {
-        const page = await readUrl(url);
-        const { data: row } = await sb
-          .from("competitor_sources")
-          .upsert(
-            {
-              competitor_id: competitor.id,
-              url,
-              content_md: page.content,
-              content_hash: contentHash(page.content),
-              label: page.title.slice(0, 200),
-              status: "ok",
-              error: null,
-              scraped_at: new Date().toISOString(),
-              discovered_by: "discovery",
-            },
-            { onConflict: "competitor_id,url" }
-          )
-          .select("id, url, label, content_md, status, scraped_at, enabled")
-          .single();
-        if (row) usable = [...usable, row as SourceRow];
-      } catch (err) {
-        console.error(`fallback scrape failed for ${url}:`, (err as Error).message);
-      }
-    }
-  }
-  return usable;
+/** A source's content changed since the last scrape — log it as a Site Change news item. */
+async function flagSiteChange(competitor: CompetitorRow, url: string, label: string): Promise<void> {
+  const sb = supabase()!;
+  const summary = await ask(
+    `The page "${label}" (${url}) for competitor "${competitor.name}" changed since it was last scraped. In one sentence, note that a change was detected and that a PMM should review the page directly (you don't have the old vs new diff, just note the change was detected).`,
+    { maxTokens: 200 }
+  );
+  await sb.from("news_items").insert({
+    competitor_id: competitor.id,
+    headline: `${competitor.name}: site change detected on ${label}`,
+    summary_html: markdownToHtml(summary),
+    source_url: url,
+    category: "Site Change",
+    priority: "normal",
+    status: "approved",
+  });
 }
 
 export interface CompareResult {
@@ -536,7 +504,7 @@ function parseMapAnswer(raw: string): {
   };
 }
 
-const MAP_AURIGO_PRODUCTS = ["Masterworks", "Masterworks AI", "Primus", "Essentials"];
+const MAP_AURIGO_PRODUCTS = ["Masterworks", "Masterworks AI", "Primus"];
 
 export async function buildPositioningMap(
   userId: string,
@@ -547,7 +515,7 @@ export async function buildPositioningMap(
   const aurigoProducts =
     params.products && params.products.length > 0
       ? params.products.filter((p) => MAP_AURIGO_PRODUCTS.includes(p))
-      : ["Masterworks", "Primus", "Essentials"];
+      : ["Masterworks", "Primus"];
   if (aurigoProducts.length === 0) {
     throw new Error("Pick at least one Aurigo product to place on the map.");
   }
@@ -614,8 +582,8 @@ export async function buildPositioningMap(
     "- Place each competitor ONLY from facts present in its scraped sources. If the sources are too thin to place one honestly, leave it out of points and add it to skipped with a short reason. Never invent a placement.",
     "- size: evidence-weighted market presence on these axes, 20-100 — how strongly the available evidence supports this player's position (NOT company revenue).",
     "- quadrants: a 2-4 word label characterizing each quadrant of this map (top_left = low X / high Y, top_right = high X / high Y, bottom_left = low X / low Y, bottom_right = high X / low Y).",
-    "- note: the placement fact in max 15 words, citing what the evidence actually says — not an essay.",
-    '- summary: 2 sentences, max 60 words (markdown) — what the map reveals for Aurigo\'s position and the single most important whitespace. Use "AI-native" as the only AI modifier and write "life cycle" as two words.',
+    "- note: one sentence explaining the placement, citing what the evidence actually says.",
+    '- summary: 3-5 sentences (markdown) on what the map reveals for Aurigo\'s position and open whitespace. Use "AI-native" as the only AI modifier and write "life cycle" as two words.',
     "",
     competitorBlock,
     chunks.length > 0
@@ -654,26 +622,253 @@ export async function buildPositioningMap(
 }
 
 // ---------------------------------------------------------------------------
-// Map history + quarter-over-quarter movement (Phase 1 — the table has stored
-// every build since 0014; these expose it).
+// CI Reports: admin-curated packaging of competitive research. Battlecards
+// generate FROM an approved (final) report, not raw ad-hoc comparisons — the
+// intelligence -> activation gate (Master Instructions routing rule).
 
-export async function getMapHistory(limit = 12): Promise<PositioningMap[]> {
-  const sb = supabase()!;
-  const { data } = await sb
-    .from("positioning_maps")
-    .select(MAP_COLS)
-    .order("created_at", { ascending: false })
-    .limit(Math.min(limit, 24));
-  return ((data ?? []) as MapRow[]).map(rowToMap);
+export interface CiReportRow {
+  id: string;
+  competitor_id: string | null;
+  aurigo_product: string | null;
+  title: string;
+  content_html: string;
+  source_comparison_ids: string[];
+  status: "draft" | "final" | "archived";
+  created_by: string | null;
+  approved_by: string | null;
+  approved_at: string | null;
+  created_at: string;
 }
 
-export async function getMapById(id: string): Promise<PositioningMap | null> {
+/** Same evidence pipeline as compare(), report-shaped prompt instead of Q&A. */
+export async function generateCiReport(
+  competitorId: string,
+  productOverride: string | null,
+  extraBrief: string | null,
+  priorityUrls: string[],
+  userId: string
+): Promise<CiReportRow> {
   const sb = supabase()!;
-  const { data } = await sb.from("positioning_maps").select(MAP_COLS).eq("id", id).maybeSingle();
-  return data ? rowToMap(data as MapRow) : null;
+  const { data: competitor } = await sb
+    .from("competitors")
+    .select("id, name, aliases, website, category, aurigo_product")
+    .eq("id", competitorId)
+    .single();
+  if (!competitor) throw new CompetitiveIntelError("Competitor not found", 404);
+
+  const sources = await ensureSources(competitor as CompetitorRow);
+  if (sources.length === 0 && priorityUrls.length === 0) {
+    throw new CompetitiveIntelError(
+      `No scrapeable sources for ${competitor.name} yet. Add a source URL and retry.`,
+      422
+    );
+  }
+  const extraUrls = excludeKnownUrls(priorityUrls, sources.map((s) => s.url));
+  const priorityBlocks: string[] = [];
+  for (const url of extraUrls) {
+    try {
+      const page = await readUrl(url);
+      priorityBlocks.push(`<priority_source url="${url}" title="${page.title}">\n${page.content.slice(0, 40_000)}\n</priority_source>`);
+    } catch (err) {
+      console.error(`priority URL scrape failed for ${url}:`, (err as Error).message);
+    }
+  }
+
+  const productHint = productOverride ?? (competitor as CompetitorRow).aurigo_product;
+  const chunks = await retrieveChunks(`${competitor.name} ${productHint ?? ""} competitive positioning`, 10);
+
+  const competitorContext = sources
+    .map(
+      (s) =>
+        `<competitor_source url="${s.url}" title="${s.label ?? ""}">\n${(s.content_md ?? "").slice(0, 40_000)}\n</competitor_source>`
+    )
+    .join("\n\n");
+
+  const prompt = [
+    PRODUCT_MAP,
+    EVIDENCE_RULES,
+    `Write a CI (competitive intelligence) report on ${competitor.name}${productHint ? ` for Aurigo ${productHint}` : ""}.`,
+    "Structure it with these markdown headings: ## Executive summary, ## Recent moves, ## Pricing & packaging signals, ## Aurigo counter-positioning.",
+    extraBrief ? `Additional brief: ${extraBrief}` : "",
+    priorityBlocks.length > 0
+      ? `The sources below marked <priority_source> were specifically flagged by the PMM as must-consider for this report — give them real weight in your analysis, don't just mention they exist.`
+      : "",
+    "=== SCRAPED COMPETITOR SOURCES ===",
+    competitorContext,
+    priorityBlocks.length > 0 ? `=== PMM-FLAGGED PRIORITY SOURCES ===\n${priorityBlocks.join("\n\n")}` : "",
+    chunks.length > 0 ? `=== AURIGO KNOWLEDGE BASE (ground truth) ===\n${chunksToContext(chunks)}` : "",
+  ]
+    .filter((s) => s !== "")
+    .join("\n\n");
+
+  const md = await ask(prompt, { maxTokens: 6000 });
+  // Transparency into what was actually scraped to build this report —
+  // appended structurally, not left to the model to mention or omit.
+  const allSourceUrls = [...sources.map((s) => ({ url: s.url, label: s.label })), ...extraUrls.map((url) => ({ url, label: url }))];
+  const sourcesHtml = `<h2>Sources scraped</h2><ul>${allSourceUrls
+    .map((s) => `<li><a href="${s.url}" target="_blank" rel="noopener noreferrer">${s.label ?? s.url}</a></li>`)
+    .join("")}</ul>`;
+  const contentHtml = markdownToHtml(md) + sourcesHtml;
+  const title = `${competitor.name}${productHint ? ` vs Aurigo ${productHint}` : ""} — CI report`;
+
+  const { data: row, error } = await sb
+    .from("ci_reports")
+    .insert({
+      competitor_id: competitor.id,
+      aurigo_product: productHint,
+      title,
+      content_html: contentHtml,
+      status: "draft",
+      created_by: userId,
+    })
+    .select("*")
+    .single();
+  if (error || !row) throw new Error(error?.message ?? "Could not store the CI report");
+  void logActivity("ci_report", row.id, userId, "generated", { competitor: competitor.name, priorityUrlCount: extraUrls.length });
+  return row as CiReportRow;
 }
 
-// Movement computation is pure and lives in competitiveParsing.ts (tested);
-// re-exported here so routes keep one import surface.
-export { AxesMismatchError, computeMovement } from "./competitiveParsing";
-export type { MapMove, MapMovement } from "./competitiveParsing";
+export async function approveCiReport(id: string, userId: string): Promise<CiReportRow> {
+  const sb = supabase()!;
+  const { data } = await sb.from("ci_reports").select("*").eq("id", id).maybeSingle();
+  if (!data) throw new CompetitiveIntelError("CI report not found", 404);
+  const report = data as CiReportRow;
+  if (report.status !== "draft") {
+    throw new CompetitiveIntelError(`Only draft reports can be approved (current: '${report.status}').`, 409);
+  }
+  const guard = checkForbiddenWords(htmlToText(report.content_html));
+  if (!guard.ok) {
+    throw new CompetitiveIntelError(`Cannot approve — banned words found: ${guard.violations.join(", ")}`, 422, guard.violations);
+  }
+  const { data: row, error } = await sb
+    .from("ci_reports")
+    .update({ status: "final", approved_by: userId, approved_at: new Date().toISOString() })
+    .eq("id", id)
+    .select("*")
+    .single();
+  if (error || !row) throw new Error(error?.message ?? "Approval failed");
+  void logActivity("ci_report", id, userId, "approved", {});
+  return row as CiReportRow;
+}
+
+// ---------------------------------------------------------------------------
+// Market threats / new entrants: AI-drafted with a confidence score and a
+// rationale, admin-approved before regular users see them.
+
+export interface MarketThreatRow {
+  id: string;
+  name: string;
+  aurigo_product: string | null;
+  category: string | null;
+  summary_html: string;
+  rationale: string;
+  confidence: number;
+  source_url: string | null;
+  status: "draft" | "final" | "archived";
+  created_by: string | null;
+  approved_by: string | null;
+  approved_at: string | null;
+  created_at: string;
+}
+
+interface ThreatDraft {
+  summary: string;
+  rationale: string;
+  confidence: number;
+}
+
+/** Defensively parse the model's {summary, rationale, confidence} JSON. */
+function parseThreatDraft(raw: string): ThreatDraft | null {
+  const start = raw.indexOf("{");
+  const end = raw.lastIndexOf("}");
+  if (start === -1 || end <= start) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw.slice(start, end + 1));
+  } catch {
+    return null;
+  }
+  const o = parsed as Record<string, unknown>;
+  if (typeof o.summary !== "string" || typeof o.rationale !== "string") return null;
+  const confidence = Number(o.confidence);
+  if (!Number.isFinite(confidence)) return null;
+  return { summary: o.summary, rationale: o.rationale, confidence: Math.max(0, Math.min(100, confidence)) };
+}
+
+export async function draftMarketThreat(
+  name: string,
+  product: string | null,
+  url: string | null,
+  userId: string
+): Promise<MarketThreatRow> {
+  const sb = supabase()!;
+  let context = "";
+  let sourceUrl: string | null = null;
+  try {
+    if (url && url.trim() !== "") {
+      const page = await readUrl(url.trim());
+      context = page.content.slice(0, 40_000);
+      sourceUrl = url.trim();
+    } else {
+      const hits = await searchWeb(`${name} construction capital program software`);
+      context = hits.map((h) => `${h.title} — ${h.url}\n${h.description}`).join("\n\n");
+      sourceUrl = hits[0]?.url ?? null;
+    }
+  } catch (err) {
+    console.error(`market threat research failed for ${name}:`, (err as Error).message);
+  }
+
+  const chunks = await retrieveChunks(`${name} ${product ?? ""} competitive threat market position`, 8);
+  const prompt = [
+    PRODUCT_MAP,
+    `Assess whether "${name}" is a genuine competitive threat or new entrant${product ? ` against Aurigo ${product}` : ""}.`,
+    "Respond with ONLY a JSON object, no prose before or after:",
+    '{"summary": string (markdown, what this is and why it matters), "rationale": string (specifically why this was flagged as a threat, citing evidence), "confidence": number 0-100 (how confident you are this is a real, current threat)}',
+    "If the evidence is thin, say so plainly in rationale and give a low confidence score rather than guessing.",
+    context ? `=== RESEARCH ===\n${context}` : "=== RESEARCH ===\n(no web evidence found)",
+    chunks.length > 0 ? `=== AURIGO KNOWLEDGE BASE ===\n${chunksToContext(chunks)}` : "",
+  ]
+    .filter((s) => s !== "")
+    .join("\n\n");
+
+  const raw = await ask(prompt, { maxTokens: 2000 });
+  const parsed = parseThreatDraft(raw);
+  if (!parsed) throw new Error("The model did not return a usable threat assessment. Try again.");
+
+  const { data: row, error } = await sb
+    .from("market_threats")
+    .insert({
+      name,
+      aurigo_product: product,
+      summary_html: markdownToHtml(parsed.summary),
+      rationale: parsed.rationale,
+      confidence: parsed.confidence,
+      source_url: sourceUrl,
+      status: "draft",
+      created_by: userId,
+    })
+    .select("*")
+    .single();
+  if (error || !row) throw new Error(error?.message ?? "Could not store the market threat");
+  void logActivity("market_threat", row.id, userId, "drafted", { name, confidence: parsed.confidence });
+  return row as MarketThreatRow;
+}
+
+export async function approveMarketThreat(id: string, userId: string): Promise<MarketThreatRow> {
+  const sb = supabase()!;
+  const { data } = await sb.from("market_threats").select("*").eq("id", id).maybeSingle();
+  if (!data) throw new CompetitiveIntelError("Market threat not found", 404);
+  const threat = data as MarketThreatRow;
+  if (threat.status !== "draft") {
+    throw new CompetitiveIntelError(`Only draft entries can be approved (current: '${threat.status}').`, 409);
+  }
+  const { data: row, error } = await sb
+    .from("market_threats")
+    .update({ status: "final", approved_by: userId, approved_at: new Date().toISOString() })
+    .eq("id", id)
+    .select("*")
+    .single();
+  if (error || !row) throw new Error(error?.message ?? "Approval failed");
+  void logActivity("market_threat", id, userId, "approved", {});
+  return row as MarketThreatRow;
+}
