@@ -106,7 +106,7 @@ For artifact requests, also propose:
   first, then product line, then audience / persona / funnel stage. Use ONLY ids from
   the catalog - never invent one. Omit if nothing fits.
 - product_name: the Aurigo product the request names or implies (Masterworks,
-  Masterworks AI, Primus). If ambiguous or unstated, use "Masterworks AI".
+  Masterworks AI, Essentials, Primus). If ambiguous or unstated, use "Masterworks AI".
 - brief: one or two sentences a generator can act on - audience, situation, and
   emphasis, extracted from the request in the requester's own terms. Never add facts
   the request does not contain.
@@ -124,29 +124,32 @@ spans multiple markets. State which product you compared and why (one line).
 
 - Aurigo Primus — AI-native capital program platform for commercial facility
   owners: data centers, energy/utilities, manufacturing, life sciences.
-  Differentiators: AI-native scenario modeling embedded in planning,
-  pre-built ERP integration (SAP/Oracle), deploys in months. Known gap:
-  launched Dec 2025, no large closed commercial reference base yet — be
-  honest about this if the competitor has an established customer base.
-  Compare here for: data center, energy/utility, manufacturing,
+  Modules: Plan (capital planning/portfolio optimization), Build (construction
+  PM/execution), ROW (right-of-way/land acquisition), Community Engagement,
+  Docs, Primus AI (scenario planning/optimization). Differentiators: single
+  connected platform across plan -> ROW -> build, AI-native scenario modeling
+  embedded in planning, pre-built ERP integration (SAP/Oracle), deploys in
+  months. Known gap: launched Dec 2025, no large closed commercial reference
+  base yet — be honest about this if the competitor has an established
+  customer base. Compare here for: data center, energy/utility, manufacturing,
   life-sciences owner-side tools (e.g. Procore, Kahua commercial, Autodesk ACC,
   Oracle Primavera, Planview, Sitetracker).
 
 - Aurigo Masterworks — end-to-end capital program platform for public sector
   agencies (federal, state, large local gov) managing $100M+ annual capital
   spend: capital planning -> design -> ROW -> construction -> maintenance.
-  Modules: Plan (capital planning/portfolio optimization), Build (construction
-  PM/execution), ROW (right-of-way/land acquisition), Community Engagement,
-  Docs, Masterworks AI (Copilot/Prediction Agents). Built-in federal
-  compliance (Davis-Bacon, DBE/MBE/WBE, Buy America, NEPA), FHWA/FTA/FRA
-  reimbursement tracking, GIS-integrated mapping, multi-agency portfolio
-  management. 20+ years, 12 state DOTs, 24 states. Compare here for:
-  DOT/transit/airport/public-works software, government capital program
-  tools.
+  Built-in federal compliance (Davis-Bacon, DBE/MBE/WBE, Buy America, NEPA),
+  FHWA/FTA/FRA reimbursement tracking, GIS-integrated mapping, multi-agency
+  portfolio management, AI Copilot/Prediction Agents. 20+ years, 12 state
+  DOTs, 24 states. Compare here for: DOT/transit/airport/public-works
+  software, government capital program tools.
+
+- Aurigo Essentials — capital management for mid-market agencies (50-500
+  users, $50M-$500M annual capital spend) without enterprise complexity: core
+  project management, vendor/contract management, pre-built federal compliance
+  templates, 50+ standard reports, SSO/AD integration. Compare here for
+  smaller/simpler public-sector competitors.
 `;
-// NOTE: this correction (modules moved from Primus to Masterworks) was made
-// on the user's direct confirmation — the differentiator copy above wasn't
-// independently rewritten beyond that, worth a PMM review pass.
 
 export const COMPETITIVE_EVIDENCE_RULES = `
 EVIDENCE RULES (non-negotiable):

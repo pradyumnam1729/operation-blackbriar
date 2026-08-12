@@ -51,24 +51,6 @@ export async function apiPost<T>(path: string, body?: unknown): Promise<T> {
   );
 }
 
-/** POST that expects a binary response (e.g. a generated PDF) instead of JSON. */
-export async function apiPostBlob(path: string, body?: unknown): Promise<Blob> {
-  const res = await fetch(path, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", ...(await authHeaders()) },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  if (!res.ok) {
-    const parsed = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-    throw new ApiError(
-      res.status,
-      typeof parsed.error === "string" ? parsed.error : res.statusText,
-      parsed
-    );
-  }
-  return res.blob();
-}
-
 export async function apiPut<T>(path: string, body?: unknown): Promise<T> {
   return handle<T>(
     await fetch(path, {
