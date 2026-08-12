@@ -57,8 +57,8 @@ pmmRouter.get("/", requireAuth, requireAdmin, async (req, res) => {
 pmmRouter.post("/", requireAuth, requireAdmin, async (req, res) => {
   const { title, product } = req.body as { title?: string; product?: string };
   if (!title?.trim()) return res.status(400).json({ error: "title is required" });
-  if (!product || !["Masterworks", "Essentials", "Primus", "Lumina"].includes(product)) {
-    return res.status(400).json({ error: "product must be Masterworks, Essentials, Primus, or Lumina" });
+  if (!product || !["Masterworks", "Primus", "Lumina"].includes(product)) {
+    return res.status(400).json({ error: "product must be Masterworks, Primus, or Lumina" });
   }
   const sb = supabase()!;
   const { data, error } = await sb

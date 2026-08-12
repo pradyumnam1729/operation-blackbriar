@@ -1090,6 +1090,14 @@ tbody tr:last-child td {
   line-height: 1.65;
   box-shadow: var(--shadow-1);
   font-size: 14px;
+  overflow-wrap: anywhere;
+  overflow-x: auto;
+}
+/* Catch-all: no descendant can force this box wider than its container,
+   whatever the specific element (image, inline code, stray inline style). */
+.prose * {
+  max-width: 100%;
+  box-sizing: border-box;
 }
 .prose h1 {
   font-size: 22px;
@@ -1118,6 +1126,7 @@ tbody tr:last-child td {
   border: 1px solid var(--border);
   padding: 8px 10px;
   text-align: left;
+  overflow-wrap: anywhere;
 }
 .prose th {
   background: var(--bg-page);

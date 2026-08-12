@@ -340,7 +340,7 @@ export function ArtifactLibrary() {
                 border: "1px solid var(--border)",
                 borderRadius: "var(--r-lg)",
                 padding: 16,
-                background: "#fff",
+                background: "var(--bg-card)",
                 display: "flex",
                 flexDirection: "column",
                 gap: 8,

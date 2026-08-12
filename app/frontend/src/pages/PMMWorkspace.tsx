@@ -100,7 +100,7 @@ export function PmmDocsSection() {
           </p>
           <label style={{ marginTop: 0 }}>Which product is this for?</label>
           <div className="step-pills">
-            {["Masterworks", "Essentials", "Primus", "Lumina"].map((p) => (
+            {["Masterworks", "Primus", "Lumina"].map((p) => (
               <button
                 key={p}
                 className={`step-pill ${newProduct === p ? "active" : ""}`}

@@ -14,6 +14,7 @@ import {
 } from "../lib/api";
 import { useAuth } from "../auth/AuthContext";
 import { ReferenceLibrary } from "../components/ReferenceLibrary";
+import { lineLogo } from "../lib/branding";
 
 // Asset Studio: pick an asset type → pick a template → generate a draft
 // artifact and open it in the editor. Slot-driven templates (Template Library)
@@ -148,7 +149,7 @@ export function Studio() {
       const html = [
         '<!doctype html><html><head><meta charset="utf-8">',
         `<title>${a.title}</title>`,
-        "<style>body{font-family:Roboto,Arial,sans-serif;color:#20282B;max-width:760px;margin:40px auto;padding:0 24px;line-height:1.65}h1{color:#053445}h2{color:#015F74}a{color:#015F74}table{border-collapse:collapse;width:100%}th,td{border:1px solid #E1E6E9;padding:8px 10px;text-align:left}th{background:#F5F7F8}</style>",
+        "<style>@import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700;900&display=swap');body{font-family:Roboto,Arial,sans-serif;color:#20282B;max-width:760px;margin:40px auto;padding:0 24px;line-height:1.65;overflow-wrap:anywhere}h1{color:#053445}h2{color:#015F74}a{color:#015F74}table{border-collapse:collapse;width:100%;table-layout:fixed}th,td{border:1px solid #E1E6E9;padding:8px 10px;text-align:left;overflow-wrap:anywhere}th{background:#F5F7F8}</style>",
         "</head><body>",
         r.contentHtml === "" ? `<h1>${a.title}</h1><p>(no rendered content)</p>` : r.contentHtml,
         "</body></html>",
@@ -558,24 +559,30 @@ export function Studio() {
             )}
 
             <label>Product</label>
-            <select value={productId} onChange={(e) => setProductId(e.target.value)}>
-              <option
-                value=""
-                disabled={slotDriven}
-                title={
-                  slotDriven
-                    ? "Slot-driven generation runs from one product's approved messaging document"
-                    : undefined
-                }
-              >
-                — whole portfolio —
-              </option>
-              {products.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              {(() => {
+                const logo = lineLogo(products.find((p) => p.id === productId)?.line);
+                return logo ? <img src={logo} alt="" style={{ height: 20, width: "auto" }} /> : null;
+              })()}
+              <select value={productId} onChange={(e) => setProductId(e.target.value)} style={{ flex: 1 }}>
+                <option
+                  value=""
+                  disabled={slotDriven}
+                  title={
+                    slotDriven
+                      ? "Slot-driven generation runs from one product's approved messaging document"
+                      : undefined
+                  }
+                >
+                  — whole portfolio —
                 </option>
-              ))}
-            </select>
+                {products.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            </div>
             {slotDriven && productId === "" && (
               <p style={{ margin: "4px 0 0", fontSize: 11.5, color: "var(--text-secondary)" }}>
                 Slot-driven generation runs from one product&rsquo;s approved messaging document —

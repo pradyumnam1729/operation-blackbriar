@@ -19,10 +19,21 @@ declare global {
   }
 }
 
+const LOCAL_DEV_USER: AuthedUser = {
+  id: "local-dev",
+  email: "dev@local",
+  fullName: "Local Dev (no Supabase)",
+  role: "admin",
+};
+
 /** Verifies the Supabase access token and attaches the user's profile (with role). */
 export async function requireAuth(req: Request, res: Response, next: NextFunction) {
   const sb = supabase();
-  if (!sb) return res.status(503).json({ error: "Database not configured" });
+  // No Supabase configured — local testing mode, skip auth entirely as admin.
+  if (!sb) {
+    req.user = LOCAL_DEV_USER;
+    return next();
+  }
 
   const header = req.headers.authorization ?? "";
   const token = header.startsWith("Bearer ") ? header.slice(7) : null;

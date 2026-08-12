@@ -311,7 +311,9 @@ export function wrapExportHtml(title: string, bodyHtml: string, footer: string):
     "<!doctype html>",
     `<html lang="en"><head><meta charset="utf-8"><title>${title}</title>`,
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
-    "<style>body{font-family:Roboto,Arial,sans-serif;color:#20282B;max-width:760px;margin:40px auto;padding:0 24px;line-height:1.65}h1{color:#053445}h2{color:#015F74}a{color:#015F74}table{border-collapse:collapse;width:100%}th,td{border:1px solid #E1E6E9;padding:8px 10px;text-align:left}th{background:#F5F7F8}blockquote{border-left:3px solid #46B2BE;margin:12px 0;padding:6px 16px;background:#F2FAFB}footer{margin-top:40px;font-size:12px;color:#8D979A;border-top:1px solid #E1E6E9;padding-top:12px}</style>",
+    // Roboto is only a name until the family is actually fetched — the
+    // Template Library templates already do this @import; this shell didn't.
+    "<style>@import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700;900&display=swap');body{font-family:Roboto,Arial,sans-serif;color:#20282B;max-width:760px;margin:40px auto;padding:0 24px;line-height:1.65;overflow-wrap:anywhere}h1{color:#053445}h2{color:#015F74}a{color:#015F74}table{border-collapse:collapse;width:100%;table-layout:fixed}th,td{border:1px solid #E1E6E9;padding:8px 10px;text-align:left;overflow-wrap:anywhere}th{background:#F5F7F8}blockquote{border-left:3px solid #46B2BE;margin:12px 0;padding:6px 16px;background:#F2FAFB}footer{margin-top:40px;font-size:12px;color:#8D979A;border-top:1px solid #E1E6E9;padding-top:12px}</style>",
     "</head><body>",
     bodyHtml,
     `<footer>${footer}</footer>`,
