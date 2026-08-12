@@ -21,6 +21,7 @@ const MAIN_NAV: NavItem[] = [
 ];
 
 const ADMIN_NAV: NavItem[] = [
+  { to: "/users", label: "User management", icon: "fa-users", adminOnly: true },
   { to: "/uploads", label: "Uploads console", icon: "fa-shield-halved", adminOnly: true },
   { to: "/integrations", label: "Connectors", icon: "fa-plug", adminOnly: true },
   { to: "/agents", label: "Agents", icon: "fa-robot", adminOnly: true },

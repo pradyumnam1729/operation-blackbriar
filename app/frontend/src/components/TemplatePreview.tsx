@@ -1,11 +1,13 @@
-import { useEffect, useRef, useState } from "react";
-import { apiPostBlob, TemplateFormat } from "../lib/api";
+import { useEffect, useRef } from "react";
+import { TemplateFormat } from "../lib/api";
 
 // The one rendering primitive for template payloads (blueprint §4.2), reused by
-// the Template Library page and the artifact editor. Payloads always render in
-// a fully sandboxed iframe (sandbox="" — no scripts, no same-origin, no top
-// navigation): the payload came through the authed JSON API, the token never
-// touches the frame, and even a hostile payload stays inert.
+// the Template Library page and the artifact editor. Payloads render in a
+// sandboxed iframe: read-only mode is fully inert (sandbox=""); editable mode
+// allows ONLY scripts (no same-origin — the frame keeps an opaque origin, so
+// the auth token and parent DOM stay unreachable) to run the tiny injected
+// editor that binds contentEditable to the payload's data-slot markers and
+// postMessages edits back to the parent.
 
 interface Props {
   format: TemplateFormat;
@@ -14,15 +16,50 @@ interface Props {
   title?: string;
   /** Hide the download control (e.g. inside the library preview drawer). */
   hideDownload?: boolean;
+  /** Inline slot editing on the styled render (canEdit surfaces only). */
+  editable?: boolean;
+  /** One edited slot committed (blur): id + new plain text. */
+  onSlotEdit?: (slotId: string, text: string) => void;
+  /** How many editable slot regions the payload carries (0 = legacy render). */
+  onEditableRegions?: (count: number) => void;
 }
 
-// html/email/deck templates are authored at a fixed US-Letter-ish canvas
-// (816x1056, per the locked brand CSS in supabase/migrations/0011 & 0015) —
-// the iframe below is sized to that intrinsic canvas, then scaled to fit
-// whatever panel it's rendered in so nothing needs horizontal scrolling.
-const CANVAS_W = 816;
-const CANVAS_H = 1056;
-const FIXED_WIDTH_FORMATS: TemplateFormat[] = ["html", "email", "deck"];
+/** Injected into the editable frame. Marks [data-slot] regions editable and
+ *  reports commits to the parent; runs with an opaque origin. */
+const EDIT_SCRIPT = `<script>(function(){
+  var els = document.querySelectorAll("[data-slot]");
+  parent.postMessage({ hive: "slots-ready", count: els.length }, "*");
+  els.forEach(function (el) {
+    el.setAttribute("contenteditable", "true");
+    el.style.outline = "1.5px dashed rgba(70,178,190,.6)";
+    el.style.outlineOffset = "2px";
+    el.style.cursor = "text";
+    el.addEventListener("focus", function () {
+      el.style.outline = "2px solid rgba(1,95,116,.9)";
+      if (el.getAttribute("data-empty") === "1") {
+        el.textContent = "";
+        el.removeAttribute("data-empty");
+      }
+    });
+    el.addEventListener("blur", function () {
+      el.style.outline = "1.5px dashed rgba(70,178,190,.6)";
+      var id = el.getAttribute("data-slot");
+      var text;
+      if (el.hasAttribute("data-line")) {
+        // Lines slot: one <li> per line — reassemble the FULL slot text from
+        // every line element, in DOM order, so the fill round-trips intact.
+        var lines = [];
+        document.querySelectorAll('[data-slot="' + id + '"]').forEach(function (lineEl) {
+          lines.push(lineEl.innerText.replace(/\\n+/g, " ").trim());
+        });
+        text = lines.filter(function (l) { return l !== ""; }).join("\\n");
+      } else {
+        text = el.innerText;
+      }
+      parent.postMessage({ hive: "slot-edit", id: id, text: text }, "*");
+    });
+  });
+})();</scr` + `ipt>`;
 
 const escapeHtml = (s: string) =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -38,20 +75,22 @@ function toSrcDoc(format: TemplateFormat, payload: string): string {
   return payload; // html / deck / email payloads are complete documents
 }
 
-const SVG_MIME = "image/svg+xml";
+const EXTENSION: Record<TemplateFormat, string> = {
+  html: ".html",
+  svg: ".svg",
+  deck: "-deck.html",
+  email: ".html",
+  markdown: ".md",
+};
 
-function triggerDownload(blob: Blob, filename: string): void {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
-}
+const MIME: Record<TemplateFormat, string> = {
+  html: "text/html",
+  svg: "image/svg+xml",
+  deck: "text/html",
+  email: "text/html",
+  markdown: "text/markdown",
+};
 
-/** Non-fixed-width formats keep their previous responsive box. */
 function frameStyle(format: TemplateFormat): React.CSSProperties {
   const base: React.CSSProperties = {
     width: "100%",
@@ -60,90 +99,74 @@ function frameStyle(format: TemplateFormat): React.CSSProperties {
     display: "block",
   };
   if (format === "svg") return { ...base, aspectRatio: "1200/628" };
-  return { ...base, height: 460 }; // markdown
+  if (format === "deck") return { ...base, height: 620 }; // slides stack — taller, scrolls
+  if (format === "markdown") return { ...base, height: 460 };
+  return { ...base, aspectRatio: "816/1056" }; // html / email — US Letter proportions
 }
 
-export function TemplatePreview({ format, payload, title, hideDownload }: Props) {
-  const [downloading, setDownloading] = useState(false);
-  const [downloadError, setDownloadError] = useState("");
-  const wrapperRef = useRef<HTMLDivElement>(null);
-  const [scale, setScale] = useState(1);
-
-  const fixedWidth = FIXED_WIDTH_FORMATS.includes(format);
-  const canvasHeight = format === "deck" ? 620 : CANVAS_H; // decks stay a fixed scrollable box
+export function TemplatePreview({
+  format,
+  payload,
+  title,
+  hideDownload,
+  editable,
+  onSlotEdit,
+  onEditableRegions,
+}: Props) {
+  const frameRef = useRef<HTMLIFrameElement | null>(null);
 
   useEffect(() => {
-    if (!fixedWidth || !wrapperRef.current) return;
-    const el = wrapperRef.current;
-    const observer = new ResizeObserver(([entry]) => {
-      setScale(Math.min(1, entry.contentRect.width / CANVAS_W));
-    });
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [fixedWidth]);
+    if (!editable) return;
+    const onMessage = (e: MessageEvent) => {
+      if (e.source !== frameRef.current?.contentWindow) return;
+      const data = e.data as { hive?: string; count?: number; id?: string; text?: string };
+      if (data?.hive === "slots-ready") onEditableRegions?.(Number(data.count) || 0);
+      if (data?.hive === "slot-edit" && typeof data.id === "string" && typeof data.text === "string") {
+        onSlotEdit?.(data.id, data.text);
+      }
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [editable, onSlotEdit, onEditableRegions]);
 
-  const download = async () => {
-    setDownloadError("");
+  const baseDoc = toSrcDoc(format, payload);
+  const srcDoc = editable
+    ? /<\/body>/i.test(baseDoc)
+      ? baseDoc.replace(/<\/body>/i, `${EDIT_SCRIPT}</body>`)
+      : baseDoc + EDIT_SCRIPT
+    : baseDoc;
+
+  const download = () => {
     const slug =
       (title ?? "artifact")
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, "-")
         .replace(/^-+|-+$/g, "") || "artifact";
-
-    if (format === "svg") {
-      triggerDownload(new Blob([payload], { type: SVG_MIME }), `${slug}.svg`);
-      return;
-    }
-    setDownloading(true);
-    try {
-      const pdf = await apiPostBlob("/api/export/pdf", { format, payload, title });
-      triggerDownload(pdf, `${slug}.pdf`);
-    } catch (e) {
-      setDownloadError((e as Error).message);
-    } finally {
-      setDownloading(false);
-    }
+    const blob = new Blob([payload], { type: MIME[format] });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${slug}${EXTENSION[format]}`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
   };
 
   return (
     <div>
-      {fixedWidth ? (
-        <div
-          ref={wrapperRef}
-          style={{ width: "100%", overflow: "hidden", height: canvasHeight * scale }}
-        >
-          <iframe
-            sandbox=""
-            srcDoc={toSrcDoc(format, payload)}
-            title="Rendered template preview"
-            style={{
-              width: CANVAS_W,
-              height: canvasHeight,
-              border: "1px solid var(--border)",
-              background: "#fff",
-              display: "block",
-              transform: `scale(${scale})`,
-              transformOrigin: "top left",
-            }}
-          />
-        </div>
-      ) : (
-        <iframe
-          sandbox=""
-          srcDoc={toSrcDoc(format, payload)}
-          title="Rendered template preview"
-          style={frameStyle(format)}
-        />
-      )}
+      <iframe
+        ref={frameRef}
+        sandbox={editable ? "allow-scripts" : ""}
+        srcDoc={srcDoc}
+        title="Rendered template preview"
+        style={frameStyle(format)}
+      />
       {!hideDownload && (
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6, marginTop: 8 }}>
-          <button className="btn btn-sm" onClick={() => void download()} disabled={downloading}>
-            <i className={`fa-solid ${downloading ? "fa-spinner fa-spin" : "fa-download"}`} />{" "}
-            {downloading ? "Rendering…" : format === "svg" ? "Download .svg" : "Download PDF"}
+        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8 }}>
+          <button className="btn btn-sm" onClick={download}>
+            <i className="fa-solid fa-download" /> Download {EXTENSION[format].replace(/^-deck/, " deck")}
           </button>
-          {downloadError && (
-            <div style={{ fontSize: 12.5, color: "#A32D2D" }}>{downloadError}</div>
-          )}
         </div>
       )}
     </div>

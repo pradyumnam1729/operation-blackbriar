@@ -134,109 +134,165 @@ export function DocEditor({ artifactId, contentHtml, currentVersion, onRefresh }
   };
 
   return (
-    <div
-      className="grid"
-      style={{ gridTemplateColumns: "minmax(0, 1fr) 340px", alignItems: "start", marginBottom: 18 }}
-    >
-      <div className="card" style={{ marginBottom: 0 }}>
-        <RichEditor
-          valueHtml={html}
-          onChange={(v) => {
-            setHtml(v);
-            setDirty(true);
-            setSavedMsg(null);
-          }}
-          onEditor={handleEditor}
-        />
-        <div style={{ display: "flex", gap: 8, marginTop: 14, alignItems: "center" }}>
-          {dirty && (
-            <span
-              title="Unsaved manual edits"
-              style={{
-                width: 9,
-                height: 9,
-                borderRadius: "50%",
-                background: "var(--red)",
-                flexShrink: 0,
-              }}
+    <div>
+      {/* toolbar — mirrors the deck toolbar */}
+      <div className="card" style={{ padding: "12px 18px" }}>
+        <div className="row-between" style={{ flexWrap: "wrap", gap: 10 }}>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <span className="pill pill-review">Document</span>
+            {guard !== null && !guard.ok && (
+              <span
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  background: "#FCF0DA",
+                  color: "#8A5A0B",
+                  borderRadius: "var(--r-pill)",
+                  padding: "4px 12px",
+                  fontSize: 12,
+                  fontWeight: 500,
+                }}
+              >
+                <i className="fa-solid fa-triangle-exclamation" />
+                {guard.violations.length} banned word{guard.violations.length === 1 ? "" : "s"} — will
+                block finalization: {guard.violations.join(", ")}
+              </span>
+            )}
+            {savedMsg !== null && (
+              <span style={{ color: "var(--teal-dark)", fontWeight: 500, fontSize: 13 }}>
+                <i className="fa-solid fa-circle-check" style={{ marginRight: 6 }} />
+                {savedMsg}
+              </span>
+            )}
+          </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            {dirty && (
+              <span
+                title="Unsaved manual edits"
+                style={{
+                  width: 9,
+                  height: 9,
+                  borderRadius: "50%",
+                  background: "var(--red)",
+                  flexShrink: 0,
+                }}
+              />
+            )}
+            <input
+              value={saveNote}
+              onChange={(e) => setSaveNote(e.target.value)}
+              placeholder="Version note (optional)"
+              style={{ width: 220 }}
             />
-          )}
-          <input
-            value={saveNote}
-            onChange={(e) => setSaveNote(e.target.value)}
-            placeholder="Version note (optional), e.g. “added proof point”"
-          />
-          <button
-            className="btn btn-primary"
-            style={{ whiteSpace: "nowrap" }}
-            disabled={saving}
-            onClick={() => void saveVersion()}
-          >
-            <i className="fa-solid fa-floppy-disk" />
-            {saving ? "Saving…" : `Save version ${currentVersion + 1}`}
-          </button>
+            <button
+              className="btn btn-primary btn-sm"
+              style={{ whiteSpace: "nowrap" }}
+              disabled={saving}
+              onClick={() => void saveVersion()}
+            >
+              <i className="fa-solid fa-floppy-disk" />
+              {saving ? "Saving…" : `Save version ${currentVersion + 1}`}
+            </button>
+          </div>
         </div>
-        {saveError !== null && (
-          <div
-            role="alert"
-            style={{
-              marginTop: 12,
-              padding: "10px 14px",
-              background: "#FCE8E8",
-              borderRadius: "var(--r-md)",
-              color: "#A32D2D",
-              fontSize: 13,
-              fontWeight: 500,
-            }}
-          >
-            {saveError}
-          </div>
-        )}
-        {savedMsg !== null && (
-          <p style={{ margin: "10px 0 0", color: "var(--teal-dark)", fontWeight: 500, fontSize: 13 }}>
-            <i className="fa-solid fa-circle-check" style={{ marginRight: 6 }} />
-            {savedMsg}
-          </p>
-        )}
-        {guard !== null && !guard.ok && (
-          <div
-            style={{
-              marginTop: 10,
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 6,
-              background: "#FCF0DA",
-              color: "#8A5A0B",
-              borderRadius: "var(--r-pill)",
-              padding: "4px 12px",
-              fontSize: 12,
-              fontWeight: 500,
-            }}
-          >
-            <i className="fa-solid fa-triangle-exclamation" />
-            {guard.violations.length} banned word{guard.violations.length === 1 ? "" : "s"} — will
-            block finalization: {guard.violations.join(", ")}
-          </div>
-        )}
-        <p className="empty-note" style={{ padding: "10px 0 0", margin: 0 }}>
-          Select text and ask the AI panel to act on just that passage; with nothing selected the
-          whole document is edited and saved as a new version.
-        </p>
       </div>
 
-      <ChatEditPanel
-        artifactId={artifactId}
-        mode="document"
-        dirty={dirty && !hasSelection}
-        quickActions={QUICK_ACTIONS}
-        beforeSend={beforeSend}
-        onApplied={(r) => {
-          setHtml(r.contentHtml);
-          setDirty(false);
-          setGuard(r.guard);
-          void onRefresh();
-        }}
-      />
+      {saveError !== null && (
+        <div
+          role="alert"
+          style={{
+            marginBottom: 14,
+            padding: "10px 14px",
+            background: "#FCE8E8",
+            borderRadius: "var(--r-md)",
+            color: "#A32D2D",
+            fontSize: 13,
+            fontWeight: 500,
+          }}
+        >
+          {saveError}
+        </div>
+      )}
+
+      <div
+        className="deck-workspace"
+        style={{ gridTemplateColumns: "168px minmax(0, 1fr) 340px", marginBottom: 18 }}
+      >
+        {/* page rail — a live scaled thumbnail of the document */}
+        <div className="deck-rail">
+          <div
+            style={{
+              position: "relative",
+              width: 152,
+              height: 196,
+              border: "2px solid var(--teal-dark)",
+              background: "#fff",
+              overflow: "hidden",
+              flexShrink: 0,
+            }}
+          >
+            <div
+              className="prose"
+              aria-hidden
+              style={{
+                width: 816,
+                transform: "scale(0.182)",
+                transformOrigin: "top left",
+                padding: 28,
+                border: "none",
+                boxShadow: "none",
+                pointerEvents: "none",
+              }}
+              dangerouslySetInnerHTML={{ __html: html }}
+            />
+            <span
+              style={{
+                position: "absolute",
+                left: 6,
+                bottom: 6,
+                background: "var(--teal-dark)",
+                color: "#fff",
+                fontSize: 11,
+                fontWeight: 600,
+                padding: "2px 8px",
+              }}
+            >
+              1
+            </span>
+          </div>
+        </div>
+
+        <div className="card" style={{ marginBottom: 0 }}>
+          <RichEditor
+            valueHtml={html}
+            onChange={(v) => {
+              setHtml(v);
+              setDirty(true);
+              setSavedMsg(null);
+            }}
+            onEditor={handleEditor}
+          />
+          <p className="empty-note" style={{ padding: "10px 0 0", margin: 0 }}>
+            Select text and ask the AI panel to act on just that passage; with nothing selected the
+            whole document is edited and saved as a new version.
+          </p>
+        </div>
+
+        <ChatEditPanel
+          artifactId={artifactId}
+          mode="document"
+          dirty={dirty && !hasSelection}
+          quickActions={QUICK_ACTIONS}
+          beforeSend={beforeSend}
+          onApplied={(r) => {
+            setHtml(r.contentHtml);
+            setDirty(false);
+            setGuard(r.guard);
+            void onRefresh();
+          }}
+        />
+      </div>
     </div>
   );
 }
