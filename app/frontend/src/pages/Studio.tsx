@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import {
   apiGet,
@@ -39,7 +39,7 @@ const ASSET_TYPES: { key: string; label: string; desc: string }[] = [
   { key: "faq", label: "FAQ", desc: "Customer-facing questions and direct answers from the objection library." },
   { key: "one-pager", label: "One-Pager", desc: "Executive summary: outcomes, the decision, and proof per claim." },
   { key: "brochure", label: "Brochure", desc: "Multi-page print story: cover, narrative, capabilities, proof, and CTA." },
-  { key: "banner", label: "Banner", desc: "1200Ã—628 social/display graphic with headline and CTA text." },
+  { key: "banner", label: "Banner", desc: "1200×628 social/display graphic with headline and CTA text." },
 ];
 
 export function Studio() {
@@ -222,8 +222,8 @@ export function Studio() {
       )}
 
       {step >= 2 && (
-        <div className="grid grid-2" style={{ alignItems: "start" }}>
-          <div>
+        <div className="grid grid-2">
+          <div className="col-stack">
             <div className="card">
               <h3 style={{ margin: "0 0 12px", fontSize: 14, fontWeight: 500 }}>Brand templates</h3>
               {templates.length === 0 && (
@@ -288,7 +288,7 @@ export function Studio() {
             </div>
           </div>
 
-          <div className="card">
+          <div className="card card-fill">
             <div className="row-between" style={{ marginBottom: 10 }}>
               <h3 style={{ margin: 0, fontSize: 14, fontWeight: 500 }}>Output preview</h3>
               <span className="pill pill-draft">Draft</span>

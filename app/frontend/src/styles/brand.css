@@ -370,6 +370,29 @@ p.pagesub {
 .grid-4 {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
+/* Equal-height columns in side-by-side card layouts.
+   .col-stack — a grid column holding stacked cards: the last card grows so the
+   stack bottom-aligns with the sibling column.
+   .card-fill — a single card occupying a whole grid column: stretches to the
+   full row height so it matches the taller sibling. */
+.col-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+}
+.col-stack > .card {
+  margin-bottom: 0;
+}
+.col-stack > .card:last-child {
+  flex: 1;
+}
+.card-fill {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 0;
+}
 .metric {
   background: var(--bg-page);
   border-radius: var(--r-md);

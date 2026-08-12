@@ -1,9 +1,9 @@
-import crypto from "crypto";
 import { supabase } from "./db";
 import { ask } from "./claude";
 import { markdownToHtml } from "./html";
 import { chunksToContext, retrieveChunks } from "./ingestion";
 import { readUrl, searchWeb } from "./jina";
+import { contentHash } from "./researchRuns";
 import {
   assertAgentEnabled,
   composeAgentPrompt,
@@ -23,6 +23,12 @@ import { COMPETITIVE_EVIDENCE_RULES, COMPETITIVE_PRODUCT_MAP } from "./agentProm
 // structure appended by composeAgentPrompt (Agents blueprint §2.2-3).
 
 const STALE_DAYS = 30;
+
+// Fallback-discovery cooldown per competitor (QA S3): compare attempts for a
+// competitor whose fallback candidates also fail must not re-burn Jina calls
+// on every retry.
+const FALLBACK_COOLDOWN_MS = 15 * 60_000;
+const fallbackTriedAt = new Map<string, number>();
 
 // Aurigo product mapping — the routing brief given to the model verbatim.
 export const PRODUCT_MAP = COMPETITIVE_PRODUCT_MAP;
@@ -94,6 +100,7 @@ interface SourceRow {
   content_md: string | null;
   status: string;
   scraped_at: string | null;
+  enabled?: boolean;
 }
 
 /** Make sure the competitor has scraped, fresh sources. Returns usable sources. */
@@ -101,7 +108,7 @@ export async function ensureSources(competitor: CompetitorRow): Promise<SourceRo
   const sb = supabase()!;
   let { data: sources } = await sb
     .from("competitor_sources")
-    .select("id, url, label, content_md, status, scraped_at")
+    .select("id, url, label, content_md, status, scraped_at, enabled")
     .eq("competitor_id", competitor.id);
 
   if (!sources || sources.length === 0) {
@@ -110,19 +117,20 @@ export async function ensureSources(competitor: CompetitorRow): Promise<SourceRo
       await sb
         .from("competitor_sources")
         .upsert(
-          { competitor_id: competitor.id, url, status: "pending" },
+          { competitor_id: competitor.id, url, status: "pending", discovered_by: "discovery" },
           { onConflict: "competitor_id,url" }
         );
     }
     const re = await sb
       .from("competitor_sources")
-      .select("id, url, label, content_md, status, scraped_at")
+      .select("id, url, label, content_md, status, scraped_at, enabled")
       .eq("competitor_id", competitor.id);
     sources = re.data;
   }
 
   const staleCutoff = Date.now() - STALE_DAYS * 24 * 3600 * 1000;
   for (const s of sources ?? []) {
+    if (s.enabled === false) continue; // admin-disabled sources are never scraped
     const needsScrape =
       s.status !== "ok" ||
       !s.content_md ||
@@ -131,7 +139,7 @@ export async function ensureSources(competitor: CompetitorRow): Promise<SourceRo
     if (!needsScrape) continue;
     try {
       const page = await readUrl(s.url);
-      const hash = crypto.createHash("sha256").update(page.content).digest("hex");
+      const hash = contentHash(page.content); // shared helper — see researchRuns.ts (QA SF-1)
       await sb
         .from("competitor_sources")
         .update({
@@ -154,7 +162,84 @@ export async function ensureSources(competitor: CompetitorRow): Promise<SourceRo
       console.error(`scrape failed for ${s.url}: ${msg}`);
     }
   }
-  return (sources ?? []).filter((s) => s.status === "ok" && s.content_md);
+  let usable: SourceRow[] = ((sources ?? []) as SourceRow[]).filter(
+    (s) => s.enabled !== false && s.status === "ok" && s.content_md
+  );
+
+  // Fallback discovery: bot-protected official sites (Procore-class) can fail
+  // every initial source. Before giving up, search for alternative pages.
+  // Guardrails (QA S3/N5): only the competitor's own domain or known review
+  // sites are accepted — a random news article must never become "the
+  // competitor's own source"; a 15-min cooldown stops every compare attempt
+  // from re-burning Jina calls; and the fallback never runs when the admin
+  // has deliberately disabled every existing source (kill switch respected).
+  const allDisabled =
+    (sources ?? []).length > 0 && (sources ?? []).every((s) => s.enabled === false);
+  const lastTry = fallbackTriedAt.get(competitor.id) ?? 0;
+  const coolingDown = Date.now() - lastTry < FALLBACK_COOLDOWN_MS;
+  if (usable.length === 0 && !allDisabled && !coolingDown) {
+    fallbackTriedAt.set(competitor.id, Date.now());
+    const ownDomain = competitor.website
+      ? new URL(competitor.website).hostname.replace(/^www\./, "").toLowerCase()
+      : null;
+    const acceptable = (url: string): boolean => {
+      try {
+        const host = new URL(url).hostname.replace(/^www\./, "").toLowerCase();
+        if (/(^|\.)g2\.com$|(^|\.)capterra\.com$|(^|\.)trustradius\.com$/.test(host)) return true;
+        return ownDomain !== null && (host === ownDomain || host.endsWith("." + ownDomain));
+      } catch {
+        return false;
+      }
+    };
+    const tried = new Set((sources ?? []).map((s) => normalizeUrl(s.url)));
+    const queries = [
+      `${competitor.name} G2 reviews`,
+      `${competitor.name} construction software product overview`,
+      `${competitor.name} platform capabilities`,
+    ];
+    const candidates: string[] = [];
+    for (const q of queries) {
+      try {
+        const hits = await searchWeb(q, 5);
+        for (const h of hits) {
+          const url = normalizeUrl(h.url);
+          if (tried.has(url) || candidates.includes(url)) continue;
+          if (!acceptable(url)) continue;
+          candidates.push(url);
+        }
+      } catch (err) {
+        console.error(`fallback search failed for ${competitor.name}:`, (err as Error).message);
+      }
+    }
+    for (const url of candidates.slice(0, 4)) {
+      if (usable.length >= 2) break;
+      try {
+        const page = await readUrl(url);
+        const { data: row } = await sb
+          .from("competitor_sources")
+          .upsert(
+            {
+              competitor_id: competitor.id,
+              url,
+              content_md: page.content,
+              content_hash: contentHash(page.content),
+              label: page.title.slice(0, 200),
+              status: "ok",
+              error: null,
+              scraped_at: new Date().toISOString(),
+              discovered_by: "discovery",
+            },
+            { onConflict: "competitor_id,url" }
+          )
+          .select("id, url, label, content_md, status, scraped_at, enabled")
+          .single();
+        if (row) usable = [...usable, row as SourceRow];
+      } catch (err) {
+        console.error(`fallback scrape failed for ${url}:`, (err as Error).message);
+      }
+    }
+  }
+  return usable;
 }
 
 export interface CompareResult {
@@ -529,8 +614,8 @@ export async function buildPositioningMap(
     "- Place each competitor ONLY from facts present in its scraped sources. If the sources are too thin to place one honestly, leave it out of points and add it to skipped with a short reason. Never invent a placement.",
     "- size: evidence-weighted market presence on these axes, 20-100 — how strongly the available evidence supports this player's position (NOT company revenue).",
     "- quadrants: a 2-4 word label characterizing each quadrant of this map (top_left = low X / high Y, top_right = high X / high Y, bottom_left = low X / low Y, bottom_right = high X / low Y).",
-    "- note: one sentence explaining the placement, citing what the evidence actually says.",
-    '- summary: 3-5 sentences (markdown) on what the map reveals for Aurigo\'s position and open whitespace. Use "AI-native" as the only AI modifier and write "life cycle" as two words.',
+    "- note: the placement fact in max 15 words, citing what the evidence actually says — not an essay.",
+    '- summary: 2 sentences, max 60 words (markdown) — what the map reveals for Aurigo\'s position and the single most important whitespace. Use "AI-native" as the only AI modifier and write "life cycle" as two words.',
     "",
     competitorBlock,
     chunks.length > 0
@@ -567,3 +652,28 @@ export async function buildPositioningMap(
   if (error || !row) throw new Error(error?.message ?? "Could not store the positioning map");
   return rowToMap(row as MapRow);
 }
+
+// ---------------------------------------------------------------------------
+// Map history + quarter-over-quarter movement (Phase 1 — the table has stored
+// every build since 0014; these expose it).
+
+export async function getMapHistory(limit = 12): Promise<PositioningMap[]> {
+  const sb = supabase()!;
+  const { data } = await sb
+    .from("positioning_maps")
+    .select(MAP_COLS)
+    .order("created_at", { ascending: false })
+    .limit(Math.min(limit, 24));
+  return ((data ?? []) as MapRow[]).map(rowToMap);
+}
+
+export async function getMapById(id: string): Promise<PositioningMap | null> {
+  const sb = supabase()!;
+  const { data } = await sb.from("positioning_maps").select(MAP_COLS).eq("id", id).maybeSingle();
+  return data ? rowToMap(data as MapRow) : null;
+}
+
+// Movement computation is pure and lives in competitiveParsing.ts (tested);
+// re-exported here so routes keep one import surface.
+export { AxesMismatchError, computeMovement } from "./competitiveParsing";
+export type { MapMove, MapMovement } from "./competitiveParsing";

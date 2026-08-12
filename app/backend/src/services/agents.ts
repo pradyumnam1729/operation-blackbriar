@@ -7,11 +7,17 @@ import { TemplateSlot, validateFills } from "./templateRender";
 import {
   ASK_ROUTER_BASE_PROMPT,
   COMPETITIVE_BASE_PROMPT,
+  DIGEST_BASE_PROMPT,
+  EVENT_SUMMARY_BASE_PROMPT,
   EXTRACTION_BASE_PROMPT,
+  FEATURE_MATRIX_BASE_PROMPT,
+  FIVE_FORCES_BASE_PROMPT,
   MERGE_BASE_PROMPT,
   MESSAGING_DOC_BASE_PROMPT,
   ROLE_FRAMING,
   SLOT_FILL_BASE_PROMPT,
+  SWOT_BASE_PROMPT,
+  THREAT_TIERS_BASE_PROMPT,
 } from "./agentPrompts";
 
 // Agents registry + runtime composition layer (Agents tab blueprint §2.1).
@@ -33,7 +39,9 @@ export type AgentContract =
   | "fills-json"
   | "section-headings"
   | "markdown"
-  | "route-json";
+  | "route-json"
+  | "event-json"
+  | "framework-json";
 
 /** One row of the ask-router's template catalog (ask-to-artifact blueprint §4.1).
  *  Defined HERE (not in askRouter.ts) so the dependency stays one-way:
@@ -200,6 +208,18 @@ export const AGENT_REGISTRY: Record<string, AgentRegistryEntry> = {
     defaultsSchema: NO_DEFAULTS,
     registryDefaults: {},
   },
+  "competitive-event-summary": {
+    key: "competitive-event-summary",
+    kind: "task",
+    name: "Competitive change summarizer",
+    description:
+      "Classifies scraped-source diffs from competitor watch runs into delta-feed events (type, severity, title, summary). Judges the diff only — it never sees the full page. Disabled = raw content-changed events with no model summary; the watch pipeline is never blocked.",
+    basePrompt: EVENT_SUMMARY_BASE_PROMPT,
+    placeholders: [], // competitor, source, and diff all ride in the locked suffix
+    contract: "event-json",
+    defaultsSchema: NO_DEFAULTS,
+    registryDefaults: {},
+  },
   "ask-router": {
     key: "ask-router",
     kind: "task",
@@ -212,6 +232,66 @@ export const AGENT_REGISTRY: Record<string, AgentRegistryEntry> = {
     defaultsSchema:
       '{"min_confidence": 0.6} — artifact classifications below this confidence are treated as questions. 0 routes every artifact guess; 1 routes none.',
     registryDefaults: { min_confidence: 0.6 },
+  },
+  "fw-threat-tiers": {
+    key: "fw-threat-tiers",
+    kind: "task",
+    name: "Framework: threat tiers",
+    description:
+      "Assigns tier 1/2/3 threat levels with trajectory and watch items, grounded only in scraped sources + recent change events. The result schema is locked by the framework engine; the tiering rubric here is the overridable part.",
+    basePrompt: THREAT_TIERS_BASE_PROMPT,
+    placeholders: [],
+    contract: "framework-json",
+    defaultsSchema: NO_DEFAULTS,
+    registryDefaults: {},
+  },
+  "fw-swot": {
+    key: "fw-swot",
+    kind: "task",
+    name: "Framework: SWOT",
+    description:
+      "Evidence-split SWOT per competitor: S/W from scraped sources only (cited), O/T as labeled Aurigo-side inference. Result schema locked by the framework engine.",
+    basePrompt: SWOT_BASE_PROMPT,
+    placeholders: [],
+    contract: "framework-json",
+    defaultsSchema: NO_DEFAULTS,
+    registryDefaults: {},
+  },
+  "fw-five-forces": {
+    key: "fw-five-forces",
+    kind: "task",
+    name: "Framework: Five Forces",
+    description:
+      "Porter's Five Forces for Aurigo's market. Every factor carries an evidence basis (scraped/internal/inference); a 'scraped' claim without a real citation is demoted to inference by the engine, never trusted. Result schema locked.",
+    basePrompt: FIVE_FORCES_BASE_PROMPT,
+    placeholders: [],
+    contract: "framework-json",
+    defaultsSchema: NO_DEFAULTS,
+    registryDefaults: {},
+  },
+  "fw-feature-matrix": {
+    key: "fw-feature-matrix",
+    kind: "task",
+    name: "Framework: capability matrix",
+    description:
+      "Aurigo-vs-competitors capability matrix. Positive competitor cells require a real citation or are demoted to not_confirmed; 'absent_from_sources' is first-class and never rendered as 'they don't have it'. Result schema locked.",
+    basePrompt: FEATURE_MATRIX_BASE_PROMPT,
+    placeholders: [],
+    contract: "framework-json",
+    defaultsSchema: NO_DEFAULTS,
+    registryDefaults: {},
+  },
+  "competitive-digest": {
+    key: "competitive-digest",
+    kind: "task",
+    name: "Competitive digest",
+    description:
+      "Writes the ELT competitive digest from window events + threat board + battlecard staleness. Capped at 3-5 items; an explicit no-change statement is a valid digest. Leadership framing per §9.2.",
+    basePrompt: DIGEST_BASE_PROMPT,
+    placeholders: [],
+    contract: "markdown",
+    defaultsSchema: NO_DEFAULTS,
+    registryDefaults: {},
   },
   "voice-of-market": pmmEntry(
     "voice-of-market",
@@ -560,6 +640,50 @@ export async function syncAgentBaselines(): Promise<void> {
   bustAgentCache();
 }
 
+// ---------- event envelope (competitive-event-summary contract) ----------
+
+export const EVENT_TYPES = [
+  "content_changed",
+  "pricing_changed",
+  "release",
+  "news",
+  "job_signal",
+  "procurement_award",
+] as const;
+export const EVENT_SEVERITIES = ["info", "notable", "high"] as const;
+
+export interface EventEnvelope {
+  changed: boolean;
+  event_type?: string;
+  severity?: string;
+  title?: string;
+  summary?: string;
+}
+
+/** Defensive parse of the event-summary JSON envelope. Returns null on any
+ *  shape violation — callers degrade to a raw content_changed event, never
+ *  block the watch pipeline. */
+export function parseEventEnvelope(raw: string): EventEnvelope | null {
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = parseModelJson<Record<string, unknown>>(raw);
+  } catch {
+    return null;
+  }
+  if (typeof parsed.changed !== "boolean") return null;
+  if (!parsed.changed) return { changed: false };
+  if (!EVENT_TYPES.includes(parsed.event_type as (typeof EVENT_TYPES)[number])) return null;
+  if (!EVENT_SEVERITIES.includes(parsed.severity as (typeof EVENT_SEVERITIES)[number])) return null;
+  if (typeof parsed.title !== "string" || parsed.title.trim() === "") return null;
+  return {
+    changed: true,
+    event_type: parsed.event_type as string,
+    severity: parsed.severity as string,
+    title: parsed.title.trim(),
+    summary: typeof parsed.summary === "string" ? parsed.summary : undefined,
+  };
+}
+
 // ---------- test-run contract checks (§2.3) ----------
 
 export interface ContractCheckResult {
@@ -698,6 +822,31 @@ export function checkContract(
             };
           }
         }
+      }
+      return { checked: true, ok: true };
+    }
+    case "event-json": {
+      const parsed = parseEventEnvelope(output);
+      if (!parsed) {
+        return {
+          checked: true,
+          ok: false,
+          error:
+            'Not a valid event envelope: needs {"changed": boolean} plus event_type/severity/title when changed is true.',
+        };
+      }
+      return { checked: true, ok: true };
+    }
+    case "framework-json": {
+      // Deterministic minimum: a JSON object. Per-framework schema validation
+      // runs in frameworks.ts, where the framework key is known.
+      try {
+        const parsed = parseModelJson<unknown>(output);
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+          return { checked: true, ok: false, error: "Output is not a JSON object." };
+        }
+      } catch (err) {
+        return { checked: true, ok: false, error: `Not parseable as JSON: ${(err as Error).message}` };
       }
       return { checked: true, ok: true };
     }
@@ -885,6 +1034,13 @@ export const SAMPLE_ROUTER_CANDIDATES: RouterCandidate[] = [
   { id: "sample-tpl-faq", name: "Masterworks AI — Sales FAQ", asset_type: "faq",
     product_line: "Masterworks", audience: null, persona: null, funnel_stage: null },
 ];
+
+/** Static sample diff for competitive-event-summary test runs — no scraping,
+ *  no DB. Expected result: changed true, event_type "release" or
+ *  "pricing_changed", severity "notable"+. */
+export const SAMPLE_SOURCE_DIFF = `- Kahua helps owners manage cost, documents, and processes on one platform.
++ Kahua helps owners manage cost, documents, and processes on one platform, now with Noa, Kahua's AI assistant for program insights.
++ Noa is included in the Enterprise plan and available as an add-on for Standard plans.`;
 
 export const SAMPLE_COMPETITOR_XML = `<competitor_source url="https://example.com/kahua-sample" title="Kahua — Program Management (static sample)" scraped="2026-08-06">
 Kahua describes itself as a construction program management platform for owners and program managers. The sample page lists capabilities for cost management, document management, and process automation, a partner ecosystem, and configurable apps built on its platform. It cites deployments with public and private owners and highlights integrations with common ERP and design tools. Pricing is not published on the page. This block is a built-in static sample used only for Agents-tab test runs — no scraping happens here, and claims should be treated as illustrative, not current competitor fact.

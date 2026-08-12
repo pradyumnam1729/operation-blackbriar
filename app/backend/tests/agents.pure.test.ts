@@ -11,6 +11,7 @@ import {
   interpolate,
   isAllowedModel,
   parseAgentFile,
+  parseEventEnvelope,
   resolveModel,
 } from "../src/services/agents";
 import type { TemplateSlot } from "../src/services/templateRender";
@@ -233,9 +234,9 @@ test("agentFileDescription drops the identity prefix, keeps one sentence, surviv
 
 // ---------- registry shape ----------
 
-test("AGENT_REGISTRY holds exactly 7 task + 14 pmm agents with the blueprint contracts", () => {
+test("AGENT_REGISTRY holds exactly 13 task + 14 pmm agents with the blueprint contracts", () => {
   const entries = Object.values(AGENT_REGISTRY);
-  assert.equal(entries.filter((e) => e.kind === "task").length, 7);
+  assert.equal(entries.filter((e) => e.kind === "task").length, 13);
   assert.equal(entries.filter((e) => e.kind === "pmm").length, 14);
   // Task base prompts are canonical code constants (ask-war-room's is the
   // documented empty special case — its body is the per-role framing).
@@ -247,6 +248,12 @@ test("AGENT_REGISTRY holds exactly 7 task + 14 pmm agents with the blueprint con
   assert.equal(AGENT_REGISTRY["template-slot-fill"].contract, "fills-json");
   assert.equal(AGENT_REGISTRY["messaging-doc-generation"].contract, "section-headings");
   assert.equal(AGENT_REGISTRY["ask-router"].contract, "route-json");
+  assert.equal(AGENT_REGISTRY["competitive-event-summary"].contract, "event-json");
+  assert.equal(AGENT_REGISTRY["fw-threat-tiers"].contract, "framework-json");
+  assert.equal(AGENT_REGISTRY["fw-swot"].contract, "framework-json");
+  assert.equal(AGENT_REGISTRY["fw-five-forces"].contract, "framework-json");
+  assert.equal(AGENT_REGISTRY["fw-feature-matrix"].contract, "framework-json");
+  assert.equal(AGENT_REGISTRY["competitive-digest"].contract, "markdown");
   assert.deepEqual(AGENT_REGISTRY["ask-router"].registryDefaults, { min_confidence: 0.6 });
   for (const e of entries.filter((x) => x.kind === "pmm")) {
     assert.equal(e.contract, "markdown", e.key);
@@ -254,10 +261,11 @@ test("AGENT_REGISTRY holds exactly 7 task + 14 pmm agents with the blueprint con
   }
 });
 
-test("AGENT_REGISTRY insertion order: ask-router sits after competitive-compare, before the PMM groups", () => {
+test("AGENT_REGISTRY insertion order: event-summary then ask-router follow competitive-compare, before the PMM groups", () => {
   const keys = Object.keys(AGENT_REGISTRY);
   const routerIdx = keys.indexOf("ask-router");
-  assert.equal(routerIdx, keys.indexOf("competitive-compare") + 1);
+  assert.equal(keys.indexOf("competitive-event-summary"), keys.indexOf("competitive-compare") + 1);
+  assert.equal(routerIdx, keys.indexOf("competitive-event-summary") + 1);
   assert.ok(routerIdx < keys.indexOf("voice-of-market"));
 });
 
@@ -351,4 +359,51 @@ test("checkContract route-json: garbage, bad intent, bad confidence, missing fie
     ).ok,
     false
   );
+});
+
+// ---------- contract checker: event-json (competitive watch Phase 0) ----------
+
+test("parseEventEnvelope accepts a full changed envelope and a bare not-changed one", () => {
+  const good = parseEventEnvelope(
+    JSON.stringify({
+      changed: true,
+      event_type: "pricing_changed",
+      severity: "notable",
+      title: "Kahua: Noa added to Enterprise plan",
+      summary: "AI assistant now bundled.",
+    })
+  );
+  assert.ok(good);
+  assert.equal(good!.event_type, "pricing_changed");
+  assert.equal(good!.severity, "notable");
+
+  const quiet = parseEventEnvelope(JSON.stringify({ changed: false }));
+  assert.deepEqual(quiet, { changed: false });
+});
+
+test("parseEventEnvelope rejects bad enums, empty titles, and non-JSON", () => {
+  assert.equal(
+    parseEventEnvelope(
+      JSON.stringify({ changed: true, event_type: "gossip", severity: "info", title: "x" })
+    ),
+    null
+  );
+  assert.equal(
+    parseEventEnvelope(
+      JSON.stringify({ changed: true, event_type: "news", severity: "urgent", title: "x" })
+    ),
+    null
+  );
+  assert.equal(
+    parseEventEnvelope(JSON.stringify({ changed: true, event_type: "news", severity: "info", title: "  " })),
+    null
+  );
+  assert.equal(parseEventEnvelope("not json at all"), null);
+});
+
+test("checkContract event-json mirrors parseEventEnvelope", () => {
+  assert.equal(checkContract("event-json", JSON.stringify({ changed: false })).ok, true);
+  const bad = checkContract("event-json", JSON.stringify({ changed: "yes" }));
+  assert.equal(bad.ok, false);
+  assert.ok(bad.error);
 });

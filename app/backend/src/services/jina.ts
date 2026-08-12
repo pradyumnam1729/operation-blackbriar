@@ -35,10 +35,17 @@ export async function readUrl(url: string): Promise<JinaPage> {
   const body = (await res.json()) as {
     data?: { url?: string; title?: string; content?: string };
   };
+  const content = (body.data?.content ?? "").slice(0, 120_000);
+  // Bot-blocked pages (G2/Cloudflare class) often return 200 with an empty or
+  // near-empty body. Treat that as a failed scrape so the source is marked
+  // failed instead of sitting as an "ok" row with no usable content.
+  if (content.trim().length < 200) {
+    throw new Error(`Jina Reader returned ${content.trim().length} chars for ${url} — likely bot-blocked`);
+  }
   return {
     url: body.data?.url ?? url,
     title: body.data?.title ?? url,
-    content: (body.data?.content ?? "").slice(0, 120_000),
+    content,
   };
 }
 

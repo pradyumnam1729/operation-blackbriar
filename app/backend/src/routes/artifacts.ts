@@ -244,6 +244,7 @@ artifactsRouter.get("/:id/render", requireAuth, async (req, res) => {
 // ---------- slot edits (deterministic re-render, no model call) ----------
 // POST /api/artifacts/:id/slots { fills: {slot_id: text}, note? }
 artifactsRouter.post("/:id/slots", requireAuth, async (req, res) => {
+  const sb = supabase()!;
   const artifact = await fetchArtifact(req.params.id);
   if (!artifact) return res.status(404).json({ error: "Artifact not found" });
   if (!canEdit(req.user!.id, isAdmin(req), artifact)) {
@@ -261,7 +262,18 @@ artifactsRouter.post("/:id/slots", requireAuth, async (req, res) => {
 
   try {
     const { version } = await reRenderWithFills(artifact.id, clean, note, req.user!.id);
-    res.status(201).json({ version });
+    // Guard rides every editing surface's save (consistency sweep §1.3) —
+    // informational on drafts, the finalize gate stays the enforcement point.
+    const { data: nv } = await sb
+      .from("artifact_versions")
+      .select("content_html")
+      .eq("artifact_id", artifact.id)
+      .eq("version", version)
+      .maybeSingle();
+    res.status(201).json({
+      version,
+      guard: checkForbiddenWords(htmlToText(nv?.content_html ?? "")),
+    });
   } catch (err) {
     if (err instanceof TemplateGenError) {
       return res
@@ -802,7 +814,7 @@ artifactsRouter.post("/:id/convert-to-slides", requireAuth, async (req, res) => 
       version: newVersion,
       content_html: slidesToHtml(deck),
       slides_json: deck,
-      note: "Converted to structured slides (AI)",
+      note: "AI: converted to structured slides",
       created_by: req.user!.id,
     });
     if (vErr) return res.status(500).json({ error: vErr.message });

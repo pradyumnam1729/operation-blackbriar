@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { useNavigate } from "react-router-dom";
 import { apiDelete, apiGet, apiPost } from "../lib/api";
 import { useAuth } from "../auth/AuthContext";
@@ -39,6 +39,284 @@ interface HistoryRow {
   aurigoProduct: string | null;
   status: string;
   createdAt: string;
+}
+
+interface WatchRow {
+  competitor_id: string;
+  enabled: boolean;
+  cadence_hours: number;
+  last_run_at: string | null;
+  next_run_at: string | null;
+}
+
+interface RunRow {
+  id: string;
+  competitor_id: string | null;
+  kind: string;
+  status: string;
+  progress: {
+    phase?: string;
+    discovered?: number;
+    scraped?: number;
+    changed?: number;
+    events_emitted?: number;
+    budget_exhausted?: boolean;
+  };
+  error: string | null;
+  created_at: string;
+}
+
+interface EventRow {
+  id: string;
+  competitor_id: string;
+  competitor: string | null;
+  event_type: string;
+  severity: "info" | "notable" | "high";
+  title: string;
+  summary_md: string | null;
+  diff_excerpt: string | null;
+  acknowledged_at: string | null;
+  created_at: string;
+}
+
+interface ThreatEntry {
+  competitor: string;
+  tier: 1 | 2 | 3;
+  rationale: string;
+  trajectory: "rising" | "stable" | "fading";
+  watch_items: string[];
+}
+
+interface Analysis {
+  id: string;
+  frameworkKey: string;
+  params: Record<string, unknown>;
+  result: unknown;
+  summaryHtml: string | null;
+  skipped: { name: string; reason: string }[];
+  createdAt: string;
+}
+
+interface DigestT {
+  id: string;
+  windowStart: string;
+  windowEnd: string;
+  contentHtml: string;
+  createdAt: string;
+}
+
+interface OverviewT {
+  tracking: boolean;
+  watches: { competitorId: string; competitor: string; enabled: boolean; lastRunAt: string | null }[];
+  threatBoard: Analysis | null;
+  staleBattlecards: { artifactId: string; competitor: string; title: string | null; reason: string | null }[];
+  lastDigest: DigestT | null;
+}
+
+interface EventsSummaryT {
+  days: number;
+  total: number;
+  byCompetitor: { competitor: string; info: number; notable: number; high: number }[];
+  top: { competitor: string; severity: string; title: string; createdAt: string }[];
+}
+
+// Tier badges reuse the severity pill classes from brand.css so threat levels
+// read the same as delta severities everywhere on the page.
+const TIER_STYLE: Record<number, { label: string; pill: string }> = {
+  1: { label: "Tier 1 · Active threat", pill: "pill-lost" },
+  2: { label: "Tier 2 · Direct", pill: "pill-review" },
+  3: { label: "Tier 3 · Watch", pill: "pill-archived" },
+};
+
+const TRAJECTORY_ARROW: Record<string, string> = { rising: "↑ rising", stable: "→ stable", fading: "↓ fading" };
+
+// Overview dashboard: four uniform cards in a 2×2 grid. Every card is the same
+// fixed height; the header row stays pinned and long content scrolls inside
+// the body area instead of stretching the card.
+const DASH_CARD: CSSProperties = { height: 400, display: "flex", flexDirection: "column", marginBottom: 0, minHeight: 0 };
+const DASH_HEAD: CSSProperties = { marginBottom: 10, flexShrink: 0 };
+const DASH_BODY: CSSProperties = { flex: 1, overflowY: "auto", minHeight: 0 };
+
+// ---------- Five Forces (frameworks tab) ----------
+type ForceBasis = "scraped" | "internal" | "inference";
+interface ForceFactor {
+  text: string;
+  basis: ForceBasis;
+  evidence_url: string | null;
+}
+interface ForceT {
+  intensity: "low" | "medium" | "high";
+  factors: ForceFactor[];
+}
+interface FiveForcesResult {
+  forces: {
+    rivalry: ForceT;
+    buyer_power: ForceT;
+    supplier_power: ForceT;
+    new_entrants: ForceT;
+    substitutes: ForceT;
+  };
+}
+
+const INTENSITY_PILL: Record<string, string> = { high: "pill-lost", medium: "pill-pending", low: "pill-review" };
+
+// Small provenance chip on each force factor: scraped links to its evidence,
+// inference is visibly muted so analyst judgment never reads as fact.
+function BasisChip({ basis, url }: { basis: ForceBasis; url: string | null }) {
+  const base: CSSProperties = {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 4,
+    fontSize: 10,
+    fontWeight: 500,
+    borderRadius: "var(--r-pill)",
+    padding: "1px 7px",
+    verticalAlign: "1px",
+  };
+  if (basis === "scraped") {
+    const chip = (
+      <span style={{ ...base, background: "#E1F0F2", color: "var(--teal-dark)" }}>
+        scraped
+        {url && <i className="fa-solid fa-arrow-up-right-from-square" style={{ fontSize: 8 }} />}
+      </span>
+    );
+    return url ? (
+      <a href={url} target="_blank" rel="noopener noreferrer">
+        {chip}
+      </a>
+    ) : (
+      chip
+    );
+  }
+  if (basis === "inference") {
+    return (
+      <span style={{ ...base, background: "var(--grey-2)", color: "var(--text-muted)" }} title="analyst judgment — not confirmed in evidence">
+        inference
+      </span>
+    );
+  }
+  return <span style={{ ...base, background: "#E4F4EE", color: "#0E6B4E" }}>internal</span>;
+}
+
+function ForceCard({
+  title,
+  force,
+  emphasized = false,
+  style,
+}: {
+  title: string;
+  force: ForceT | undefined;
+  emphasized?: boolean;
+  style?: CSSProperties;
+}) {
+  if (!force) return null;
+  return (
+    <div
+      style={{
+        border: "1px solid var(--border)",
+        borderTop: emphasized ? "3px solid var(--teal-dark)" : "1px solid var(--border)",
+        borderRadius: "var(--r-md)",
+        padding: "12px 14px",
+        background: "var(--bg-card)",
+        ...style,
+      }}
+    >
+      <div className="row-between" style={{ marginBottom: 8 }}>
+        <span style={{ fontWeight: 600, fontSize: 13.5 }}>{title}</span>
+        <span className={`pill ${INTENSITY_PILL[force.intensity] ?? "pill-review"}`}>{force.intensity}</span>
+      </div>
+      {force.factors.map((f, i) => (
+        <div key={i} style={{ fontSize: 12.5, marginBottom: 6, lineHeight: 1.45 }}>
+          • {f.text} <BasisChip basis={f.basis} url={f.evidence_url} />
+        </div>
+      ))}
+      {force.factors.length === 0 && (
+        <div style={{ fontSize: 12, color: "var(--text-muted)" }}>Evidence too thin for honest factors.</div>
+      )}
+    </div>
+  );
+}
+
+// ---------- Capability matrix (frameworks tab) ----------
+type MatrixStatus = "confirmed" | "partial" | "not_confirmed" | "absent_from_sources";
+interface MatrixCellT {
+  status: MatrixStatus;
+  note: string | null;
+  evidence_url?: string | null;
+}
+interface MatrixRowT {
+  capability: string;
+  aurigo: { status: MatrixStatus; note: string | null };
+  competitors: Record<string, MatrixCellT>;
+}
+
+// Status glyph + note. The two "unknown" states are deliberately distinct:
+// "?" = we could not confirm it; "—" = their sources never mention it, which
+// is NOT the same claim as "they don't have it".
+function MatrixCellView({ cell }: { cell: MatrixCellT | undefined }) {
+  if (!cell) {
+    return (
+      <span style={{ color: "var(--text-muted)" }} title="no data returned for this cell">
+        —
+      </span>
+    );
+  }
+  const glyph =
+    cell.status === "confirmed" ? (
+      <i className="fa-solid fa-circle-check" style={{ color: "var(--teal-dark)" }} title="confirmed in sources" />
+    ) : cell.status === "partial" ? (
+      <i className="fa-solid fa-circle-half-stroke" style={{ color: "#8A5A0B" }} title="partial coverage in sources" />
+    ) : cell.status === "not_confirmed" ? (
+      <span style={{ color: "var(--text-muted)", fontWeight: 600 }} title="not confirmed in available sources">
+        ?
+      </span>
+    ) : (
+      <span style={{ color: "var(--text-muted)" }} title="absent from their sources — NOT the same as they don't have it">
+        —
+      </span>
+    );
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5 }}>
+      {glyph}
+      {cell.note && <span style={{ color: "var(--text-secondary)" }}>{cell.note}</span>}
+      {cell.evidence_url && (
+        <a href={cell.evidence_url} target="_blank" rel="noopener noreferrer" title="Open the source">
+          <i className="fa-solid fa-arrow-up-right-from-square" style={{ fontSize: 9 }} />
+        </a>
+      )}
+    </span>
+  );
+}
+
+// One card style for a threat-board entry, shared by the Overview threat board
+// and the Frameworks threat-tiers view (same data, same rendering).
+function ThreatTile({
+  entry,
+  showTier = true,
+  showWatch = false,
+  style,
+}: {
+  entry: ThreatEntry;
+  showTier?: boolean;
+  showWatch?: boolean;
+  style?: CSSProperties;
+}) {
+  return (
+    <div
+      style={{ border: "1px solid var(--border)", borderRadius: "var(--r-md)", padding: "10px 14px", background: "var(--bg-card)", ...style }}
+      title={!showWatch && entry.watch_items.length > 0 ? entry.watch_items.join(" · ") : undefined}
+    >
+      <div style={{ fontWeight: 500, fontSize: 13.5, marginBottom: 5 }}>
+        {entry.competitor}{" "}
+        <span style={{ fontWeight: 400, fontSize: 12.5, color: "var(--text-secondary)" }}>{TRAJECTORY_ARROW[entry.trajectory]}</span>
+      </div>
+      {showTier && <span className={`pill ${TIER_STYLE[entry.tier].pill}`}>{TIER_STYLE[entry.tier].label}</span>}
+      <p style={{ fontSize: 12.5, color: "var(--text-secondary)", margin: "6px 0 0" }}>{entry.rationale}</p>
+      {showWatch && entry.watch_items.length > 0 && (
+        <p style={{ fontSize: 12.5, color: "var(--text-muted)", margin: "5px 0 0" }}>Watch: {entry.watch_items.join(" · ")}</p>
+      )}
+    </div>
+  );
 }
 
 const SUGGESTIONS = [
@@ -264,7 +542,23 @@ export function CompetitiveIntel() {
   const [showAdd, setShowAdd] = useState(false);
   const [addForm, setAddForm] = useState({ name: "", website: "", category: "", aurigoProduct: "" });
   const [sourceUrlFor, setSourceUrlFor] = useState<{ id: string; url: string } | null>(null);
-  const [tab, setTab] = useState<"compare" | "map">("compare");
+  const [tab, setTab] = useState<"overview" | "compare" | "map" | "frameworks" | "deltas">("compare");
+  const [overview, setOverview] = useState<OverviewT | null>(null);
+  const [eventsSummary, setEventsSummary] = useState<EventsSummaryT | null>(null);
+  const [overviewBusy, setOverviewBusy] = useState("");
+  const [fwKey, setFwKey] = useState<"threat-tiers" | "swot" | "delta-timeline" | "five-forces" | "feature-matrix">("threat-tiers");
+  const [fwAnalysis, setFwAnalysis] = useState<Analysis | null>(null);
+  const [fwBusy, setFwBusy] = useState(false);
+  const [fwError, setFwError] = useState("");
+  const [fwCompetitor, setFwCompetitor] = useState("");
+  const [mapHistory, setMapHistory] = useState<PositioningMap[]>([]);
+  const [movement, setMovement] = useState<{ moves: { name: string; dx: number; dy: number }[]; entered: string[]; exited: string[] } | null>(null);
+  const [movementNote, setMovementNote] = useState("");
+  const [watches, setWatches] = useState<Record<string, WatchRow>>({});
+  const [liveRuns, setLiveRuns] = useState<Record<string, RunRow>>({});
+  const [events, setEvents] = useState<EventRow[]>([]);
+  const [severityFilter, setSeverityFilter] = useState<"" | "info" | "notable" | "high">("");
+  const [openEvent, setOpenEvent] = useState("");
   const [posMap, setPosMap] = useState<PositioningMap | null>(null);
   const [mapBusy, setMapBusy] = useState(false);
   const [mapError, setMapError] = useState("");
@@ -293,6 +587,22 @@ export function CompetitiveIntel() {
     return AXIS_PRESETS.find((a) => a.label === preset);
   };
 
+  const loadWatchState = useCallback(async () => {
+    try {
+      const w = await apiGet<{ watches: WatchRow[] }>("/api/competitive/watches");
+      setWatches(Object.fromEntries(w.watches.map((x) => [x.competitor_id, x])));
+      const ev = await apiGet<{ events: EventRow[] }>("/api/competitive/events?limit=50");
+      setEvents(ev.events);
+      // Resume polling any runs still in flight (e.g. after a page refresh).
+      const runs = await apiGet<{ runs: RunRow[] }>("/api/competitive/runs?limit=10");
+      const live = runs.runs.filter((r) => r.status === "queued" || r.status === "running");
+      setLiveRuns(Object.fromEntries(live.map((r) => [r.id, r])));
+    } catch {
+      // Watch tables may not exist yet (migration 0019 not applied) — the rest
+      // of the page keeps working; tracking UI just stays inert.
+    }
+  }, []);
+
   const load = useCallback(async () => {
     try {
       const r = await apiGet<{ jinaConfigured: boolean; competitors: Competitor[] }>(
@@ -302,6 +612,7 @@ export function CompetitiveIntel() {
       setJinaOk(r.jinaConfigured);
       const h = await apiGet<{ comparisons: HistoryRow[] }>("/api/competitive/comparisons");
       setHistory(h.comparisons);
+      void loadWatchState();
       const m = await apiGet<{ map: PositioningMap | null }>("/api/competitive/positioning-map");
       setPosMap(m.map);
       // Restore the last build's parameters into the controls, once.
@@ -324,11 +635,221 @@ export function CompetitiveIntel() {
     } catch (e) {
       setError((e as Error).message);
     }
-  }, []);
+  }, [loadWatchState]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Poll live research runs every 3s; when one finishes, refresh the page data
+  // so new sources and delta events appear. In-flight guard prevents overlap
+  // when the API is slow; a transient fetch failure keeps the run in the map
+  // (runs are never deleted server-side, so polling can safely continue).
+  const pollBusy = useRef(false);
+  useEffect(() => {
+    const ids = Object.keys(liveRuns);
+    if (ids.length === 0) return;
+    const t = setInterval(async () => {
+      if (pollBusy.current) return;
+      pollBusy.current = true;
+      try {
+        for (const id of ids) {
+          try {
+            const { run } = await apiGet<{ run: RunRow }>(`/api/competitive/runs/${id}`);
+            if (run.status === "queued" || run.status === "running") {
+              setLiveRuns((m) => ({ ...m, [id]: run }));
+            } else {
+              setLiveRuns((m) => {
+                const next = { ...m };
+                delete next[id];
+                return next;
+              });
+              if (run.status === "failed" && run.error) setError(`Research run failed: ${run.error}`);
+              void load();
+            }
+          } catch {
+            // transient — keep polling this run
+          }
+        }
+      } finally {
+        pollBusy.current = false;
+      }
+    }, 3_000);
+    return () => clearInterval(t);
+  }, [liveRuns, load]);
+
+  const track = async (c: Competitor) => {
+    setBusyRow(c.id);
+    setError("");
+    try {
+      const r = await apiPost<{ runId: string; kind: string }>(
+        `/api/competitive/competitors/${c.id}/track`
+      );
+      setInfo(
+        r.kind === "bootstrap"
+          ? `Tracking ${c.name} — running the first research sweep (typed sources, scrape, change detection)…`
+          : `Tracking ${c.name} — refreshing its sources…`
+      );
+      const { run } = await apiGet<{ run: RunRow }>(`/api/competitive/runs/${r.runId}`);
+      setLiveRuns((m) => ({ ...m, [run.id]: run }));
+      await loadWatchState();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusyRow("");
+    }
+  };
+
+  const untrack = async (c: Competitor) => {
+    setBusyRow(c.id);
+    try {
+      await apiDelete(`/api/competitive/competitors/${c.id}/track`);
+      await loadWatchState();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusyRow("");
+    }
+  };
+
+  const loadOverview = useCallback(async () => {
+    try {
+      const o = await apiGet<OverviewT>("/api/competitive/elt-overview");
+      setOverview(o);
+      const s = await apiGet<EventsSummaryT>("/api/competitive/events/summary?days=7");
+      setEventsSummary(s);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (tab === "overview") void loadOverview();
+    if (tab === "map") {
+      apiGet<{ maps: PositioningMap[] }>("/api/competitive/positioning-map/history?limit=12")
+        .then((r) => setMapHistory(r.maps))
+        .catch(() => setMapHistory([]));
+    }
+    if (tab === "frameworks") {
+      if (fwKey === "swot" && !fwCompetitor) {
+        setFwAnalysis(null); // never show an arbitrary competitor's SWOT
+        return;
+      }
+      apiGet<{ analysis: Analysis | null }>(`/api/competitive/frameworks/${fwKey}/latest${fwKey === "swot" ? `?competitorId=${fwCompetitor}` : ""}`)
+        .then((r) => setFwAnalysis(r.analysis))
+        .catch(() => setFwAnalysis(null));
+    }
+  }, [tab, fwKey, fwCompetitor, loadOverview]);
+
+  const buildFrameworkNow = async () => {
+    setFwBusy(true);
+    setFwError("");
+    try {
+      const r = await apiPost<{ analysis: Analysis }>(`/api/competitive/frameworks/${fwKey}/build`, {
+        competitorId: fwKey === "swot" ? fwCompetitor || undefined : undefined,
+      });
+      setFwAnalysis(r.analysis);
+      if (fwKey === "threat-tiers") void loadOverview();
+    } catch (e) {
+      setFwError((e as Error).message);
+    } finally {
+      setFwBusy(false);
+    }
+  };
+
+  // Frameworks get the same save-to-workspace affordance as the digest
+  // (consistency: three sibling generators, one persistence model).
+  const saveFramework = async () => {
+    setFwBusy(true);
+    setFwError("");
+    try {
+      const r = await apiPost<{ artifactId: string }>(
+        `/api/competitive/frameworks/${fwKey}/save-as-artifact`,
+        { competitorId: fwKey === "swot" ? fwCompetitor || undefined : undefined }
+      );
+      navigate(`/library/${r.artifactId}`);
+    } catch (e) {
+      setFwError((e as Error).message);
+    } finally {
+      setFwBusy(false);
+    }
+  };
+
+  const buildDigestNow = async () => {
+    setOverviewBusy("digest");
+    setError("");
+    try {
+      await apiPost("/api/competitive/digest", { windowDays: 7 });
+      await loadOverview();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setOverviewBusy("");
+    }
+  };
+
+  const saveDigest = async (id: string) => {
+    setOverviewBusy("save");
+    try {
+      const r = await apiPost<{ artifactId: string }>(`/api/competitive/digests/${id}/save-as-artifact`);
+      navigate(`/library/${r.artifactId}`);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setOverviewBusy("");
+    }
+  };
+
+  const regenerateBattlecard = async (artifactId: string) => {
+    setOverviewBusy(artifactId);
+    setError("");
+    try {
+      await apiPost(`/api/competitive/battlecards/${artifactId}/regenerate`);
+      await loadOverview();
+      setInfo("Battlecard regenerated as a new draft version — review it in the library before promoting.");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setOverviewBusy("");
+    }
+  };
+
+  const compareWithPrevious = async () => {
+    setMovement(null);
+    setMovementNote("");
+    if (!posMap) return;
+    const prev = mapHistory.find(
+      (m) =>
+        m.id !== posMap.id &&
+        new Date(m.createdAt) < new Date(posMap.createdAt) &&
+        m.xAxis.label === posMap.xAxis.label &&
+        m.yAxis.label === posMap.yAxis.label
+    );
+    if (!prev) {
+      setMovementNote("No earlier build with the same axes — rebuild with pinned axes over time to get a comparable series.");
+      return;
+    }
+    try {
+      const r = await apiGet<{ movement: { moves: { name: string; dx: number; dy: number }[]; entered: string[]; exited: string[] } }>(
+        `/api/competitive/positioning-map/movement?fromId=${prev.id}&toId=${posMap.id}`
+      );
+      setMovement(r.movement);
+      setMovementNote(`vs build of ${new Date(prev.createdAt).toLocaleDateString()}`);
+    } catch (e) {
+      setMovementNote((e as Error).message);
+    }
+  };
+
+  const ackEvent = async (id: string) => {
+    try {
+      await apiPost(`/api/competitive/events/${id}/ack`);
+      setEvents((list) =>
+        list.map((e) => (e.id === id ? { ...e, acknowledged_at: new Date().toISOString() } : e))
+      );
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
 
   const runCompare = async (q?: string) => {
     const text = (q ?? question).trim();
@@ -367,6 +888,8 @@ export function CompetitiveIntel() {
         competitorIds: mapCompetitors.length > 0 ? mapCompetitors : undefined,
       });
       setPosMap(r.map);
+      setMovement(null);
+      setMovementNote("");
     } catch (e) {
       setMapError((e as Error).message);
     } finally {
@@ -510,13 +1033,173 @@ export function CompetitiveIntel() {
       )}
 
       <div className="tab-row" style={{ margin: "4px 0 16px" }}>
+        <button className={tab === "overview" ? "active" : ""} onClick={() => setTab("overview")}>
+          <i className="fa-solid fa-gauge-high" style={{ marginRight: 6 }} /> Overview
+        </button>
         <button className={tab === "compare" ? "active" : ""} onClick={() => setTab("compare")}>
           <i className="fa-solid fa-chess" style={{ marginRight: 6 }} /> Compare &amp; registry
         </button>
         <button className={tab === "map" ? "active" : ""} onClick={() => setTab("map")}>
           <i className="fa-solid fa-map-location-dot" style={{ marginRight: 6 }} /> Positioning map
         </button>
+        <button className={tab === "frameworks" ? "active" : ""} onClick={() => setTab("frameworks")}>
+          <i className="fa-solid fa-table-cells-large" style={{ marginRight: 6 }} /> Frameworks
+        </button>
+        <button className={tab === "deltas" ? "active" : ""} onClick={() => setTab("deltas")}>
+          <i className="fa-solid fa-wave-square" style={{ marginRight: 6 }} /> Deltas
+          {events.filter((e) => !e.acknowledged_at).length > 0 && (
+            <span className="pill pill-pending" style={{ marginLeft: 6 }}>
+              {events.filter((e) => !e.acknowledged_at).length}
+            </span>
+          )}
+        </button>
       </div>
+
+      {/* ---------- overview (ELT) tab: uniform 2×2 dashboard ---------- */}
+      {tab === "overview" && (
+        <div className="grid grid-2" style={{ alignItems: "stretch", marginBottom: 18 }}>
+          {/* threat board */}
+          <div className="card" style={DASH_CARD}>
+            <div className="row-between" style={DASH_HEAD}>
+              <h3 style={{ margin: 0, fontSize: 15, fontWeight: 500 }}>
+                <i className="fa-solid fa-shield-halved" style={{ color: "var(--teal-dark)", marginRight: 8 }} />
+                Threat board
+                {overview?.threatBoard && (
+                  <span style={{ fontSize: 12, color: "var(--text-muted)", marginLeft: 10, fontWeight: 400 }}>
+                    built {new Date(overview.threatBoard.createdAt).toLocaleString()}
+                  </span>
+                )}
+              </h3>
+              <button className="btn btn-sm" onClick={() => { setTab("frameworks"); setFwKey("threat-tiers"); }}>
+                <i className="fa-solid fa-arrows-rotate" /> Rebuild in Frameworks
+              </button>
+            </div>
+            <div style={DASH_BODY}>
+              {overview?.threatBoard ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {((overview.threatBoard.result as { entries: ThreatEntry[] })?.entries ?? []).map((t) => (
+                    <ThreatTile key={t.competitor} entry={t} />
+                  ))}
+                </div>
+              ) : (
+                <div className="empty-note">No threat board yet — build one in the Frameworks tab (needs tracked competitors with scraped sources).</div>
+              )}
+              {overview?.threatBoard?.summaryHtml && (
+                <div className="prose" style={{ border: "none", boxShadow: "none", padding: 0, marginTop: 12 }} dangerouslySetInnerHTML={{ __html: overview.threatBoard.summaryHtml }} />
+              )}
+            </div>
+          </div>
+
+          {/* deltas this week */}
+          <div className="card" style={DASH_CARD}>
+            <div className="row-between" style={DASH_HEAD}>
+              <h3 style={{ margin: 0, fontSize: 15, fontWeight: 500 }}>
+                <i className="fa-solid fa-wave-square" style={{ color: "var(--teal-dark)", marginRight: 8 }} />
+                Deltas — last 7 days
+              </h3>
+              <button className="btn btn-sm" onClick={() => setTab("deltas")}>
+                Open the delta feed
+              </button>
+            </div>
+            <div style={DASH_BODY}>
+              {eventsSummary && eventsSummary.total > 0 ? (
+                <>
+                  {eventsSummary.byCompetitor.map((c) => (
+                    <div key={c.competitor} style={{ display: "flex", gap: 8, alignItems: "center", padding: "6px 0", fontSize: 13 }}>
+                      <span style={{ fontWeight: 500, flex: 1 }}>{c.competitor}</span>
+                      {c.high > 0 && <span className="pill pill-lost">{c.high} high</span>}
+                      {c.notable > 0 && <span className="pill pill-pending">{c.notable} notable</span>}
+                      {c.info > 0 && <span className="pill pill-review">{c.info} info</span>}
+                    </div>
+                  ))}
+                  {eventsSummary.top.length > 0 && (
+                    <div style={{ marginTop: 8, borderTop: "1px solid var(--border)", paddingTop: 8 }}>
+                      {eventsSummary.top.map((t, i) => (
+                        <div key={i} style={{ fontSize: 12.5, color: "var(--text-secondary)", marginBottom: 4 }}>
+                          <span style={{ fontWeight: 500, color: "var(--text-primary)" }}>{t.competitor}</span> — {t.title}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="empty-note">
+                  No competitor changes detected in the window
+                  {overview && !overview.tracking ? " — no competitors are being tracked yet. Start in Compare & registry." : " — nothing material moved (that is a valid, verified result)."}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* battlecard readiness */}
+          <div className="card" style={DASH_CARD}>
+            <div className="row-between" style={DASH_HEAD}>
+              <h3 style={{ margin: 0, fontSize: 15, fontWeight: 500 }}>
+                <i className="fa-solid fa-file-shield" style={{ color: "var(--teal-dark)", marginRight: 8 }} />
+                Battlecard readiness
+              </h3>
+            </div>
+            <div style={DASH_BODY}>
+              {overview && overview.staleBattlecards.length > 0 ? (
+                overview.staleBattlecards.map((b) => (
+                  <div key={b.artifactId} style={{ display: "flex", gap: 8, alignItems: "center", padding: "6px 0", borderBottom: "1px solid var(--border)" }}>
+                    <span className="pill pill-lost">stale</span>
+                    <span style={{ flex: 1, fontSize: 13 }}>
+                      <span style={{ fontWeight: 500 }}>{b.competitor}</span>
+                      {b.reason && <span style={{ color: "var(--text-secondary)" }}> — {b.reason}</span>}
+                    </span>
+                    <button className="btn btn-sm" disabled={overviewBusy === b.artifactId} onClick={() => void regenerateBattlecard(b.artifactId)} title="Re-run against fresh sources; lands as a new draft version">
+                      <i className={`fa-solid ${overviewBusy === b.artifactId ? "fa-spinner fa-spin" : "fa-rotate"}`} /> Regenerate
+                    </button>
+                    <button className="btn btn-sm" onClick={() => navigate(`/library/${b.artifactId}`)}>
+                      Open
+                    </button>
+                  </div>
+                ))
+              ) : (
+                <div className="empty-note">No stale battlecards — every canonical card is current with its tracked sources.</div>
+              )}
+              {overview && overview.watches.length > 0 && (
+                <p style={{ fontSize: 12.5, color: "var(--text-secondary)", marginTop: 10, marginBottom: 0 }}>
+                  Watching: {overview.watches.filter((w) => w.enabled).map((w) => w.competitor).join(", ") || "none"}
+                </p>
+              )}
+            </div>
+          </div>
+
+          {/* digest */}
+          <div className="card" style={DASH_CARD}>
+            <div className="row-between" style={DASH_HEAD}>
+              <h3 style={{ margin: 0, fontSize: 15, fontWeight: 500 }}>
+                <i className="fa-solid fa-newspaper" style={{ color: "var(--teal-dark)", marginRight: 8 }} />
+                Competitive digest
+              </h3>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button className="btn btn-primary btn-sm" disabled={overviewBusy === "digest"} onClick={() => void buildDigestNow()}>
+                  <i className={`fa-solid ${overviewBusy === "digest" ? "fa-spinner fa-spin" : "fa-wand-magic-sparkles"}`} /> Build 7-day digest
+                </button>
+                {overview?.lastDigest && (
+                  <button className="btn btn-sm" disabled={overviewBusy === "save"} onClick={() => void saveDigest(overview.lastDigest!.id)} title="Save to the artifact library as a draft">
+                    <i className="fa-solid fa-box-archive" /> Save as draft
+                  </button>
+                )}
+              </div>
+            </div>
+            <div style={DASH_BODY}>
+              {overview?.lastDigest ? (
+                <>
+                  <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "0 0 8px" }}>
+                    {overview.lastDigest.windowStart.slice(0, 10)} → {overview.lastDigest.windowEnd.slice(0, 10)} · built {new Date(overview.lastDigest.createdAt).toLocaleString()}
+                  </p>
+                  <div className="prose" style={{ border: "none", boxShadow: "none", padding: 0 }} dangerouslySetInnerHTML={{ __html: overview.lastDigest.contentHtml }} />
+                </>
+              ) : (
+                <div className="empty-note">No digest yet. Build one — an explicit "nothing material changed" is a valid digest.</div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {tab === "compare" && (
       <>
@@ -667,6 +1350,7 @@ export function CompetitiveIntel() {
                 <th>Category</th>
                 <th>Compared vs</th>
                 <th>Sources</th>
+                <th>Watch</th>
                 <th></th>
               </tr>
             </thead>
@@ -675,6 +1359,10 @@ export function CompetitiveIntel() {
                 const okSources = c.sources.filter((s) => s.status === "ok");
                 const newest = okSources.map((s) => s.scraped_at).sort().reverse()[0] ?? null;
                 const age = staleDays(newest);
+                const watch = watches[c.id];
+                const liveRun = Object.values(liveRuns).find(
+                  (r) => r.competitor_id === c.id && (r.status === "queued" || r.status === "running")
+                );
                 return (
                   <tr key={c.id}>
                     <td style={{ fontWeight: 500 }}>
@@ -699,6 +1387,38 @@ export function CompetitiveIntel() {
                         </>
                       ) : (
                         <span className="pill pill-pending">none yet</span>
+                      )}
+                    </td>
+                    <td style={{ whiteSpace: "nowrap", fontSize: 12.5 }}>
+                      {liveRun ? (
+                        <span className="pill pill-pending" title={`${liveRun.kind} run in progress`}>
+                          <i className="fa-solid fa-spinner fa-spin" style={{ marginRight: 5 }} />
+                          {liveRun.status === "queued"
+                            ? "queued"
+                            : liveRun.progress.phase ?? "running"}
+                          {typeof liveRun.progress.scraped === "number" &&
+                            liveRun.progress.scraped > 0 &&
+                            ` · ${liveRun.progress.scraped} scraped`}
+                        </span>
+                      ) : watch?.enabled ? (
+                        <>
+                          <span className="pill pill-live" title={watch.last_run_at ? `Last run ${new Date(watch.last_run_at).toLocaleString()}` : "No run finished yet"}>
+                            <i className="fa-solid fa-satellite-dish" style={{ marginRight: 5 }} />
+                            watching
+                          </span>{" "}
+                          <button className="btn btn-sm" onClick={() => void untrack(c)} disabled={busyRow === c.id} title="Pause the background watch">
+                            <i className="fa-solid fa-pause" />
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          className="btn btn-sm"
+                          onClick={() => void track(c)}
+                          disabled={busyRow === c.id || !jinaOk}
+                          title="Start background research: typed sources, weekly re-scrape, change detection"
+                        >
+                          <i className="fa-solid fa-satellite-dish" /> Track
+                        </button>
                       )}
                     </td>
                     <td style={{ whiteSpace: "nowrap" }}>
@@ -766,6 +1486,342 @@ export function CompetitiveIntel() {
         </div>
       )}
       </>
+      )}
+
+      {/* ---------- frameworks tab ---------- */}
+      {tab === "frameworks" && (
+        <div className="card">
+          <div className="row-between" style={{ marginBottom: 10, flexWrap: "wrap", gap: 10 }}>
+            <div className="step-pills" style={{ margin: 0 }}>
+              {([
+                ["threat-tiers", "Threat tiers"],
+                ["swot", "SWOT"],
+                ["delta-timeline", "Delta timeline"],
+                ["five-forces", "Five Forces"],
+                ["feature-matrix", "Capability matrix"],
+              ] as const).map(([k, label]) => (
+                <button key={k} type="button" className={`step-pill ${fwKey === k ? "active" : ""}`} onClick={() => { setFwKey(k); setFwAnalysis(null); setFwError(""); }}>
+                  {label}
+                </button>
+              ))}
+            </div>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              {fwKey === "swot" && (
+                <select value={fwCompetitor} onChange={(e) => setFwCompetitor(e.target.value)}>
+                  <option value="">Pick a competitor…</option>
+                  {competitors.map((c) => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+              )}
+              <button className="btn btn-primary btn-sm" disabled={fwBusy || (fwKey === "swot" && !fwCompetitor)} onClick={() => void buildFrameworkNow()}>
+                <i className={`fa-solid ${fwBusy ? "fa-spinner fa-spin" : "fa-wand-magic-sparkles"}`} /> {fwAnalysis ? "Rebuild" : "Build"}
+              </button>
+              {fwAnalysis && (
+                <button
+                  className="btn btn-sm"
+                  disabled={fwBusy}
+                  title="Save this analysis to the PMM workspace as a draft"
+                  onClick={() => void saveFramework()}
+                >
+                  <i className="fa-solid fa-floppy-disk" /> Save as draft
+                </button>
+              )}
+            </div>
+          </div>
+          <p style={{ fontSize: 12.5, color: "var(--text-secondary)", margin: "0 0 12px" }}>
+            Same evidence discipline as everything here: competitor facts only from scraped sources,
+            Aurigo facts only from the knowledge base; thin evidence means fewer items, never padding.
+          </p>
+          {fwError && (
+            <div style={{ background: "#FCE8E8", color: "#A32D2D", borderRadius: "var(--r-md)", padding: "10px 14px", fontSize: 13, marginBottom: 12 }}>{fwError}</div>
+          )}
+          {fwBusy && <div className="empty-note">Reading the evidence and building the analysis — up to a minute…</div>}
+
+          {!fwBusy && fwAnalysis && fwKey === "threat-tiers" && (
+            <>
+              <div className="grid grid-3">
+                {[1, 2, 3].map((tier) => (
+                  <div key={tier}>
+                    <div style={{ marginBottom: 8 }}>
+                      <span className={`pill ${TIER_STYLE[tier].pill}`}>{TIER_STYLE[tier].label}</span>
+                    </div>
+                    {((fwAnalysis.result as { entries: ThreatEntry[] })?.entries ?? [])
+                      .filter((t) => t.tier === tier)
+                      .map((t) => (
+                        <ThreatTile key={t.competitor} entry={t} showTier={false} showWatch style={{ marginBottom: 8 }} />
+                      ))}
+                  </div>
+                ))}
+              </div>
+              {fwAnalysis.summaryHtml && (
+                <div className="prose" style={{ border: "none", boxShadow: "none", padding: 0, marginTop: 12 }} dangerouslySetInnerHTML={{ __html: fwAnalysis.summaryHtml }} />
+              )}
+              {fwAnalysis.skipped.length > 0 && (
+                <p style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 8 }}>
+                  Not tiered (insufficient evidence or integrate-don't-compete): {fwAnalysis.skipped.map((s) => s.name).join(", ")}
+                </p>
+              )}
+            </>
+          )}
+
+          {!fwBusy && fwAnalysis && fwKey === "swot" && (
+            <>
+              <p style={{ fontSize: 13, fontWeight: 600, margin: "0 0 10px" }}>
+                SWOT: {String(fwAnalysis.params.competitor ?? competitors.find((c) => c.id === fwCompetitor)?.name ?? "")}
+                <span style={{ fontWeight: 400, fontSize: 12, color: "var(--text-muted)", marginLeft: 8 }}>
+                  built {new Date(fwAnalysis.createdAt).toLocaleString()}
+                </span>
+              </p>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                {([
+                  ["strengths", "Their strengths", "scraped sources only"],
+                  ["weaknesses", "Their weaknesses", "scraped sources only"],
+                  ["opportunities", "Our opportunities", "internal inference"],
+                  ["threats", "Threats to us", "internal inference"],
+                ] as const).map(([q, title, caption]) => (
+                  <div key={q} style={{ border: "1px solid var(--border)", borderRadius: "var(--r-md)", padding: "12px 14px" }}>
+                    <div className="row-between" style={{ marginBottom: 8 }}>
+                      <span style={{ fontWeight: 600, fontSize: 13.5 }}>{title}</span>
+                      <span className="pill pill-review" style={{ fontSize: 10 }}>{caption}</span>
+                    </div>
+                    {((fwAnalysis.result as Record<string, { text: string; evidence_url: string | null }[]>)[q] ?? []).map((item, i) => (
+                      <div key={i} style={{ fontSize: 12.5, marginBottom: 6 }}>
+                        • {item.text}
+                        {item.evidence_url && (
+                          <a href={item.evidence_url} target="_blank" rel="noopener noreferrer" style={{ marginLeft: 6, fontSize: 11 }}>
+                            <i className="fa-solid fa-arrow-up-right-from-square" style={{ fontSize: 9 }} /> source
+                          </a>
+                        )}
+                      </div>
+                    ))}
+                    {((fwAnalysis.result as Record<string, unknown[]>)[q] ?? []).length === 0 && (
+                      <div style={{ fontSize: 12, color: "var(--text-muted)" }}>Evidence too thin for honest items.</div>
+                    )}
+                  </div>
+                ))}
+              </div>
+              {fwAnalysis.summaryHtml && (
+                <div className="prose" style={{ border: "none", boxShadow: "none", padding: 0, marginTop: 12 }} dangerouslySetInnerHTML={{ __html: fwAnalysis.summaryHtml }} />
+              )}
+            </>
+          )}
+
+          {!fwBusy && fwAnalysis && fwKey === "delta-timeline" && (
+            <>
+              {((fwAnalysis.result as { weeks: { weekStart: string; events: { competitor: string; severity: string; event_type: string; title: string }[] }[] })?.weeks ?? []).map((w) => (
+                <div key={w.weekStart} style={{ marginBottom: 12 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.04em", color: "var(--text-secondary)", marginBottom: 6 }}>WEEK OF {w.weekStart}</div>
+                  {w.events.map((e, i) => (
+                    <div key={i} style={{ display: "flex", gap: 8, alignItems: "center", padding: "4px 0", fontSize: 12.5 }}>
+                      <span className={`pill ${e.severity === "high" ? "pill-lost" : e.severity === "notable" ? "pill-pending" : "pill-review"}`}>{e.severity}</span>
+                      <span style={{ fontWeight: 500 }}>{e.competitor}</span>
+                      <span style={{ color: "var(--text-secondary)" }}>{e.title}</span>
+                    </div>
+                  ))}
+                </div>
+              ))}
+              {((fwAnalysis.result as { weeks: unknown[] })?.weeks ?? []).length === 0 && (
+                <div className="empty-note">No events in the last 90 days — track competitors to populate the timeline.</div>
+              )}
+            </>
+          )}
+
+          {!fwBusy && fwAnalysis && fwKey === "five-forces" && (() => {
+            const forces = (fwAnalysis.result as FiveForcesResult | null)?.forces;
+            return (
+              <>
+                {forces ? (
+                  // Classic five-box arrangement: New entrants above, Supplier
+                  // and Buyer power flanking, Rivalry emphasized in the center,
+                  // Substitutes below.
+                  <div
+                    style={{
+                      display: "grid",
+                      gap: 12,
+                      gridTemplateColumns: "1fr 1.15fr 1fr",
+                      gridTemplateAreas: '". entrants ." "supplier rivalry buyer" ". substitutes ."',
+                      alignItems: "stretch",
+                    }}
+                  >
+                    <ForceCard title="Threat of new entrants" force={forces.new_entrants} style={{ gridArea: "entrants" }} />
+                    <ForceCard title="Supplier power" force={forces.supplier_power} style={{ gridArea: "supplier" }} />
+                    <ForceCard title="Competitive rivalry" force={forces.rivalry} emphasized style={{ gridArea: "rivalry" }} />
+                    <ForceCard title="Buyer power" force={forces.buyer_power} style={{ gridArea: "buyer" }} />
+                    <ForceCard title="Threat of substitutes" force={forces.substitutes} style={{ gridArea: "substitutes" }} />
+                  </div>
+                ) : (
+                  <div className="empty-note">The stored analysis has no forces payload — rebuild it.</div>
+                )}
+                {fwAnalysis.summaryHtml && (
+                  <div className="prose" style={{ border: "none", boxShadow: "none", padding: 0, marginTop: 12 }} dangerouslySetInnerHTML={{ __html: fwAnalysis.summaryHtml }} />
+                )}
+                {fwAnalysis.skipped.length > 0 && (
+                  <p style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 8 }}>
+                    Not included (insufficient evidence): {fwAnalysis.skipped.map((s) => s.name).join(", ")}
+                  </p>
+                )}
+              </>
+            );
+          })()}
+
+          {!fwBusy && fwAnalysis && fwKey === "feature-matrix" && (() => {
+            const rows = (fwAnalysis.result as { rows?: MatrixRowT[] } | null)?.rows ?? [];
+            // Column set = union of competitor names across rows, first-seen order.
+            const competitorNames: string[] = [];
+            for (const r of rows) {
+              for (const name of Object.keys(r.competitors ?? {})) {
+                if (!competitorNames.includes(name)) competitorNames.push(name);
+              }
+            }
+            const thSticky: CSSProperties = { position: "sticky", top: 0, background: "var(--bg-card)", zIndex: 1 };
+            return (
+              <>
+                {rows.length > 0 ? (
+                  <div style={{ overflow: "auto", maxHeight: 520, border: "1px solid var(--border)", borderRadius: "var(--r-md)" }}>
+                    <table>
+                      <thead>
+                        <tr>
+                          <th style={thSticky}>Capability</th>
+                          <th style={{ ...thSticky, background: "#E9F4F5", borderTop: "3px solid var(--teal-dark)", color: "var(--teal-dark)" }}>
+                            Aurigo
+                          </th>
+                          {competitorNames.map((n) => (
+                            <th key={n} style={thSticky}>{n}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rows.map((r) => (
+                          <tr key={r.capability}>
+                            <td style={{ fontWeight: 500, fontSize: 12.5 }}>{r.capability}</td>
+                            <td style={{ background: "#F2FAFB" }}>
+                              <MatrixCellView cell={{ ...r.aurigo, evidence_url: null }} />
+                            </td>
+                            {competitorNames.map((n) => (
+                              <td key={n}>
+                                <MatrixCellView cell={r.competitors?.[n]} />
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="empty-note">The stored analysis has no capability rows — rebuild it.</div>
+                )}
+                {fwAnalysis.summaryHtml && (
+                  <div className="prose" style={{ border: "none", boxShadow: "none", padding: 0, marginTop: 12 }} dangerouslySetInnerHTML={{ __html: fwAnalysis.summaryHtml }} />
+                )}
+                {fwAnalysis.skipped.length > 0 && (
+                  <p style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 8 }}>
+                    Not included (insufficient evidence): {fwAnalysis.skipped.map((s) => s.name).join(", ")}
+                  </p>
+                )}
+              </>
+            );
+          })()}
+
+          {!fwBusy && !fwAnalysis && !fwError && (
+            <div className="empty-note">
+              {fwKey === "swot" ? "Pick a competitor and build." : "No analysis stored yet — build one."}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ---------- deltas tab ---------- */}
+      {tab === "deltas" && (
+        <div className="card">
+          <div className="row-between" style={{ marginBottom: 10 }}>
+            <h3 style={{ margin: 0, fontSize: 15, fontWeight: 500 }}>
+              <i className="fa-solid fa-wave-square" style={{ color: "var(--teal-dark)", marginRight: 8 }} />
+              Competitor deltas
+            </h3>
+            <div className="step-pills" style={{ margin: 0 }}>
+              {(["", "high", "notable", "info"] as const).map((s) => (
+                <button
+                  key={s || "all"}
+                  type="button"
+                  className={`step-pill ${severityFilter === s ? "active" : ""}`}
+                  onClick={() => setSeverityFilter(s)}
+                >
+                  {s === "" ? "All" : s}
+                </button>
+              ))}
+            </div>
+          </div>
+          <p style={{ fontSize: 12.5, color: "var(--text-secondary)", margin: "0 0 12px" }}>
+            Changes detected on tracked competitors&apos; sources. Every event is grounded in a
+            scraped diff — the summary judges only the changed lines, never the full page. Track a
+            competitor in the registry to start the background watch.
+          </p>
+          {events.filter((e) => severityFilter === "" || e.severity === severityFilter).length === 0 && (
+            <div className="empty-note">
+              No changes detected yet. Events land here when a tracked competitor&apos;s sources
+              change — a quiet feed after runs have completed means nothing material moved.
+            </div>
+          )}
+          {events
+            .filter((e) => severityFilter === "" || e.severity === severityFilter)
+            .map((e) => (
+              <div key={e.id} style={{ padding: "10px 6px", borderBottom: "1px solid var(--border)" }}>
+                <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                  <span
+                    className={`pill ${
+                      e.severity === "high" ? "pill-lost" : e.severity === "notable" ? "pill-pending" : "pill-review"
+                    }`}
+                  >
+                    {e.severity}
+                  </span>
+                  <span className="pill pill-final">{e.event_type.replace(/_/g, " ")}</span>
+                  <span style={{ fontWeight: 500 }}>{e.competitor ?? "?"}</span>
+                  <span style={{ flex: 1, fontSize: 13 }}>{e.title}</span>
+                  <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                    {new Date(e.created_at).toLocaleString()}
+                  </span>
+                  {(e.summary_md || e.diff_excerpt) && (
+                    <button className="btn btn-sm" onClick={() => setOpenEvent(openEvent === e.id ? "" : e.id)}>
+                      <i className={`fa-solid ${openEvent === e.id ? "fa-chevron-up" : "fa-chevron-down"}`} />
+                    </button>
+                  )}
+                  {!e.acknowledged_at ? (
+                    <button className="btn btn-sm" onClick={() => void ackEvent(e.id)} title="Mark as read">
+                      <i className="fa-solid fa-check" /> Ack
+                    </button>
+                  ) : (
+                    <span style={{ fontSize: 11.5, color: "var(--text-muted)" }}>
+                      <i className="fa-solid fa-check" /> read
+                    </span>
+                  )}
+                </div>
+                {openEvent === e.id && (
+                  <div style={{ marginTop: 8, paddingLeft: 4 }}>
+                    {e.summary_md && (
+                      <p style={{ fontSize: 13, margin: "0 0 8px", whiteSpace: "pre-wrap" }}>{e.summary_md}</p>
+                    )}
+                    {e.diff_excerpt && (
+                      <pre
+                        style={{
+                          fontSize: 11.5,
+                          background: "var(--bg-page)",
+                          borderRadius: "var(--r-md)",
+                          padding: "10px 12px",
+                          overflowX: "auto",
+                          whiteSpace: "pre-wrap",
+                          maxHeight: 260,
+                          overflowY: "auto",
+                        }}
+                      >
+                        {e.diff_excerpt}
+                      </pre>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
+        </div>
       )}
 
       {/* ---------- positioning map tab ---------- */}
@@ -920,6 +1976,55 @@ export function CompetitiveIntel() {
               )
             )}
           </div>
+
+          {/* map history + movement (Phase 1: the time dimension) */}
+          {mapHistory.length > 1 && (
+            <div className="card">
+              <div className="row-between" style={{ marginBottom: 8 }}>
+                <h3 style={{ margin: 0, fontSize: 14, fontWeight: 500 }}>Build history</h3>
+                <button className="btn btn-sm" onClick={() => void compareWithPrevious()} disabled={!posMap} title="Movement vs the previous build with the same axes">
+                  <i className="fa-solid fa-arrows-left-right" /> Compare with previous
+                </button>
+              </div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {mapHistory.map((m) => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    className={`step-pill ${posMap?.id === m.id ? "active" : ""}`}
+                    title={`${m.xAxis.label} × ${m.yAxis.label}`}
+                    onClick={() => { setPosMap(m); setMovement(null); setMovementNote(""); }}
+                  >
+                    {new Date(m.createdAt).toLocaleDateString()}
+                  </button>
+                ))}
+              </div>
+              {movementNote && <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: "10px 0 0" }}>{movementNote}</p>}
+              {movement && (
+                <div style={{ marginTop: 8 }}>
+                  {movement.moves.filter((mv) => Math.abs(mv.dx) + Math.abs(mv.dy) >= 3).slice(0, 8).map((mv) => (
+                    <div key={mv.name} style={{ fontSize: 12.5, marginBottom: 4 }}>
+                      <span style={{ fontWeight: 500 }}>{mv.name}</span>{" "}
+                      <span style={{ color: "var(--text-secondary)" }}>
+                        {mv.dx !== 0 && `${mv.dx > 0 ? "→" : "←"} ${Math.abs(mv.dx)} on X`}
+                        {mv.dx !== 0 && mv.dy !== 0 && " · "}
+                        {mv.dy !== 0 && `${mv.dy > 0 ? "↑" : "↓"} ${Math.abs(mv.dy)} on Y`}
+                      </span>
+                    </div>
+                  ))}
+                  {movement.moves.every((mv) => Math.abs(mv.dx) + Math.abs(mv.dy) < 3) && (
+                    <p style={{ fontSize: 12.5, color: "var(--text-secondary)", margin: 0 }}>No meaningful movement (&lt;3 pts) between these builds.</p>
+                  )}
+                  {movement.entered.length > 0 && (
+                    <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "6px 0 0" }}>Entered: {movement.entered.join(", ")}</p>
+                  )}
+                  {movement.exited.length > 0 && (
+                    <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "2px 0 0" }}>Left the map: {movement.exited.join(", ")}</p>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
 
           {tip && (
             <div
