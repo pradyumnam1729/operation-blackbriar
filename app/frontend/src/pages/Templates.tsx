@@ -542,7 +542,12 @@ export function Templates() {
     <div>
       <div className="row-between" style={{ alignItems: "flex-start" }}>
         <div>
-          <h1 className="pagetitle">Template library</h1>
+          <h1 className="pagetitle">
+            Template library{" "}
+            <span className="pill pill-lock" style={{ marginLeft: 6 }}>
+              <i className="fa-solid fa-lock" style={{ fontSize: 9 }} /> Admin only
+            </span>
+          </h1>
           <p className="pagesub">
             Layout-locked templates filled from each product&rsquo;s approved messaging document —
             one document fans out to every artifact type.

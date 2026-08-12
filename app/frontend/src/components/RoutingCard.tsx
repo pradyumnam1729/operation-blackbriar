@@ -9,7 +9,6 @@ import {
   RoutingProposal,
 } from "../lib/api";
 import { useAuth } from "../auth/AuthContext";
-import { lineLogo } from "../lib/branding";
 
 // Ask-to-artifact confirmation card (blueprint ask-to-artifact.md §6.3).
 // Rendered inside a bot chat bubble when POST /api/query returns
@@ -214,25 +213,18 @@ export function RoutingCard({ proposal, onAnswerInstead }: RoutingCardProps) {
       </div>
 
       <label htmlFor={`${uid}-product`}>Product</label>
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        {(() => {
-          const logo = lineLogo(products.find((p) => p.id === productId)?.line);
-          return logo ? <img src={logo} alt="" style={{ height: 20, width: "auto" }} /> : null;
-        })()}
-        <select
-          id={`${uid}-product`}
-          value={productId}
-          onChange={(e) => setProductId(e.target.value)}
-          disabled={generating}
-          style={{ flex: 1 }}
-        >
-          {options.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </select>
-      </div>
+      <select
+        id={`${uid}-product`}
+        value={productId}
+        onChange={(e) => setProductId(e.target.value)}
+        disabled={generating}
+      >
+        {options.map((p) => (
+          <option key={p.id} value={p.id}>
+            {p.name}
+          </option>
+        ))}
+      </select>
 
       <label htmlFor={`${uid}-title`}>Title</label>
       <input

@@ -87,6 +87,10 @@ export function AgentDrawer({ agentKey, updatedByName, onClose, onChanged }: Pro
   const [dirty, setDirty] = useState(false);
   const [testedSinceEdit, setTestedSinceEdit] = useState(false);
 
+  // Initial-load disclosure for the Advanced section — set once per agent load,
+  // never bound to later edits so the user's manual toggle is respected.
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+
   // Save / revert state.
   const [saveBusy, setSaveBusy] = useState(false);
   const [saveError, setSaveError] = useState("");
@@ -132,6 +136,7 @@ export function AgentDrawer({ agentKey, updatedByName, onClose, onChanged }: Pro
       .then((r) => {
         if (!alive) return;
         applyAgent(r.agent);
+        setAdvancedOpen(r.agent.prompt_override !== null);
         setMeta(r.meta);
       })
       .catch((e) => alive && setLoadError((e as Error).message))
@@ -201,7 +206,7 @@ export function AgentDrawer({ agentKey, updatedByName, onClose, onChanged }: Pro
       const advisory =
         overrideOn && jsonContractAgent && !testedSinceEdit
           ? [
-              "This override has not been test-run since your last edit. The locked suffix still enforces the output contract, but run a test to confirm the model follows it.",
+              "Override not test-run since your last edit — run a test to confirm the contract.",
             ]
           : [];
       applyAgent(r.agent);
@@ -430,14 +435,12 @@ export function AgentDrawer({ agentKey, updatedByName, onClose, onChanged }: Pro
               <div style={{ fontSize: 13, lineHeight: 1.5 }}>
                 {enabled ? (
                   <span>
-                    <strong>Enabled.</strong> This agent runs whenever its step in the pipeline is
-                    triggered.
+                    <strong>Enabled</strong> — runs when its pipeline step triggers.
                   </span>
                 ) : (
                   <span style={{ color: "#A32D2D" }}>
-                    <strong>Disabled — admin kill switch.</strong> Every run that depends on this
-                    agent stops immediately with a message naming this tab. It never falls back
-                    silently to the base prompt. Saved with the Save button below.
+                    <strong>Disabled</strong> — dependent runs fail fast until re-enabled. Save to
+                    apply.
                   </span>
                 )}
               </div>
@@ -473,8 +476,7 @@ export function AgentDrawer({ agentKey, updatedByName, onClose, onChanged }: Pro
 
             <label htmlFor="agent-instructions">Custom instructions</label>
             <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 5 }}>
-              Appended to the prompt body on every run — base or override. Use for tone, emphasis,
-              extra constraints.
+              Appended to every run — tone, emphasis, constraints.
             </div>
             <textarea
               id="agent-instructions"
@@ -486,150 +488,188 @@ export function AgentDrawer({ agentKey, updatedByName, onClose, onChanged }: Pro
               placeholder="e.g. Always lead with the program outcome, never the feature."
             />
 
-            <label htmlFor="agent-defaults">Task defaults (JSON)</label>
-            {meta.defaults_schema !== "" && (
-              <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 5 }}>
-                {meta.defaults_schema}
-              </div>
-            )}
-            <textarea
-              id="agent-defaults"
-              value={defaultsText}
-              onChange={(e) => {
-                setDefaultsText(e.target.value);
-                setDefaultsError("");
-                markDirty();
-              }}
-              style={{ ...MONO, minHeight: 120 }}
-            />
-            {defaultsError !== "" && (
-              <div style={{ color: "var(--red)", fontSize: 12.5, marginTop: 5 }}>
-                {defaultsError}
-              </div>
-            )}
-
-            {/* ---- prompt panel ---- */}
-            {sectionLabel("Prompt")}
-
-            <label style={{ marginTop: 0 }}>Base prompt (canonical — synced at boot)</label>
-            {agent.base_prompt.trim() === "" ? (
-              <div className="empty-note" style={{ padding: "6px 0" }}>
-                This agent has no fixed base body
-                {agent.key === "ask-war-room"
-                  ? " — the per-role framing in Task defaults is the prompt body. A full override collapses all roles into one preamble ({{role}} is available)."
-                  : "."}
-              </div>
-            ) : (
-              <pre style={PRE_BOX}>{agent.base_prompt}</pre>
-            )}
-
-            {meta.placeholders.length > 0 && (
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 10 }}>
-                {meta.placeholders.map((p) => (
-                  <span
-                    key={p}
-                    className="pill pill-archived"
-                    style={{ fontFamily: "Consolas, monospace", fontSize: 11 }}
-                    title="Interpolated at run time — usable in the override body"
-                  >{`{{${p}}}`}</span>
-                ))}
-              </div>
-            )}
-
-            <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 14 }}>
-              <div
-                className={`toggle-switch ${overrideOn ? "on" : ""}`}
-                role="switch"
-                aria-checked={overrideOn}
-                aria-label="Use full prompt override"
-                tabIndex={0}
-                onClick={() => {
-                  setOverrideOn((v) => !v);
-                  markDirty();
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    setOverrideOn((v) => !v);
-                    markDirty();
-                  }
-                }}
-              >
-                <div className="thumb" />
-              </div>
-              <span style={{ fontSize: 13, fontWeight: 500 }}>Use full override</span>
-              {overrideOn && (
-                <a
-                  role="button"
-                  tabIndex={0}
-                  onClick={clearOverride}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") clearOverride();
-                  }}
-                  style={{ fontSize: 12.5, cursor: "pointer", marginLeft: "auto" }}
-                >
-                  Clear override
-                </a>
-              )}
-            </div>
-            {overrideOn && (
-              <textarea
-                aria-label="Prompt override body"
-                value={overrideText}
-                onChange={(e) => {
-                  setOverrideText(e.target.value);
-                  markDirty();
-                }}
-                style={{ ...MONO, minHeight: 200, marginTop: 8 }}
-              />
-            )}
-
-            <div
-              className="card"
-              style={{
-                background: "var(--teal-darkest)",
-                border: "1px solid var(--teal-darkest)",
-                color: "#E6F2F5",
-                marginTop: 14,
-                marginBottom: 0,
-                padding: "14px 16px",
-              }}
-            >
-              <div
+            {/* ---- advanced (defaults + prompt + locked suffix) ---- */}
+            <details open={advancedOpen}>
+              <summary
                 style={{
-                  fontSize: 11.5,
+                  fontSize: 12,
                   fontWeight: 500,
+                  color: "var(--text-secondary)",
                   textTransform: "uppercase",
                   letterSpacing: "0.04em",
-                  color: "#8FBFC9",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 6,
-                  marginBottom: 8,
+                  margin: "22px 0 10px",
+                  cursor: "pointer",
                 }}
               >
-                <i className="fa-solid fa-lock" style={{ fontSize: 10 }} /> Always appended —
-                locked. Overrides cannot change the output contract.
+                Advanced
+              </summary>
+
+              <label style={{ marginTop: 0 }} htmlFor="agent-defaults">
+                Task defaults (JSON)
+              </label>
+              {meta.defaults_schema !== "" && (
+                <details style={{ marginBottom: 5 }}>
+                  <summary style={{ fontSize: 12.5, color: "var(--teal-dark)", cursor: "pointer" }}>
+                    Schema
+                  </summary>
+                  <div style={{ fontSize: 12, color: "var(--text-muted)", margin: "5px 0" }}>
+                    {meta.defaults_schema}
+                  </div>
+                </details>
+              )}
+              <textarea
+                id="agent-defaults"
+                value={defaultsText}
+                onChange={(e) => {
+                  setDefaultsText(e.target.value);
+                  setDefaultsError("");
+                  markDirty();
+                }}
+                style={{ ...MONO, minHeight: 120 }}
+              />
+              {defaultsError !== "" && (
+                <div style={{ color: "var(--red)", fontSize: 12.5, marginTop: 5 }}>
+                  {defaultsError}
+                </div>
+              )}
+
+              <details style={{ marginTop: 14 }}>
+                <summary
+                  style={{ fontSize: 12.5, color: "var(--teal-dark)", cursor: "pointer" }}
+                  title="Canonical — synced at boot"
+                >
+                  Base prompt
+                  {meta.placeholders.length > 0 && (
+                    <span
+                      style={{
+                        display: "inline-flex",
+                        gap: 6,
+                        flexWrap: "wrap",
+                        marginLeft: 8,
+                        verticalAlign: "middle",
+                      }}
+                    >
+                      {meta.placeholders.map((p) => (
+                        <span
+                          key={p}
+                          className="pill pill-archived"
+                          style={{ fontFamily: "Consolas, monospace", fontSize: 11 }}
+                          title="Interpolated at run time — usable in the override body"
+                        >{`{{${p}}}`}</span>
+                      ))}
+                    </span>
+                  )}
+                </summary>
+                {agent.base_prompt.trim() === "" ? (
+                  <div className="empty-note" style={{ padding: "6px 0" }}>
+                    {agent.key === "ask-war-room"
+                      ? "No fixed base body — role framing in Task defaults is the prompt body."
+                      : "This agent has no fixed base body."}
+                  </div>
+                ) : (
+                  <pre style={{ ...PRE_BOX, marginTop: 8 }}>{agent.base_prompt}</pre>
+                )}
+              </details>
+
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 14 }}>
+                <div
+                  className={`toggle-switch ${overrideOn ? "on" : ""}`}
+                  role="switch"
+                  aria-checked={overrideOn}
+                  aria-label="Use full prompt override"
+                  tabIndex={0}
+                  onClick={() => {
+                    setOverrideOn((v) => !v);
+                    markDirty();
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setOverrideOn((v) => !v);
+                      markDirty();
+                    }
+                  }}
+                >
+                  <div className="thumb" />
+                </div>
+                <span style={{ fontSize: 13, fontWeight: 500 }}>Use full override</span>
+                {overrideOn && (
+                  <a
+                    role="button"
+                    tabIndex={0}
+                    onClick={clearOverride}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") clearOverride();
+                    }}
+                    style={{ fontSize: 12.5, cursor: "pointer", marginLeft: "auto" }}
+                  >
+                    Clear override
+                  </a>
+                )}
               </div>
-              <pre
-                style={{
-                  ...MONO,
-                  whiteSpace: "pre-wrap",
-                  margin: 0,
-                  maxHeight: 180,
-                  overflow: "auto",
-                  color: "#E6F2F5",
-                }}
-              >
-                {meta.contract_suffix_preview}
-              </pre>
-            </div>
+              {overrideOn && (
+                <textarea
+                  aria-label="Prompt override body"
+                  value={overrideText}
+                  onChange={(e) => {
+                    setOverrideText(e.target.value);
+                    markDirty();
+                  }}
+                  style={{ ...MONO, minHeight: 200, marginTop: 8 }}
+                />
+              )}
+
+              <details style={{ marginTop: 14 }}>
+                <summary style={{ fontSize: 12.5, color: "var(--teal-dark)", cursor: "pointer" }}>
+                  Locked contract suffix
+                </summary>
+                <div
+                  className="card"
+                  style={{
+                    background: "var(--teal-darkest)",
+                    border: "1px solid var(--teal-darkest)",
+                    color: "#E6F2F5",
+                    marginTop: 8,
+                    marginBottom: 0,
+                    padding: "14px 16px",
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: 11.5,
+                      fontWeight: 500,
+                      textTransform: "uppercase",
+                      letterSpacing: "0.04em",
+                      color: "#8FBFC9",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                      marginBottom: 8,
+                    }}
+                  >
+                    <i className="fa-solid fa-lock" style={{ fontSize: 10 }} /> Always appended —
+                    overrides cannot change it.
+                  </div>
+                  <pre
+                    style={{
+                      ...MONO,
+                      whiteSpace: "pre-wrap",
+                      margin: 0,
+                      maxHeight: 180,
+                      overflow: "auto",
+                      color: "#E6F2F5",
+                    }}
+                  >
+                    {meta.contract_suffix_preview}
+                  </pre>
+                </div>
+              </details>
+            </details>
 
             {/* ---- test run ---- */}
             {sectionLabel("Test run")}
             <div style={{ fontSize: 12.5, color: "var(--text-secondary)", marginBottom: 10, lineHeight: 1.5 }}>
-              Runs the candidate config above — including unsaved edits — against a small sample.
-              Nothing is persisted; use it to check output and the contract before saving.
+              Tests the candidate config, unsaved edits included. Nothing is saved.
             </div>
 
             {inputKind === "question_role" && (
@@ -692,7 +732,7 @@ export function AgentDrawer({ agentKey, updatedByName, onClose, onChanged }: Pro
             )}
             {inputKind === "none" && (
               <div style={{ fontSize: 12.5, color: "var(--text-muted)", marginBottom: 4 }}>
-                This agent tests against a built-in sample — no input needed.
+                Uses a built-in sample — no input needed.
               </div>
             )}
 
@@ -701,7 +741,7 @@ export function AgentDrawer({ agentKey, updatedByName, onClose, onChanged }: Pro
                 className="btn"
                 onClick={() => void runTest(true)}
                 disabled={testBusy !== ""}
-                title="Compose the prompt without a model call — inspect the body / locked-suffix seam"
+                title="Compose the prompt without a model call"
               >
                 <i className="fa-solid fa-eye" /> Preview prompt
               </button>
@@ -716,7 +756,7 @@ export function AgentDrawer({ agentKey, updatedByName, onClose, onChanged }: Pro
               </button>
               {testBusy === "run" && (
                 <span style={{ fontSize: 12.5, color: "var(--text-muted)", alignSelf: "center" }}>
-                  Calling the model — usually under a minute.
+                  Running — usually under a minute.
                 </span>
               )}
             </div>
@@ -749,7 +789,7 @@ export function AgentDrawer({ agentKey, updatedByName, onClose, onChanged }: Pro
                         ) : (
                           <span className="pill pill-lost">
                             <i className="fa-solid fa-triangle-exclamation" style={{ fontSize: 10 }} />{" "}
-                            Contract BROKEN — fix the override before saving
+                            Contract broken — fix override before saving
                           </span>
                         )
                       ) : (

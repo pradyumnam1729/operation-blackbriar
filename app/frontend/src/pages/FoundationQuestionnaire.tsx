@@ -42,11 +42,23 @@ const DOC_PILL: Record<MessagingDocSummary["status"], string> = {
 
 // GapsPanel: which doc types would likely fill a gap, by part (§3.1 — propose
 // how to populate, never guess).
-const GAP_SUGGESTIONS: Record<string, string> = {
-  A: "Add positioning inputs — PRDs, strategy docs, or call transcripts — via the Uploads console.",
-  B: "Add product documents — PRDs, specs, or release notes — via the Uploads console.",
-  C: "Add customer call transcripts (.vtt/.srt) — persona pains come from raw customer language.",
-  D: "Add battlecards or competitive notes via the Uploads console.",
+const GAP_SUGGESTIONS: Record<string, { short: string; full: string }> = {
+  A: {
+    short: "Add positioning inputs",
+    full: "Add positioning inputs — PRDs, strategy docs, or call transcripts — via the Uploads console.",
+  },
+  B: {
+    short: "Add product documents",
+    full: "Add product documents — PRDs, specs, or release notes — via the Uploads console.",
+  },
+  C: {
+    short: "Add call transcripts (.vtt/.srt)",
+    full: "Add customer call transcripts (.vtt/.srt) — persona pains come from raw customer language.",
+  },
+  D: {
+    short: "Add competitive notes",
+    full: "Add battlecards or competitive notes via the Uploads console.",
+  },
 };
 
 function fmtWhen(iso: string): string {
@@ -250,11 +262,10 @@ export function FoundationQuestionnaire({ embedded = false }: { embedded?: boole
   if (!admin) {
     return (
       <div>
-        {!embedded && <h1 className="pagetitle">Foundation questionnaire</h1>}
+        {!embedded && <h1 className="pagetitle">Positioning &amp; messaging</h1>}
         <div className="card">
           <div className="empty-note">
-            The Foundation Questionnaire is the PMM admin&rsquo;s workspace. Approved messaging
-            documents are available to every role once published.
+            PMM admin workspace — approved documents are published to every role.
           </div>
         </div>
       </div>
@@ -275,20 +286,16 @@ export function FoundationQuestionnaire({ embedded = false }: { embedded?: boole
     return (
       <div className="card" style={{ marginBottom: 0 }}>
         <div className="row-between">
-          <h2 style={{ margin: 0 }}>
+          <h2 style={{ margin: 0 }} title={desc}>
             <i className={`fa-regular ${icon}`} style={{ color: "var(--teal-dark)", marginRight: 8 }} />
             {title}
           </h2>
           {run && <span className={`pill ${RUN_PILL[run.status]}`}>{run.status}</span>}
         </div>
-        <p style={{ fontSize: 12.5, color: "var(--text-secondary)", margin: "8px 0 12px" }}>
-          {desc}
-        </p>
         {run ? (
-          <div style={{ fontSize: 12.5, color: "var(--text-secondary)", marginBottom: 12 }}>
-            Last run {fmtWhen(run.started_at)} — {run.docs_used} source doc
-            {run.docs_used === 1 ? "" : "s"}, {run.questions_answered} question
-            {run.questions_answered === 1 ? "" : "s"} answered.
+          <div style={{ fontSize: 12.5, color: "var(--text-secondary)", margin: "8px 0 12px" }}>
+            Last run {fmtWhen(run.started_at)} · {run.docs_used} doc
+            {run.docs_used === 1 ? "" : "s"} · {run.questions_answered} answered
             {run.status === "failed" && run.detail !== null && (
               <div style={{ color: "#a32d2d", marginTop: 6 }}>
                 <i className="fa-solid fa-circle-xmark" style={{ marginRight: 6 }} />
@@ -330,7 +337,7 @@ export function FoundationQuestionnaire({ embedded = false }: { embedded?: boole
       <div className="row-between" style={{ marginBottom: 4 }}>
         {!embedded && (
           <h1 className="pagetitle" style={{ margin: 0 }}>
-            Foundation questionnaire
+            Positioning &amp; messaging
           </h1>
         )}
         <select
@@ -346,9 +353,11 @@ export function FoundationQuestionnaire({ embedded = false }: { embedded?: boole
           ))}
         </select>
       </div>
-      <p className="pagesub">
-        Extract evidence from ingested sources, review every answer, then generate the Positioning
-        &amp; Messaging document — the unified system every downstream asset draws from.
+      <p
+        className="pagesub"
+        title="Extract evidence from ingested sources, review every answer, then generate the Positioning & Messaging document — the unified system every downstream asset draws from."
+      >
+        Extract &rarr; review &rarr; generate the Positioning &amp; Messaging document.
       </p>
 
       <div className="step-pills">
@@ -397,8 +406,8 @@ export function FoundationQuestionnaire({ embedded = false }: { embedded?: boole
             <Link className="btn btn-sm" to="/uploads">
               <i className="fa-solid fa-shield-halved" /> Uploads console
             </Link>
-            <Link className="btn btn-sm" to="/integrations">
-              <i className="fa-solid fa-circle-nodes" /> Integrations (local Input folder)
+            <Link className="btn btn-sm" to="/integrations" title="Sync a local Input folder">
+              <i className="fa-solid fa-circle-nodes" /> Integrations
             </Link>
           </div>
         </div>
@@ -429,9 +438,11 @@ export function FoundationQuestionnaire({ embedded = false }: { embedded?: boole
             <div className="row-between">
               <div>
                 <h2 style={{ margin: 0 }}>Build review queue</h2>
-                <p style={{ fontSize: 12.5, color: "var(--text-secondary)", margin: "6px 0 0" }}>
-                  Reconciles both passes into one merge proposal per question. Questions without
-                  evidence become gaps. Every answer — including single-source ones — requires your
+                <p
+                  style={{ fontSize: 12.5, color: "var(--text-secondary)", margin: "6px 0 0" }}
+                  title="Reconciles both passes into one merge proposal per question. Questions without evidence become gaps. Every answer — including single-source ones — requires your sign-off."
+                >
+                  One proposal per question; no evidence &rarr; gap. Every answer needs your
                   sign-off.
                 </p>
                 {mergeRun?.status === "failed" && mergeRun.detail !== null && (
@@ -466,8 +477,7 @@ export function FoundationQuestionnaire({ embedded = false }: { embedded?: boole
           {!hasAnyAnswer ? (
             <div className="card">
               <div className="empty-note">
-                No answers yet. Run the extraction passes above, then build the review queue to
-                start reconciling evidence.
+                No answers yet — run an extraction pass, then build the review queue.
               </div>
             </div>
           ) : (
@@ -491,7 +501,7 @@ export function FoundationQuestionnaire({ embedded = false }: { embedded?: boole
                   {signedOff && (
                     <div style={{ fontSize: 13, color: "#0e6b4e", fontWeight: 500, marginTop: 10 }}>
                       <i className="fa-solid fa-circle-check" style={{ marginRight: 6 }} />
-                      All questions signed off — the questionnaire is ready for generation.
+                      All signed off — ready to generate.
                     </div>
                   )}
                 </div>
@@ -514,7 +524,12 @@ export function FoundationQuestionnaire({ embedded = false }: { embedded?: boole
           {/* ---- Gaps ---- */}
           {gapItems.length > 0 && (
             <>
-              <div className="section-label">Gaps — will appear in Part F5</div>
+              <div
+                className="section-label"
+                title="Unresolved questions are listed in Part F5 of the generated document"
+              >
+                Gaps · Part F5
+              </div>
               <div className="card">
                 {gapItems.map(({ section, question }) => (
                   <div
@@ -532,9 +547,11 @@ export function FoundationQuestionnaire({ embedded = false }: { embedded?: boole
                       />
                       {question.id} — {question.prompt}
                     </div>
-                    <div style={{ color: "var(--text-secondary)", marginTop: 4 }}>
-                      ⚠ To confirm — listed in F5.{" "}
-                      {GAP_SUGGESTIONS[section.part] ?? GAP_SUGGESTIONS.B}
+                    <div
+                      style={{ color: "var(--text-secondary)", marginTop: 4 }}
+                      title={(GAP_SUGGESTIONS[section.part] ?? GAP_SUGGESTIONS.B).full}
+                    >
+                      To confirm · {(GAP_SUGGESTIONS[section.part] ?? GAP_SUGGESTIONS.B).short}
                     </div>
                   </div>
                 ))}
@@ -568,8 +585,7 @@ export function FoundationQuestionnaire({ embedded = false }: { embedded?: boole
             {generating ? (
               <div style={{ fontSize: 13, color: "var(--text-secondary)" }}>
                 <i className="fa-solid fa-spinner fa-spin" style={{ marginRight: 8 }} />
-                Generating the Positioning &amp; Messaging document part by part — this takes a few
-                minutes. The draft appears below when it lands.
+                Generating — a few minutes; the draft appears below.
               </div>
             ) : (
               <>
@@ -590,8 +606,7 @@ export function FoundationQuestionnaire({ embedded = false }: { embedded?: boole
                 {!signedOff && (
                   <div style={{ fontSize: 12.5, color: "var(--text-secondary)", marginTop: 10 }}>
                     <i className="fa-solid fa-lock" style={{ marginRight: 6 }} />
-                    {pendingCount} question{pendingCount === 1 ? "" : "s"} still unanswered or
-                    pending review — sign off every question before generating.
+                    {pendingCount} pending — sign off every question to generate.
                   </div>
                 )}
               </>
@@ -603,7 +618,7 @@ export function FoundationQuestionnaire({ embedded = false }: { embedded?: boole
           {docs.length === 0 ? (
             <div className="card">
               <div className="empty-note">
-                No document generated yet. Complete the review and generate the first draft.
+                No document yet — complete review and generate the first draft.
               </div>
             </div>
           ) : (
@@ -699,8 +714,8 @@ export function FoundationQuestionnaire({ embedded = false }: { embedded?: boole
                             style={{ marginRight: 6 }}
                           />
                           {approval.warning ??
-                            "Local Output folder is not configured — the HTML export was skipped."}{" "}
-                          <Link to="/integrations">Configure it in Integrations.</Link>
+                            "HTML export skipped — no Output folder."}{" "}
+                          <Link to="/integrations">Configure in Integrations.</Link>
                         </div>
                       )}
                     </div>

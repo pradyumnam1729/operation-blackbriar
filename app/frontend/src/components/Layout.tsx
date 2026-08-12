@@ -15,9 +15,12 @@ const MAIN_NAV: NavItem[] = [
   { to: "/features", label: "Feature catalog", icon: "fa-layer-group" },
   { to: "/competitive", label: "Competitive intel", icon: "fa-chess" },
   { to: "/requests", label: "Requests & intake", icon: "fa-upload" },
-  { to: "/studio", label: "Asset studio", icon: "fa-wand-magic-sparkles" },
+  // PMM-only: generation is admin work; other roles use the Asset library.
+  { to: "/studio", label: "Asset studio", icon: "fa-wand-magic-sparkles", adminOnly: true },
   { to: "/templates", label: "Template library", icon: "fa-object-group", adminOnly: true },
-  { to: "/library", label: "PMM workspace", icon: "fa-box-archive", adminOnly: true },
+  // Open to all roles — labeled "PMM workspace" for admins, "Asset library"
+  // for everyone else (the finalized-assets surface they use).
+  { to: "/library", label: "PMM workspace", icon: "fa-box-archive" },
 ];
 
 const ADMIN_NAV: NavItem[] = [
@@ -99,18 +102,21 @@ export function Layout() {
     setSearch("");
   };
 
-  const renderItem = (n: NavItem) => (
-    <NavLink
-      key={n.to}
-      to={n.to}
-      end={n.to === "/"}
-      data-tooltip={n.label}
-      className={({ isActive }) => (isActive ? "navitem active" : "navitem")}
-    >
-      <i className={`fa-solid ${n.icon}`} />
-      <span className="navtext">{n.label}</span>
-    </NavLink>
-  );
+  const renderItem = (n: NavItem) => {
+    const label = n.to === "/library" && me?.role !== "admin" ? "Asset library" : n.label;
+    return (
+      <NavLink
+        key={n.to}
+        to={n.to}
+        end={n.to === "/"}
+        data-tooltip={label}
+        className={({ isActive }) => (isActive ? "navitem active" : "navitem")}
+      >
+        <i className={`fa-solid ${n.icon}`} />
+        <span className="navtext">{label}</span>
+      </NavLink>
+    );
+  };
 
   return (
     <div className={collapsed ? "app collapsed" : "app"}>
@@ -164,8 +170,8 @@ export function Layout() {
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search the repository…"
-                aria-label="Search the repository"
+                placeholder="Search the PMM workspace…"
+                aria-label="Search the PMM workspace"
               />
             </form>
           ) : (

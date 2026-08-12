@@ -21,6 +21,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [me, setMe] = useState<Me | null>(null);
 
   const refresh = async () => {
+    const { data } = await supabase.auth.getSession();
+    if (!data.session) {
+      setMe(null);
+      setLoading(false);
+      return;
+    }
     try {
       setMe(await getMe());
     } catch {

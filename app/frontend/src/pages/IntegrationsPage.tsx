@@ -336,7 +336,12 @@ export function IntegrationsPage() {
 
   return (
     <div>
-      <h1 className="pagetitle">Connectors</h1>
+      <h1 className="pagetitle">
+        Connectors{" "}
+        <span className="pill pill-lock" style={{ marginLeft: 6 }}>
+          <i className="fa-solid fa-lock" style={{ fontSize: 9 }} /> Admin only
+        </span>
+      </h1>
       <p className="pagesub">
         Turn on the systems Hive pulls from and pushes to. Only PMM admins can change settings.
       </p>

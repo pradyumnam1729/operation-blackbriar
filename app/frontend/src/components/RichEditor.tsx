@@ -33,11 +33,7 @@ function toolbarBtn(active: boolean, disabled = false): CSSProperties {
 }
 
 const PROSEMIRROR_CSS = `
-.hive-editor .ProseMirror { outline: none; min-height: 320px; overflow-wrap: anywhere; }
-.hive-editor .ProseMirror table { width: 100%; table-layout: fixed; }
-.hive-editor .ProseMirror td, .hive-editor .ProseMirror th { overflow-wrap: anywhere; }
-/* Catch-all: no descendant can force the editor wider than its column. */
-.hive-editor .ProseMirror * { max-width: 100%; box-sizing: border-box; }
+.hive-editor .ProseMirror { outline: none; min-height: 320px; }
 .hive-editor .ProseMirror h1 { font-size: 22px; font-weight: 600; margin-top: 0; }
 .hive-editor .ProseMirror h2 { font-size: 17px; font-weight: 600; color: var(--teal-darkest); }
 .hive-editor .ProseMirror h3 { font-size: 15px; font-weight: 600; }
@@ -111,9 +107,7 @@ export function RichEditor({ valueHtml, onChange, onEditor }: RichEditorProps) {
       <style>{PROSEMIRROR_CSS}</style>
       <div
         style={{
-          display: "flex",
-          width: "100%",
-          boxSizing: "border-box",
+          display: "inline-flex",
           flexWrap: "wrap",
           gap: 2,
           padding: 4,
@@ -198,12 +192,11 @@ export function RichEditor({ valueHtml, onChange, onEditor }: RichEditorProps) {
       </div>
       <div
         style={{
-          background: "var(--bg-card)",
+          background: "#fff",
           border: "1px solid var(--border)",
           borderRadius: "var(--r-md)",
           minHeight: 320,
           padding: 16,
-          overflowX: "auto",
         }}
       >
         <EditorContent editor={editor} />

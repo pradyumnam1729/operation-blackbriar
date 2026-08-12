@@ -169,7 +169,7 @@ export function TemplatePreview({
       {!hideDownload && (
         <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8 }}>
           <button className="btn btn-sm" onClick={download}>
-            <i className="fa-solid fa-download" /> Download {EXTENSION[format].replace(/^-deck/, " deck")}
+            <i className="fa-solid fa-file-export" /> Export {EXTENSION[format].replace(/^-deck/, " deck")}
           </button>
         </div>
       )}

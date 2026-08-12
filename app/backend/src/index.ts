@@ -34,6 +34,7 @@ import { dbStatus } from "./services/db";
 import { startSharePointPolling } from "./services/sharepoint";
 import { restartInputWatcher } from "./services/localFolders";
 import { startCompetitiveNewsPolling, startMarketThreatPolling } from "./services/competitiveNews";
+import { startResearchScheduler } from "./services/researchRuns";
 
 const app = express();
 app.use(cors());
@@ -83,6 +84,7 @@ app.listen(port, () => {
   void restartInputWatcher();
   startCompetitiveNewsPolling();
   startMarketThreatPolling();
+  startResearchScheduler();
   // Reconcile agent base prompts from canonical sources (code constants +
   // .claude/agents files) — never touches admin-owned config fields.
   void syncAgentBaselines();

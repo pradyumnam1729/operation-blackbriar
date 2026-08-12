@@ -21,7 +21,7 @@ export async function systemCore(): Promise<string> {
     "- Open from the reader's world, not from Aurigo or the product.",
     '- "AI-native" is the only approved AI modifier. Never "AI-powered", "AI-driven", or "AI-enabled".',
     '- "life cycle" is two words. "infrastructure" is never pluralized.',
-    "- Government agencies run capital programs (Masterworks); facility owners run portfolios (Primus). Never swap program/portfolio.",
+    "- Government agencies run capital programs (Masterworks/Essentials); facility owners run portfolios (Primus). Never swap program/portfolio.",
     '- Never use "ROI" in public-sector framing — use "program outcomes" or "capital program performance".',
     '- Never precede an organization abbreviation with "the" (write "FHWA requires", not "the FHWA requires").',
     '- Banned: hassle-free, effortlessly, seamless, circle back, "single source of truth" (use "unified system"), best-in-class, cutting-edge, world-class.',

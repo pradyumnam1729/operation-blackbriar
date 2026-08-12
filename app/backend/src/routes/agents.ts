@@ -26,6 +26,7 @@ import {
   SAMPLE_SECTION_XML,
   SAMPLE_SLOTS,
   SAMPLE_SLOT_FILL_VARS,
+  SAMPLE_SOURCE_DIFF,
   SAMPLE_TRANSCRIPT_XML,
   assertAgentEnabled,
   bustAgentCache,
@@ -36,7 +37,13 @@ import {
   isAllowedModel,
   resolveModel,
 } from "../services/agents";
-import { ROLE_FRAMING } from "../services/agentPrompts";
+import { EVENT_SUMMARY_LOCKED_SUFFIX, ROLE_FRAMING } from "../services/agentPrompts";
+import {
+  FEATURE_MATRIX_SUFFIX,
+  FIVE_FORCES_SUFFIX,
+  SWOT_SUFFIX,
+  THREAT_TIERS_SUFFIX,
+} from "../services/frameworks";
 import { buildExtractionSuffix, buildMergeSuffix } from "../services/questionnaire";
 import { buildRouterSuffix } from "../services/askRouter";
 import { buildSlotFillSuffix } from "../services/templateGenerate";
@@ -430,6 +437,62 @@ agentsRouter.post("/:key/test-run", async (req, res) => {
           "=== SCRAPED COMPETITOR SOURCES ===",
           SAMPLE_COMPETITOR_XML,
           `=== QUESTION (from a GTM teammate) ===\nCompetitor: Kahua (static sample)\n${question}`,
+        ].join("\n\n");
+        prompt = composeAgentPrompt(candidate, {}, suffix);
+        break;
+      }
+      case "competitive-event-summary": {
+        // Static sample diff — no scraping, no DB. Expected: changed true,
+        // event_type "release"/"pricing_changed", severity notable or high.
+        const suffix = [
+          EVENT_SUMMARY_LOCKED_SUFFIX,
+          "Competitor: Kahua (static sample)",
+          "Source: https://example.com/kahua-sample (type: official)",
+          "=== CHANGED LINES (- removed / + added) ===",
+          SAMPLE_SOURCE_DIFF,
+        ].join("\n\n");
+        prompt = composeAgentPrompt(candidate, {}, suffix);
+        break;
+      }
+      case "fw-threat-tiers": {
+        const suffix = [
+          THREAT_TIERS_SUFFIX,
+          `=== COMPETITOR: Kahua (static sample) ===\n${SAMPLE_COMPETITOR_XML}`,
+          "=== RECENT CHANGE EVENTS (last 30 days, from tracked sources) ===\n- 2026-08-06 [notable/release] Kahua: Noa AI assistant page published",
+        ].join("\n\n");
+        prompt = composeAgentPrompt(candidate, {}, suffix);
+        break;
+      }
+      case "fw-swot": {
+        const suffix = [
+          SWOT_SUFFIX,
+          `=== COMPETITOR: Kahua (static sample) ===\n${SAMPLE_COMPETITOR_XML}`,
+        ].join("\n\n");
+        prompt = composeAgentPrompt(candidate, {}, suffix);
+        break;
+      }
+      case "fw-five-forces": {
+        const suffix = [
+          FIVE_FORCES_SUFFIX,
+          `=== COMPETITOR: Kahua (static sample) ===\n${SAMPLE_COMPETITOR_XML}`,
+        ].join("\n\n");
+        prompt = composeAgentPrompt(candidate, {}, suffix);
+        break;
+      }
+      case "fw-feature-matrix": {
+        const suffix = [
+          FEATURE_MATRIX_SUFFIX,
+          `=== COMPETITOR: Kahua (static sample) ===\n${SAMPLE_COMPETITOR_XML}`,
+        ].join("\n\n");
+        prompt = composeAgentPrompt(candidate, {}, suffix);
+        break;
+      }
+      case "competitive-digest": {
+        const suffix = [
+          "Digest window: 2026-08-04 to 2026-08-11 (7 days).",
+          "=== CHANGE EVENTS IN WINDOW ===\n- 2026-08-06 [notable/release] Kahua (static sample): Noa AI assistant page published — AI assistant added to Enterprise plan.",
+          "=== LATEST THREAT BOARD ===\nNot built yet.",
+          "=== STALE BATTLECARDS ===\n- Kahua (static sample): Noa AI assistant page published",
         ].join("\n\n");
         prompt = composeAgentPrompt(candidate, {}, suffix);
         break;

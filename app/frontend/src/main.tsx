@@ -35,9 +35,9 @@ function Root() {
         <Route path="/" element={<Home />} />
         <Route path="/ask" element={<Navigate to="/" replace />} />
         <Route path="/requests" element={<Requests />} />
-        {/* The workspace page is admin-only; the editor stays open so Studio
-            and battlecard saves can land non-admin drafts. */}
-        <Route path="/library" element={adminOnly(<ArtifactLibrary />)} />
+        {/* The workspace is open to all roles — the backend scopes non-admin
+            reads to finals + own drafts (blueprint workspace-tabs §6). */}
+        <Route path="/library" element={<ArtifactLibrary />} />
         <Route path="/library/:id" element={<ArtifactEditor />} />
         <Route path="/features" element={<FeatureCatalog />} />
         <Route path="/competitive" element={<CompetitiveIntel />} />
