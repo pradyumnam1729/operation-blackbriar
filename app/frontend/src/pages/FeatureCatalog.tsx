@@ -156,7 +156,15 @@ export function FeatureCatalog() {
 
   const loadTree = useCallback(async () => {
     try {
-      setTree(await getFeatureTree());
+      const t = await getFeatureTree();
+      setTree(t);
+      // Land on the product that carries the two-level hierarchy (the suite
+      // with the imported Excel features), not the arbitrary first product —
+      // /api/products orders by line/module, so its [0] is "Masterworks AI"
+      // (release-note features), while the 66 imported features live under the
+      // "Masterworks" suite product. Only set on initial load (prev empty).
+      const preferred = t.find((p) => p.sub_products.length > 0) ?? t[0];
+      if (preferred) setProductId((prev) => prev || preferred.id);
     } catch (e) {
       setError((e as Error).message);
     }
@@ -177,7 +185,9 @@ export function FeatureCatalog() {
       .then((p) => {
         setProducts(p);
         if (p.length > 0) {
-          setProductId(p[0].id);
+          // The catalog's default product is chosen by loadTree (prefers the
+          // suite that holds the imported features); these forms just need a
+          // sane default.
           setProcProduct(p[0].id);
           setAddForm((f) => ({ ...f, product_id: p[0].id }));
         }
