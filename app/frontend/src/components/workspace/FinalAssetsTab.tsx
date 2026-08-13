@@ -34,6 +34,7 @@ export function FinalAssetsTab({
 }: FinalAssetsTabProps) {
   const navigate = useNavigate();
   const [finals, setFinals] = useState<ArtifactListItem[]>([]);
+  const [pendingCount, setPendingCount] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -50,6 +51,24 @@ export function FinalAssetsTab({
       .then((r) => setFinals(r.artifacts.filter((a) => a.status === "final")))
       .catch((e) => setError((e as Error).message))
       .finally(() => setLoading(false));
+
+    // Admins also see how much is still unpublished — the #1 confusion here is
+    // "where are my documents?" when they simply haven't been marked Final yet.
+    if (admin) {
+      const pendingParams = new URLSearchParams();
+      if (productId) pendingParams.set("product_id", productId);
+      apiGet<{ artifacts: ArtifactListItem[] }>(
+        `/api/artifacts${pendingParams.toString() === "" ? "" : `?${pendingParams.toString()}`}`
+      )
+        .then((r) =>
+          setPendingCount(
+            r.artifacts.filter((a) => a.status === "draft" || a.status === "in_review").length
+          )
+        )
+        .catch(() => setPendingCount(null));
+    } else {
+      setPendingCount(null);
+    }
   }, [admin, productId]);
 
   if (sub === "messaging") return <MessagingDocsTable />;
@@ -80,6 +99,32 @@ export function FinalAssetsTab({
           }}
         >
           {error}
+        </div>
+      )}
+      {!loading && admin && sub === "all" && (pendingCount ?? 0) > 0 && (
+        <div
+          style={{
+            marginBottom: 12,
+            padding: "9px 13px",
+            background: "#E1F0F2",
+            borderRadius: "var(--r-md)",
+            color: "var(--teal-dark)",
+            fontSize: 12.5,
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            flexWrap: "wrap",
+          }}
+        >
+          <i className="fa-solid fa-circle-info" />
+          <span style={{ flex: 1 }}>
+            Only finalized assets appear here. {pendingCount} more{" "}
+            {pendingCount === 1 ? "is" : "are"} still draft or in review — mark them Final in the
+            editor to publish them.
+          </span>
+          <button className="btn btn-sm" onClick={() => navigate("/library?tab=in-progress")}>
+            <i className="fa-solid fa-pen-to-square" /> Open In progress
+          </button>
         </div>
       )}
       {loading ? (
