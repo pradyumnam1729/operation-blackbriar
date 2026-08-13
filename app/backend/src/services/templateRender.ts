@@ -357,6 +357,24 @@ export function renderTemplate(
   return { payload, warnings };
 }
 
+/** Brand chrome is PRODUCT-derived, never model judgment: a Masterworks
+ *  Maintain datasheet must never render another product's wordmark. When the
+ *  template carries a brand_wordmark slot, generation forces it from the
+ *  artifact's product (force=true, overriding whatever the model filled);
+ *  re-renders default it only when empty, so a deliberate human edit to the
+ *  wordmark survives. Pure — unit-tested alongside the render layer. */
+export function applyBrandDefaults(
+  slots: TemplateSlot[],
+  fills: Record<string, string>,
+  productName: string,
+  force: boolean
+): Record<string, string> {
+  if (!slots.some((s) => s.id === "brand_wordmark")) return fills;
+  const current = (fills.brand_wordmark ?? "").trim();
+  if (!force && current !== "") return fills;
+  return { ...fills, brand_wordmark: productName.trim().toUpperCase() };
+}
+
 /** Placeholder fills for GET /preview: each slot -> «label — max N chars»
  *  ('lines': max_lines placeholder rows). */
 export function placeholderFills(slots: TemplateSlot[]): Record<string, string> {

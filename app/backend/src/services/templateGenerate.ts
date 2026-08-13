@@ -16,6 +16,7 @@ import {
   RenderWarning,
   TemplateFormat,
   TemplateSlot,
+  applyBrandDefaults,
   buildDigestHtml,
   renderTemplate,
   validateFills,
@@ -306,6 +307,11 @@ export async function generateFromTemplate(
     }
   }
 
+  // Wordmark comes from the product, not the model (a Masterworks Maintain
+  // datasheet must never say MASTERWORKS AI) — force-applied before the drift
+  // loop, the render, the digest, and the stored slot_fills all read `ok`.
+  Object.assign(ok, applyBrandDefaults(slots, ok, product.name, true));
+
   // Wired-section drift: a slot left empty because every wired section is
   // missing/empty in this final doc degrades to a visible warning, never invention.
   for (const slot of slots) {
@@ -476,8 +482,6 @@ export async function reRenderWithFills(
     throw new TemplateGenError("One or more fills exceed their character limits.", 400, over);
   }
 
-  const { payload, warnings } = renderTemplate(template.format, template.body, slots, ok);
-
   let productName = "Aurigo";
   if (artifact.product_id) {
     const { data: product } = await sb
@@ -487,6 +491,13 @@ export async function reRenderWithFills(
       .maybeSingle();
     productName = (product as { name: string } | null)?.name ?? productName;
   }
+
+  // Default the brand wordmark from the product when empty (covers artifacts
+  // generated before the wordmark became a slot) — but never override a
+  // deliberate human edit (force=false).
+  Object.assign(ok, applyBrandDefaults(slots, ok, productName, false));
+
+  const { payload, warnings } = renderTemplate(template.format, template.body, slots, ok);
   let docVersion = 0;
   if (render.messaging_doc_id) {
     const { data: doc } = await sb

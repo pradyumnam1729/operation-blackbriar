@@ -314,3 +314,30 @@ test("buildDigestHtml survives cleanHtml with every fill word intact", () => {
   assert.ok(text.includes("Masterworks AI Messaging Doc v2"));
   assert.ok(text.includes("empty in the messaging doc"));
 });
+
+// ---------- brand wordmark defaults (product-derived chrome) ----------
+
+import { applyBrandDefaults } from "../src/services/templateRender";
+
+const wordmarkSlot: TemplateSlot = {
+  id: "brand_wordmark", label: "Brand wordmark", purpose: "p", max_chars: 40,
+  required: true, render: "text", source_sections: ["B1"],
+};
+
+test("applyBrandDefaults: generation (force) overrides whatever the model filled", () => {
+  const out = applyBrandDefaults([wordmarkSlot], { brand_wordmark: "MASTERWORKS AI" }, "Masterworks Maintain", true);
+  assert.equal(out.brand_wordmark, "MASTERWORKS MAINTAIN");
+});
+
+test("applyBrandDefaults: re-render (no force) fills empty but respects human edits", () => {
+  const filled = applyBrandDefaults([wordmarkSlot], {}, "Masterworks Maintain", false);
+  assert.equal(filled.brand_wordmark, "MASTERWORKS MAINTAIN");
+  const edited = applyBrandDefaults([wordmarkSlot], { brand_wordmark: "MW MAINTAIN" }, "Masterworks Maintain", false);
+  assert.equal(edited.brand_wordmark, "MW MAINTAIN");
+});
+
+test("applyBrandDefaults: no-op for templates without a brand_wordmark slot", () => {
+  const other: TemplateSlot = { ...wordmarkSlot, id: "headline" };
+  const out = applyBrandDefaults([other], { headline: "x" }, "Primus", true);
+  assert.deepEqual(out, { headline: "x" });
+});

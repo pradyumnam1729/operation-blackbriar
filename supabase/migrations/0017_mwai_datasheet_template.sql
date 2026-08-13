@@ -64,7 +64,7 @@ footer .mark { font-weight: 900; font-size: 12px; letter-spacing: 2px; color: #c
 <body>
 <div class="sheet">
   <div class="hero">
-    <div class="wordmark">MASTERWORKS AI<span class="spark"> ✦</span></div>
+    <div class="wordmark">{{brand_wordmark}}<span class="spark"> ✦</span></div>
     <h1>{{headline}}</h1>
     <div class="sub">{{subheadline}}</div>
   </div>
@@ -91,12 +91,12 @@ footer .mark { font-weight: 900; font-size: 12px; letter-spacing: 2px; color: #c
 </div>
 </body>
 </html>$mwai_tpl$,
-  $mwai_slots$[{"id":"headline","label":"Headline","render":"text","purpose":"Outcome-led headline opening from the reader's world, not the product","required":true,"max_chars":60,"source_sections":["B1"]},{"id":"subheadline","label":"Subheadline","render":"text","purpose":"One-sentence positioning: for whom, what, unlike what","required":true,"max_chars":140,"source_sections":["A5","B1"]},{"id":"reader_hook","label":"Reader hook","render":"text","purpose":"The economic buyer's top pain, in language close to their own words","required":true,"max_chars":220,"source_sections":["C1"]},{"id":"overview","label":"Overview","render":"multiline","purpose":"Plain-language description of what the product does day to day","required":true,"max_chars":450,"source_sections":["B3"]},{"id":"pillar_1_title","label":"Pillar 1 title","render":"text","purpose":"First value pillar name","required":true,"max_chars":40,"source_sections":["B2"]},{"id":"pillar_1_body","label":"Pillar 1 body","render":"text","purpose":"What pillar 1 means for the customer","required":true,"max_chars":160,"source_sections":["B2"]},{"id":"pillar_2_title","label":"Pillar 2 title","render":"text","purpose":"Second value pillar name","required":true,"max_chars":40,"source_sections":["B2"]},{"id":"pillar_2_body","label":"Pillar 2 body","render":"text","purpose":"What pillar 2 means for the customer","required":true,"max_chars":160,"source_sections":["B2"]},{"id":"pillar_3_title","label":"Pillar 3 title","render":"text","purpose":"Third value pillar name","required":true,"max_chars":40,"source_sections":["B2"]},{"id":"pillar_3_body","label":"Pillar 3 body","render":"text","purpose":"What pillar 3 means for the customer","required":true,"max_chars":160,"source_sections":["B2"]},{"id":"capabilities","label":"Key capabilities","render":"lines","purpose":"Named capability + its outcome, one item per line","required":true,"max_chars":540,"max_lines":6,"source_sections":["B5"]},{"id":"proof","label":"Proof","render":"text","purpose":"Quantified proof the right to win is real — numbers exactly as approved","required":true,"max_chars":260,"source_sections":["A4"]},{"id":"cta","label":"Call to action","render":"text","purpose":"Concrete next step framed as the reader's move","required":true,"max_chars":120,"source_sections":["E2"]}]$mwai_slots$::jsonb,
+  $mwai_slots$[{"id":"brand_wordmark","label":"Brand wordmark","render":"text","purpose":"The product wordmark in the masthead, uppercase (auto-derived from the artifact's product — edit only for a deliberate brand exception)","required":true,"max_chars":40,"source_sections":["B1"]},{"id":"headline","label":"Headline","render":"text","purpose":"Outcome-led headline opening from the reader's world, not the product","required":true,"max_chars":60,"source_sections":["B1"]},{"id":"subheadline","label":"Subheadline","render":"text","purpose":"One-sentence positioning: for whom, what, unlike what","required":true,"max_chars":140,"source_sections":["A5","B1"]},{"id":"reader_hook","label":"Reader hook","render":"text","purpose":"The economic buyer's top pain, in language close to their own words","required":true,"max_chars":220,"source_sections":["C1"]},{"id":"overview","label":"Overview","render":"multiline","purpose":"Plain-language description of what the product does day to day","required":true,"max_chars":450,"source_sections":["B3"]},{"id":"pillar_1_title","label":"Pillar 1 title","render":"text","purpose":"First value pillar name","required":true,"max_chars":40,"source_sections":["B2"]},{"id":"pillar_1_body","label":"Pillar 1 body","render":"text","purpose":"What pillar 1 means for the customer","required":true,"max_chars":160,"source_sections":["B2"]},{"id":"pillar_2_title","label":"Pillar 2 title","render":"text","purpose":"Second value pillar name","required":true,"max_chars":40,"source_sections":["B2"]},{"id":"pillar_2_body","label":"Pillar 2 body","render":"text","purpose":"What pillar 2 means for the customer","required":true,"max_chars":160,"source_sections":["B2"]},{"id":"pillar_3_title","label":"Pillar 3 title","render":"text","purpose":"Third value pillar name","required":true,"max_chars":40,"source_sections":["B2"]},{"id":"pillar_3_body","label":"Pillar 3 body","render":"text","purpose":"What pillar 3 means for the customer","required":true,"max_chars":160,"source_sections":["B2"]},{"id":"capabilities","label":"Key capabilities","render":"lines","purpose":"Named capability + its outcome, one item per line","required":true,"max_chars":540,"max_lines":6,"source_sections":["B5"]},{"id":"proof","label":"Proof","render":"text","purpose":"Quantified proof the right to win is real — numbers exactly as approved","required":true,"max_chars":260,"source_sections":["A4"]},{"id":"cta","label":"Call to action","render":"text","purpose":"Concrete next step framed as the reader's move","required":true,"max_chars":120,"source_sections":["E2"]}]$mwai_slots$::jsonb,
   'public-sector capital program owners',
   'Capital Program / PMO Director',
   'consideration',
   'reference output/Output/Masterworks AI/Datasheets/Masterworks AI Overview Datasheet.pdf',
-  1
+  2
 )
 on conflict (id) do update set
   name = excluded.name,
@@ -104,4 +104,5 @@ on conflict (id) do update set
   slots = excluded.slots,
   format = excluded.format,
   approved = excluded.approved,
-  exemplar_path = excluded.exemplar_path;
+  exemplar_path = excluded.exemplar_path,
+  template_version = excluded.template_version;
