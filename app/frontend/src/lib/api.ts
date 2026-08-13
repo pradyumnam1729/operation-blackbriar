@@ -95,6 +95,85 @@ export const getMe = () => apiGet<{ user: Me }>("/api/me").then((r) => r.user);
 export const getProducts = () =>
   apiGet<{ products: Product[] }>("/api/products").then((r) => r.products);
 
+// ---- Feature Catalog v2 (blueprint vol-3-architecture/07-feature-catalog-v2.md §3, §5) ----
+
+export type FeatureStatus = "active" | "changed" | "deprecated";
+
+/** A leaf under a suite product (Masterworks). Legacy per-product modules
+ *  carry no sub-products. */
+export interface SubProduct {
+  id: string;
+  name: string;
+  feature_count: number;
+}
+
+/** One product node in the two-level selector tree. */
+export interface FeatureTreeProduct {
+  id: string;
+  name: string;
+  line: string;
+  module: string;
+  feature_count: number;
+  sub_products: SubProduct[];
+}
+
+/** The full feature record — one fetch feeds both the card and table views. */
+export interface FeatureRecord {
+  id: string;
+  product_id: string;
+  product_name: string | null;
+  sub_product_id: string | null;
+  sub_product_name: string | null;
+  name: string;
+  /** 1-line capability summary. */
+  description: string | null;
+  /** Newline-joined bullet list of high-level capabilities. */
+  capabilities: string | null;
+  /** 1-line value proposition — the buyer-facing headline. */
+  value_prop: string | null;
+  /** Comma-separated persona names. */
+  persona: string | null;
+  category: string | null;
+  release_date: string | null;
+  release_note_id: string | null;
+  source_url: string | null;
+  status: FeatureStatus;
+  /** "xlsx_import" marks a bulk-imported (not-yet-PMM-validated) row. */
+  origin: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export const getFeatureTree = () =>
+  apiGet<{ products: FeatureTreeProduct[] }>("/api/features/tree").then((r) => r.products);
+
+export const getFeatures = (opts: { product_id: string; sub_product_id?: string }) => {
+  const params = new URLSearchParams({ product_id: opts.product_id });
+  if (opts.sub_product_id) params.set("sub_product_id", opts.sub_product_id);
+  return apiGet<{ features: FeatureRecord[] }>(`/api/features?${params.toString()}`).then(
+    (r) => r.features
+  );
+};
+
+export interface FeatureImportSheet {
+  sheet: string;
+  featuresParsed: number;
+  created: number;
+  updated: number;
+  error?: string;
+}
+
+export interface FeatureImportSummary {
+  workbook: string;
+  sheets: FeatureImportSheet[];
+  totals: { subProducts: number; created: number; updated: number };
+}
+
+/** Admin-only bulk pre-load from the Masterworks workbook. Idempotent — a
+ *  re-run reports updated rows, not duplicates. */
+export const importFeatureXlsx = () =>
+  apiPost<{ summary: FeatureImportSummary }>("/api/features/import-xlsx").then((r) => r.summary);
+
 // ---- Ask-to-artifact routing (blueprint app/docs/blueprints/ask-to-artifact.md §3.1, §6.1) ----
 
 /** Template the router chose — always a validated row from the candidate set,
@@ -739,6 +818,44 @@ export async function apiGetBlob(path: string): Promise<Blob> {
   }
   return res.blob();
 }
+
+// ---- Open API access keys (admin; blueprint app/docs/blueprints/open-api.md §2.3, §7.3) ----
+
+export interface ApiKeySummary {
+  id: string;
+  name: string;
+  team: string;
+  key_prefix: string;
+  scopes: string[];
+  enabled: boolean;
+  created_at: string;
+  last_used_at: string | null;
+  created_by_name: string | null;
+}
+
+export interface ApiKeyUsageRow {
+  method: string;
+  path: string;
+  status: number | null;
+  duration_ms: number | null;
+  created_at: string;
+}
+
+/** Admin-only — the endpoint 403s for non-admins (the drawer keys off that). */
+export const listApiKeys = () => apiGet<{ keys: ApiKeySummary[] }>("/api/api-keys");
+
+/** 201 carries `plaintext_key` — the ONE and ONLY response that ever does. Show
+ *  it once, then drop it from state; it is never retrievable again. */
+export const createApiKey = (b: { name: string; team?: string; scopes: string[] }) =>
+  apiPost<{ key: ApiKeySummary; plaintext_key: string }>("/api/api-keys", b);
+
+export const toggleApiKey = (id: string) =>
+  apiPost<{ key: ApiKeySummary }>(`/api/api-keys/${id}/toggle`);
+
+export const deleteApiKey = (id: string) => apiDelete<{ ok: true }>(`/api/api-keys/${id}`);
+
+export const getApiKeyUsage = (id: string) =>
+  apiGet<{ requests: ApiKeyUsageRow[] }>(`/api/api-keys/${id}/usage`);
 
 /** Downloads the deck as a real .pptx (bearer header rides the fetch — the
  *  token cannot ride an <a href>). ApiError(409) = no structured slides yet. */
