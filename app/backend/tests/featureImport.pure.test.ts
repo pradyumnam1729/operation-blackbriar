@@ -87,3 +87,19 @@ test("idempotency keys are case/whitespace-stable", () => {
   assert.equal(featureKey("sp1", "Fund Management"), featureKey("sp1", "  fund   management  "));
   assert.notEqual(featureKey("sp1", "Fund Management"), featureKey("sp2", "Fund Management"));
 });
+
+test("assembleFeatures emits a separate entry per opening row even on repeated names (dedup is the writer's job)", () => {
+  // Two rows with the SAME non-empty Feature Name → two ParsedFeatures. The
+  // importer's existingByKey map makes the second update-in-place (last-wins),
+  // rather than the parser silently merging them (QA S1 boundary).
+  const sheet: SheetMatrix = [
+    HEADER,
+    ["P", "Workflow", "• a", "sum1", "vp1", "Admin"],
+    ["P", "Workflow", "• b", "sum2", "vp2", "Admin"],
+  ];
+  const features = assembleFeatures(sheet);
+  assert.equal(features.length, 2);
+  assert.equal(features[0].name, "Workflow");
+  assert.equal(features[1].name, "Workflow");
+  assert.equal(featureKey("sp", features[0].name), featureKey("sp", features[1].name));
+});

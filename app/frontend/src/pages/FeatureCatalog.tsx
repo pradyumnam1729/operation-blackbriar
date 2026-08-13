@@ -473,7 +473,13 @@ export function FeatureCatalog() {
           onGoToNote={goToNote}
         />
       ) : (
-        <FeatureTable features={features} isAdmin={isAdmin} busy={busy} onDelete={removeFeature} />
+        <FeatureTable
+          key={`${productId}-${subProductId}`}
+          features={features}
+          isAdmin={isAdmin}
+          busy={busy}
+          onDelete={removeFeature}
+        />
       )}
 
       {/* ---------- release notes ---------- */}

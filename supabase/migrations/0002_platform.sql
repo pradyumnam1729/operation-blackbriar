@@ -18,7 +18,10 @@ alter table products add column if not exists module text;
 -- 'Masterworks AI' intentionally NOT deleted: 0009 re-seeds it and the
 -- questionnaire tables FK it — deleting on re-run would violate those FKs
 -- (the runner re-applies every migration; 0009's on-conflict keeps it current).
-delete from products where name in ('Masterworks', 'Essentials', 'Primus');
+-- Only the flat 0001 seeds (line IS NULL) — never the v2 suite anchor (0023,
+-- line='Masterworks'), which imported features reference and would FK-restrict
+-- this delete on replay, bricking `npm run migrate` post-import (QA B1).
+delete from products where name in ('Masterworks', 'Essentials', 'Primus') and line is null;
 
 insert into products (id, name, line, module) values
   ('11111111-1111-1111-1111-111111111101', 'Masterworks Plan', 'Masterworks', 'Plan'),

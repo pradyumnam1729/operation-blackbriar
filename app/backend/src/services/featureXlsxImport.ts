@@ -18,12 +18,20 @@ import {
 // imported row is marked origin='xlsx_import' so the UI can badge it as
 // unvalidated (draft-gate visibility).
 
-const DEFAULT_WORKBOOK = path.join(
-  REPO_ROOT,
-  "local-folders",
-  "Input",
-  "Masterworks 2026 Complete Features List.xlsx"
-);
+const IMPORT_DIR = path.join(REPO_ROOT, "local-folders", "Input");
+const DEFAULT_WORKBOOK = path.join(IMPORT_DIR, "Masterworks 2026 Complete Features List.xlsx");
+
+/** A caller-supplied file_path must resolve inside the import directory — no
+ *  arbitrary server file reads via SheetJS, even for an admin (QA S3). */
+function resolveWorkbookPath(filePath: string | undefined): string {
+  if (!filePath) return DEFAULT_WORKBOOK;
+  const resolved = path.resolve(IMPORT_DIR, filePath);
+  const rel = path.relative(IMPORT_DIR, resolved);
+  if (rel.startsWith("..") || path.isAbsolute(rel)) {
+    throw new Error("file_path must be inside local-folders/Input");
+  }
+  return resolved;
+}
 
 export interface SheetImport {
   sheet: string;
@@ -57,19 +65,19 @@ export function readWorkbook(filePath: string): Record<string, SheetMatrix> {
 }
 
 /** Get-or-create a sub-product by (product_id, name). Idempotent via the
- *  unique (product_id, lower(name)) index — lookup then insert. */
+ *  unique (product_id, lower(name)) index. Match on normalized equality in JS
+ *  — an `ilike` here would treat `_`/`%` in a sheet name as wildcards (QA N1). */
 async function ensureSubProduct(
   sb: SupabaseClient,
   productId: string,
   name: string
 ): Promise<string> {
-  const { data: existing } = await sb
+  const target = name.trim().toLowerCase();
+  const { data: rows } = await sb
     .from("sub_products")
-    .select("id")
-    .eq("product_id", productId)
-    .ilike("name", name)
-    .limit(1)
-    .maybeSingle();
+    .select("id, name")
+    .eq("product_id", productId);
+  const existing = (rows ?? []).find((r) => String(r.name).trim().toLowerCase() === target);
   if (existing) return existing.id as string;
   const { data, error } = await sb
     .from("sub_products")
@@ -101,14 +109,22 @@ async function upsertFeature(
     if (error) throw new Error(error.message);
     return "updated";
   }
-  const { error } = await sb.from("features").insert({
-    product_id: productId,
-    sub_product_id: subProductId,
-    name: f.name,
-    status: "active",
-    ...fields,
-  });
-  if (error) throw new Error(error.message);
+  const { data, error } = await sb
+    .from("features")
+    .insert({
+      product_id: productId,
+      sub_product_id: subProductId,
+      name: f.name,
+      status: "active",
+      ...fields,
+    })
+    .select("id")
+    .single();
+  if (error || !data) throw new Error(error?.message ?? "feature insert failed");
+  // Seed the map with the freshly inserted id so a repeated feature name WITHIN
+  // the same sheet updates in place (last-wins) instead of hitting the unique
+  // index and aborting the rest of the sheet (QA S1).
+  existingByKey.set(featureKey(subProductId, f.name), data.id as string);
   return "created";
 }
 
@@ -126,7 +142,7 @@ export async function importMasterworksWorkbook(
   sb: SupabaseClient,
   opts: ImportOptions = {}
 ): Promise<ImportSummary> {
-  const filePath = opts.filePath ?? DEFAULT_WORKBOOK;
+  const filePath = resolveWorkbookPath(opts.filePath);
   const productId = opts.productId ?? MASTERWORKS_SUITE_ID;
   if (!fs.existsSync(filePath)) {
     throw new Error(`Workbook not found: ${filePath}`);
