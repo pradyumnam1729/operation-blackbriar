@@ -1,8 +1,9 @@
 import { ReactNode, useCallback, useEffect, useState } from "react";
-import { apiGet, apiPost } from "../lib/api";
+import { ApiKeySummary, apiGet, apiPost, listApiKeys } from "../lib/api";
 import { useAuth } from "../auth/AuthContext";
 import { SharePointDrawer } from "../components/SharePointDrawer";
 import { LocalFoldersDrawer } from "../components/LocalFoldersDrawer";
+import { ApiAccessDrawer } from "../components/ApiAccessDrawer";
 
 // Connectors screen — one card per connector (blueprint connectors-cards.md).
 // The page shell loads the three status GETs, renders the card grid with
@@ -34,16 +35,21 @@ interface ConnectorCard {
   subline: string;
   icon: string; // full Font Awesome class
   desc: string;
-  toggle: {
+  /** A live flag-toggle pill in the header (admins get a button, others a span).
+   *  Omitted for status-only cards that use `headerPill` instead. */
+  toggle?: {
     on: boolean;
     labels: [string, string];
     disabled?: boolean;
     hint?: string;
     run: () => Promise<void>;
   };
-  footerPill: { cls: string; label: string };
+  /** A static, non-interactive header status pill (used where there is no
+   *  flag to flip — e.g. API access). Takes the toggle's header slot. */
+  headerPill?: { cls: string; label: string };
+  footerPill?: { cls: string; label: string };
   stat: ReactNode;
-  opens: "sharepoint" | "localfolders" | null;
+  opens: "sharepoint" | "localfolders" | "api" | null;
 }
 
 function fmt(iso?: string | null): string {
@@ -57,16 +63,20 @@ export function IntegrationsPage() {
   const [flags, setFlags] = useState<FlagRow[]>([]);
   const [lf, setLf] = useState<LfSummary | null>(null);
   const [sp, setSp] = useState<SpSummary | null>(null);
+  const [apiKeys, setApiKeys] = useState<ApiKeySummary[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
-  const [open, setOpen] = useState<"sharepoint" | "localfolders" | null>(null);
+  const [open, setOpen] = useState<"sharepoint" | "localfolders" | "api" | null>(null);
 
   const load = useCallback(async () => {
-    const [fr, lr, sr] = await Promise.allSettled([
+    // The API-keys list is admin-only (the endpoint 403s otherwise) — non-admins
+    // resolve an empty list and the card renders its static "PMM managed" pill.
+    const [fr, lr, sr, kr] = await Promise.allSettled([
       apiGet<{ flags: FlagRow[] }>("/api/integrations"),
       apiGet<LfSummary>("/api/local-folders"),
       apiGet<SpSummary>("/api/sharepoint/status"),
+      isAdmin ? listApiKeys() : Promise.resolve({ keys: [] as ApiKeySummary[] }),
     ]);
     const errs: string[] = [];
     if (fr.status === "fulfilled") setFlags(fr.value.flags);
@@ -75,9 +85,11 @@ export function IntegrationsPage() {
     else errs.push((lr.reason as Error).message);
     if (sr.status === "fulfilled") setSp(sr.value);
     else errs.push((sr.reason as Error).message);
+    if (kr.status === "fulfilled") setApiKeys(kr.value.keys);
+    // A failed key fetch is non-blocking — the card falls back to "No keys yet".
     setError(errs.join(" · "));
     setLoading(false);
-  }, []);
+  }, [isAdmin]);
 
   useEffect(() => {
     void load();
@@ -86,10 +98,11 @@ export function IntegrationsPage() {
   const flagOn = (key: string) => flags.find((f) => f.key === key)?.enabled ?? false;
 
   const flip = (card: ConnectorCard) => {
-    if (!isAdmin || card.toggle.disabled === true || busy !== "") return;
+    if (!isAdmin || !card.toggle || card.toggle.disabled === true || busy !== "") return;
+    const toggle = card.toggle;
     setBusy(card.id);
     setError("");
-    card.toggle
+    toggle
       .run()
       .then(load)
       .catch((e) => {
@@ -107,6 +120,16 @@ export function IntegrationsPage() {
     sp !== null && sp.connections.length > 0
       ? sp.connections
           .map((c) => c.lastSync)
+          .filter((s): s is string => s !== null)
+          .sort()
+          .at(-1) ?? null
+      : null;
+
+  const activeKeyCount = apiKeys?.filter((k) => k.enabled).length ?? 0;
+  const lastApiCall =
+    apiKeys !== null && apiKeys.length > 0
+      ? apiKeys
+          .map((k) => k.last_used_at)
           .filter((s): s is string => s !== null)
           .sort()
           .at(-1) ?? null
@@ -196,6 +219,20 @@ export function IntegrationsPage() {
       stat: "Mock template gallery until the Canva Connect OAuth app exists.",
       opens: null,
     },
+    {
+      id: "apiaccess",
+      name: "API access",
+      subline: "/api/public/v1",
+      icon: "fa-solid fa-key",
+      desc: "Expose finalized assets, messaging, and competitive intel to other teams' tools.",
+      headerPill: isAdmin
+        ? activeKeyCount > 0
+          ? { cls: "pill-live", label: `${activeKeyCount} active key${activeKeyCount === 1 ? "" : "s"}` }
+          : { cls: "pill-pending", label: "No keys yet" }
+        : { cls: "pill-review", label: "PMM managed" },
+      stat: `docs: /api/public/docs · last call ${fmt(lastApiCall)}`,
+      opens: "api",
+    },
   ];
 
   const renderCard = (c: ConnectorCard) => {
@@ -278,24 +315,30 @@ export function IntegrationsPage() {
               {c.subline}
             </div>
           </div>
-          {isAdmin ? (
-            <button
-              className={`pill ${c.toggle.on ? "pill-live" : "pill-lost"}`}
-              style={{ border: "none", cursor: c.toggle.disabled === true ? "not-allowed" : "pointer", flexShrink: 0 }}
-              disabled={busy !== "" || c.toggle.disabled === true}
-              onClick={(e) => {
-                e.stopPropagation();
-                flip(c);
-              }}
-              title={c.toggle.hint ?? (c.toggle.on ? "Click to turn off" : "Click to turn on")}
-            >
-              {c.toggle.on ? c.toggle.labels[0] : c.toggle.labels[1]}
-            </button>
-          ) : (
-            <span className={`pill ${c.toggle.on ? "pill-live" : "pill-lost"}`} style={{ flexShrink: 0 }}>
-              {c.toggle.on ? c.toggle.labels[0] : c.toggle.labels[1]}
+          {c.headerPill ? (
+            <span className={`pill ${c.headerPill.cls}`} style={{ flexShrink: 0 }}>
+              {c.headerPill.label}
             </span>
-          )}
+          ) : c.toggle ? (
+            isAdmin ? (
+              <button
+                className={`pill ${c.toggle.on ? "pill-live" : "pill-lost"}`}
+                style={{ border: "none", cursor: c.toggle.disabled === true ? "not-allowed" : "pointer", flexShrink: 0 }}
+                disabled={busy !== "" || c.toggle.disabled === true}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  flip(c);
+                }}
+                title={c.toggle.hint ?? (c.toggle.on ? "Click to turn off" : "Click to turn on")}
+              >
+                {c.toggle.on ? c.toggle.labels[0] : c.toggle.labels[1]}
+              </button>
+            ) : (
+              <span className={`pill ${c.toggle.on ? "pill-live" : "pill-lost"}`} style={{ flexShrink: 0 }}>
+                {c.toggle.on ? c.toggle.labels[0] : c.toggle.labels[1]}
+              </span>
+            )
+          ) : null}
         </div>
 
         {/* description */}
@@ -327,7 +370,7 @@ export function IntegrationsPage() {
             borderTop: "1px solid var(--border)",
           }}
         >
-          <span className={`pill ${c.footerPill.cls}`}>{c.footerPill.label}</span>
+          {c.footerPill && <span className={`pill ${c.footerPill.cls}`}>{c.footerPill.label}</span>}
           <span style={{ fontSize: 11, color: "var(--text-muted)", flex: 1, minWidth: 0 }}>{c.stat}</span>
         </div>
       </div>
@@ -380,6 +423,9 @@ export function IntegrationsPage() {
       )}
       {open === "localfolders" && (
         <LocalFoldersDrawer isAdmin={isAdmin} onClose={() => setOpen(null)} onChanged={() => void load()} />
+      )}
+      {open === "api" && (
+        <ApiAccessDrawer isAdmin={isAdmin} onClose={() => setOpen(null)} onChanged={() => void load()} />
       )}
     </div>
   );
