@@ -103,3 +103,12 @@ test("assembleFeatures emits a separate entry per opening row even on repeated n
   assert.equal(features[1].name, "Workflow");
   assert.equal(featureKey("sp", features[0].name), featureKey("sp", features[1].name));
 });
+
+import { isFeatureSheet } from "../src/services/featureImport";
+
+test("isFeatureSheet: header-only or name-column-present sheets are feature sheets (ROW); non-feature sheets are not", () => {
+  assert.equal(isFeatureSheet([HEADER]), true); // header only (the empty ROW tab)
+  assert.equal(isFeatureSheet([HEADER, ["ROW"]]), true); // ROW: header + product-name-only row
+  assert.equal(isFeatureSheet([["Product Name", "Notes"]]), false); // no Feature Name column
+  assert.equal(isFeatureSheet([]), false);
+});

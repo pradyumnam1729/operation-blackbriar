@@ -49,6 +49,14 @@ export function resolveColumns(header: (string | number | null | undefined)[]): 
   return cols;
 }
 
+/** A sheet is a feature sheet if its header carries a Feature Name column —
+ *  true even when it has zero feature rows yet (e.g. the "ROW" tab). Used so
+ *  every real product tab becomes a sub-product, empty or not. */
+export function isFeatureSheet(sheet: SheetMatrix): boolean {
+  if (!Array.isArray(sheet) || sheet.length < 1) return false;
+  return resolveColumns(sheet[0] ?? []).name !== -1;
+}
+
 function cell(row: (string | number | null | undefined)[], idx: number): string {
   if (idx < 0) return "";
   const v = row[idx];

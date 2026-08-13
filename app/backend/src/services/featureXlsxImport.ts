@@ -9,6 +9,7 @@ import {
   SheetMatrix,
   assembleFeatures,
   featureKey,
+  isFeatureSheet,
 } from "./featureImport";
 
 // Excel pre-load for the Feature Catalog. Reads the Masterworks workbook,
@@ -164,29 +165,33 @@ export async function importMasterworksWorkbook(
       created: 0,
       updated: 0,
     };
-    if (parsed.length === 0) {
-      summary.sheets.push(record); // empty sheet (e.g. "ROW") — recorded, skipped
+    if (!isFeatureSheet(matrix)) {
+      summary.sheets.push(record); // not a product tab (no Feature Name column) — skip entirely
       continue;
     }
     try {
+      // Every product tab becomes a sub-product, even one with zero features
+      // yet (e.g. "ROW") — so all 8 Excel tabs show in the catalog.
       const subProductId = await ensureSubProduct(sb, productId, sheetName.trim());
       record.subProductId = subProductId;
       summary.totals.subProducts += 1;
 
-      // One read of this sub-product's existing features → the idempotency map.
-      const { data: existing } = await sb
-        .from("features")
-        .select("id, name")
-        .eq("sub_product_id", subProductId);
-      const existingByKey = new Map<string, string>();
-      for (const e of existing ?? []) {
-        existingByKey.set(featureKey(subProductId, e.name), e.id); // featureKey normalizes internally
-      }
+      if (parsed.length > 0) {
+        // One read of this sub-product's existing features → the idempotency map.
+        const { data: existing } = await sb
+          .from("features")
+          .select("id, name")
+          .eq("sub_product_id", subProductId);
+        const existingByKey = new Map<string, string>();
+        for (const e of existing ?? []) {
+          existingByKey.set(featureKey(subProductId, e.name), e.id); // featureKey normalizes internally
+        }
 
-      for (const f of parsed) {
-        const outcome = await upsertFeature(sb, productId, subProductId, f, existingByKey);
-        record[outcome] += 1;
-        summary.totals[outcome] += 1;
+        for (const f of parsed) {
+          const outcome = await upsertFeature(sb, productId, subProductId, f, existingByKey);
+          record[outcome] += 1;
+          summary.totals[outcome] += 1;
+        }
       }
     } catch (err) {
       record.error = (err as Error).message;
