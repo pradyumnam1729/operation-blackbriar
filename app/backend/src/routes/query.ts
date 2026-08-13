@@ -1,20 +1,10 @@
 import { Router } from "express";
-import { ask } from "../services/claude";
-import { loadCorpus } from "../services/warRoom";
 import { logQuery } from "../services/db";
 import { markdownToHtml } from "../services/html";
 import { requireAuth } from "../middleware/auth";
-import { chunksToContext, retrieveChunks } from "../services/ingestion";
-import {
-  AgentError,
-  assertAgentEnabled,
-  composeAgentPrompt,
-  getAgentConfig,
-  resolveModel,
-} from "../services/agents";
-import { ROLE_FRAMING } from "../services/agentPrompts";
+import { AgentError } from "../services/agents";
 import { classifyAsk } from "../services/askRouter";
-import { answerWithTools } from "../services/askAgent";
+import { answerQuestion } from "../services/askPipeline";
 
 // Persona output framing — Master Instructions §9.2 — now lives in
 // services/agentPrompts.ts (ROLE_FRAMING) as the code fallback; the
@@ -57,64 +47,26 @@ queryRouter.post("/", requireAuth, async (req, res) => {
     }
   }
 
-  let cfg;
+  // Post-classification pipeline now lives in services/askPipeline.ts
+  // (answerQuestion), shared verbatim with the public /ask endpoint. Config
+  // errors surface as AgentError (its status); a single-shot fallback failure
+  // surfaces as a plain Error → 502 — matching the pre-refactor behavior.
+  let result: { answer: string; trace?: import("../services/askAgent").TraceStep[] };
   try {
-    cfg = await getAgentConfig("ask-war-room");
-    assertAgentEnabled(cfg);
+    result = await answerQuestion(question, role ?? "general");
   } catch (err) {
-    const status = err instanceof AgentError ? err.status : 500;
+    const status = err instanceof AgentError ? err.status : 502;
     return res.status(status).json({ error: (err as Error).message });
   }
 
-  const roleOverrides =
-    cfg.defaults.role_framing && typeof cfg.defaults.role_framing === "object"
-      ? (cfg.defaults.role_framing as Record<string, string>)
-      : {};
-  const framingMap: Record<string, string> = { ...ROLE_FRAMING, ...roleOverrides };
-  const framing =
-    cfg.prompt_override ?? framingMap[(role ?? "").toLowerCase()] ?? framingMap.general;
-
-  // Locked suffix: the question block. The body is the resolved per-role
-  // framing (base_prompt is empty for this agent — special case, §2.2-2).
-  const prompt = composeAgentPrompt(
-    { base_prompt: framing, custom_instructions: cfg.custom_instructions, prompt_override: null },
-    { role: role ?? "general" },
-    `Question from the ${role ?? "internal"} team:\n${question}`
-  );
-
-  // Agentic path: the model gathers its own evidence via tools (knowledge
-  // base, war room, feature catalog, scraped competitor sources, repository)
-  // and returns a trace of what it consulted.
-  try {
-    const { answer, trace } = await answerWithTools(prompt, { model: resolveModel(cfg) });
-    void logQuery(role ?? "general", question, answer); // fire-and-forget; feeds C11/C13 metrics
-    // The frontend renders formatted HTML only — never raw markdown.
-    return res.json({
-      kind: "answer",
-      answerHtml: markdownToHtml(answer),
-      role: role ?? "general",
-      trace,
-    });
-  } catch (err) {
-    console.error("[query] agentic loop failed, falling back to single-shot:", (err as Error).message);
-  }
-
-  // Degraded fallback: the pre-agentic single-shot path over the full corpus.
-  const warRoom = loadCorpus()
-    .filter((d) => !d.relPath.startsWith("BRAND-DNA")) // already in the system prompt
-    .map((d) => `<file path="GTM-War-Room/${d.relPath}">\n${d.content}\n</file>`)
-    .join("\n\n");
-  const chunks = await retrieveChunks(question, 8);
-  const corpus =
-    chunks.length > 0
-      ? `=== KNOWLEDGE BASE (most relevant excerpts) ===\n${chunksToContext(chunks)}\n\n${warRoom}`
-      : warRoom;
-
-  try {
-    const answer = await ask(prompt, { extraContext: corpus, model: resolveModel(cfg) });
-    void logQuery(role ?? "general", question, answer);
-    res.json({ kind: "answer", answerHtml: markdownToHtml(answer), role: role ?? "general" });
-  } catch (err) {
-    res.status(502).json({ error: (err as Error).message });
-  }
+  void logQuery(role ?? "general", question, result.answer); // fire-and-forget; feeds C11/C13 metrics
+  // The frontend renders formatted HTML only — never raw markdown. `trace` is
+  // included only when the agentic path produced one (fallback omits it).
+  const body: Record<string, unknown> = {
+    kind: "answer",
+    answerHtml: markdownToHtml(result.answer),
+    role: role ?? "general",
+  };
+  if (result.trace !== undefined) body.trace = result.trace;
+  res.json(body);
 });

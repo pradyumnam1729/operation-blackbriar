@@ -4,6 +4,7 @@ import { requireAuth, requireAdmin } from "../middleware/auth";
 import { supabase } from "../services/db";
 import { logActivity } from "../services/activity";
 import { ask } from "../services/claude";
+import { importMasterworksWorkbook } from "../services/featureXlsxImport";
 
 // Feature Catalog module. Reading is open to all signed-in roles; every
 // mutation (process, review, manual CRUD) is admin (PMM) only.
@@ -142,21 +143,82 @@ async function applyChange(
   }
 }
 
-// ---------- GET / — feature list for a product ----------
+// ---------- GET / — feature list, filterable by product and/or sub-product ----------
+// Returns the FULL record (incl. v2 fields + product/sub-product names) so the
+// frontend can drive both the card view and the QuickBase-style data table.
+// Filtering/search/sort within a scope happens client-side (~250 features).
 featuresRouter.get("/", async (req, res) => {
   const sb = supabase();
   if (!sb) return res.status(503).json({ error: "Database not configured" });
 
   const productId = req.query.product_id as string | undefined;
+  const subProductId = req.query.sub_product_id as string | undefined;
   let q = sb
     .from("features")
-    .select("id, product_id, name, description, category, release_date, release_note_id, source_url, status, created_at, updated_at")
-    .order("release_date", { ascending: false, nullsFirst: false });
+    .select(
+      "id, product_id, sub_product_id, name, description, capabilities, value_prop, persona, category, release_date, release_note_id, source_url, status, origin, created_at, updated_at, products(name), sub_products(name)"
+    )
+    .order("name", { ascending: true });
   if (productId) q = q.eq("product_id", productId);
+  if (subProductId) q = q.eq("sub_product_id", subProductId);
 
   const { data, error } = await q;
   if (error) return res.status(500).json({ error: error.message });
-  res.json({ features: data ?? [] });
+  // Supabase may type an embedded to-one join as either an object or a
+  // single-element array depending on the relationship inference; flatten both.
+  const joinName = (v: unknown): string | null => {
+    const obj = Array.isArray(v) ? v[0] : v;
+    return obj && typeof (obj as { name?: unknown }).name === "string"
+      ? (obj as { name: string }).name
+      : null;
+  };
+  const features = (data ?? []).map((f) => {
+    const { products, sub_products, ...rest } = f as Record<string, unknown>;
+    return {
+      ...rest,
+      product_name: joinName(products),
+      sub_product_name: joinName(sub_products),
+    };
+  });
+  res.json({ features });
+});
+
+// ---------- GET /tree — Product → Sub-product hierarchy for the selector ----------
+featuresRouter.get("/tree", async (_req, res) => {
+  const sb = supabase();
+  if (!sb) return res.status(503).json({ error: "Database not configured" });
+
+  const [{ data: products, error: pErr }, { data: subs }, { data: feats }] = await Promise.all([
+    sb.from("products").select("id, name, line, module").order("name"),
+    sb.from("sub_products").select("id, product_id, name").order("name"),
+    sb.from("features").select("product_id, sub_product_id"),
+  ]);
+  if (pErr) return res.status(500).json({ error: pErr.message });
+
+  const featBySub = new Map<string, number>();
+  const featByProduct = new Map<string, number>();
+  for (const f of feats ?? []) {
+    if (f.sub_product_id) featBySub.set(f.sub_product_id, (featBySub.get(f.sub_product_id) ?? 0) + 1);
+    if (f.product_id) featByProduct.set(f.product_id, (featByProduct.get(f.product_id) ?? 0) + 1);
+  }
+  // Only products that actually anchor sub-products form the v2 tree; the flat
+  // list still carries every product for the legacy per-product view.
+  const subsByProduct = new Map<string, { id: string; name: string; feature_count: number }[]>();
+  for (const s of subs ?? []) {
+    const list = subsByProduct.get(s.product_id) ?? [];
+    list.push({ id: s.id, name: s.name, feature_count: featBySub.get(s.id) ?? 0 });
+    subsByProduct.set(s.product_id, list);
+  }
+  res.json({
+    products: (products ?? []).map((p) => ({
+      id: p.id,
+      name: p.name,
+      line: p.line,
+      module: p.module,
+      feature_count: featByProduct.get(p.id) ?? 0,
+      sub_products: subsByProduct.get(p.id) ?? [],
+    })),
+  });
 });
 
 // ---------- GET /release-notes — processed notes with change summary ----------
@@ -198,6 +260,28 @@ featuresRouter.get("/release-notes", async (req, res) => {
   });
 
   res.json({ notes: summarized });
+});
+
+// ---------- POST /import-xlsx — bulk pre-load from the Masterworks workbook ----------
+// Admin-only. Idempotent: re-running updates in place (created=0, updated=N).
+// A PRE-LOAD ONLY — does not touch the single-add or release-note paths.
+featuresRouter.post("/import-xlsx", requireAdmin, async (req, res) => {
+  const sb = supabase();
+  if (!sb) return res.status(503).json({ error: "Database not configured" });
+  const { product_id, file_path } = (req.body ?? {}) as {
+    product_id?: string;
+    file_path?: string;
+  };
+  try {
+    const summary = await importMasterworksWorkbook(sb, {
+      productId: product_id,
+      filePath: file_path,
+      actorId: req.user?.id ?? null,
+    });
+    res.json({ summary });
+  } catch (err) {
+    res.status(502).json({ error: (err as Error).message });
+  }
 });
 
 // ---------- POST /process — AI extraction with manual-review fallback ----------

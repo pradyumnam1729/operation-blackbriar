@@ -1,21 +1,26 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { apiDelete, apiGet, apiPost, getProducts, Product } from "../lib/api";
+import {
+  apiDelete,
+  apiPost,
+  apiGet,
+  getFeatures,
+  getFeatureTree,
+  getProducts,
+  importFeatureXlsx,
+  FeatureImportSummary,
+  FeatureRecord,
+  FeatureTreeProduct,
+  Product,
+} from "../lib/api";
 import { useAuth } from "../auth/AuthContext";
+import { FeatureCards } from "./features/FeatureCards";
+import { FeatureTable } from "./features/FeatureTable";
+import { SUBPRODUCT_LABEL } from "./features/labels";
 
-// Feature Catalog: the living record of what each product module ships.
-// Reading is open to all roles; processing, review, and edits are PMM-only.
-
-interface Feature {
-  id: string;
-  product_id: string;
-  name: string;
-  description: string | null;
-  category: string | null;
-  release_date: string | null;
-  release_note_id: string | null;
-  source_url: string | null;
-  status: "active" | "changed" | "deprecated";
-}
+// Feature Catalog: the living record of what each product ships. v2 adds a
+// two-level Product → Sub-product selector, a Cards | Table view toggle, and an
+// admin Excel pre-load. Reading is open to all roles; processing, review,
+// import, and edits are PMM-only.
 
 interface NoteSummary {
   id: string;
@@ -54,12 +59,6 @@ interface BuildResult {
   documents_used: string[];
 }
 
-const STATUS_PILL: Record<Feature["status"], { cls: string; label: string }> = {
-  active: { cls: "pill-live", label: "Live" },
-  changed: { cls: "pill-changed", label: "Changed" },
-  deprecated: { cls: "pill-deprecated", label: "Deprecated" },
-};
-
 const CHANGE_PILL: Record<ReviewRow["change_type"], string> = {
   added: "pill-added",
   changed: "pill-changed",
@@ -69,11 +68,6 @@ const CHANGE_PILL: Record<ReviewRow["change_type"], string> = {
 function fmtDate(d: string | null): string {
   if (!d) return "—";
   return new Date(d).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
-}
-
-/** Seeded rows carry placeholder example.com URLs — those are dead destinations, not sources. */
-function hasRealSource(url: string | null): url is string {
-  return !!url && !url.toLowerCase().includes("example.com");
 }
 
 const PROPOSED_FIELDS: [string, string][] = [
@@ -91,12 +85,19 @@ export function FeatureCatalog() {
   const isAdmin = me?.role === "admin";
 
   const [products, setProducts] = useState<Product[]>([]);
+  const [tree, setTree] = useState<FeatureTreeProduct[]>([]);
   const [productId, setProductId] = useState("");
-  const [features, setFeatures] = useState<Feature[]>([]);
+  const [subProductId, setSubProductId] = useState(""); // "" = all sub-products
+  const [view, setView] = useState<"cards" | "table">("table");
+  const [features, setFeatures] = useState<FeatureRecord[]>([]);
   const [notes, setNotes] = useState<NoteSummary[]>([]);
   const [reviews, setReviews] = useState<ReviewRow[]>([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+
+  // Excel pre-load (admin)
+  const [importBusy, setImportBusy] = useState(false);
+  const [importResult, setImportResult] = useState<FeatureImportSummary | null>(null);
 
   // Process form (admin)
   const [procProduct, setProcProduct] = useState("");
@@ -139,15 +140,23 @@ export function FeatureCatalog() {
     source_url: "",
   });
 
-  const loadCatalog = useCallback(async (pid: string) => {
+  const loadCatalog = useCallback(async (pid: string, sid: string) => {
     if (!pid) return;
     try {
       const [f, n] = await Promise.all([
-        apiGet<{ features: Feature[] }>(`/api/features?product_id=${pid}`),
+        getFeatures({ product_id: pid, sub_product_id: sid || undefined }),
         apiGet<{ notes: NoteSummary[] }>(`/api/features/release-notes?product_id=${pid}`),
       ]);
-      setFeatures(f.features);
+      setFeatures(f);
       setNotes(n.notes);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }, []);
+
+  const loadTree = useCallback(async () => {
+    try {
+      setTree(await getFeatureTree());
     } catch (e) {
       setError((e as Error).message);
     }
@@ -174,15 +183,36 @@ export function FeatureCatalog() {
         }
       })
       .catch((e) => setError((e as Error).message));
+    void loadTree();
     void loadReviews();
-  }, [loadReviews]);
+  }, [loadReviews, loadTree]);
 
   useEffect(() => {
-    void loadCatalog(productId);
-  }, [productId, loadCatalog]);
+    void loadCatalog(productId, subProductId);
+  }, [productId, subProductId, loadCatalog]);
 
   const refreshAll = async () => {
-    await Promise.all([loadCatalog(productId), loadReviews()]);
+    await Promise.all([loadCatalog(productId, subProductId), loadReviews(), loadTree()]);
+  };
+
+  const selectProduct = (pid: string) => {
+    setProductId(pid);
+    setSubProductId(""); // reset to "all sub-products" when the product changes
+  };
+
+  const runImport = async () => {
+    setImportBusy(true);
+    setError("");
+    setImportResult(null);
+    try {
+      const summary = await importFeatureXlsx();
+      setImportResult(summary);
+      await refreshAll();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setImportBusy(false);
+    }
   };
 
   const buildFromDocs = async () => {
@@ -250,7 +280,7 @@ export function FeatureCatalog() {
       });
       setAddForm((f) => ({ ...f, name: "", description: "", category: "", release_date: "", source_url: "" }));
       setShowAdd(false);
-      await loadCatalog(productId);
+      await loadCatalog(productId, subProductId);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -264,7 +294,7 @@ export function FeatureCatalog() {
     setError("");
     try {
       await apiDelete(`/api/features/${id}`);
-      await loadCatalog(productId);
+      await loadCatalog(productId, subProductId);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -274,6 +304,9 @@ export function FeatureCatalog() {
 
   const productName = products.find((p) => p.id === productId)?.name ?? "";
   const latestNote = notes.length > 0 ? notes[0] : null;
+  const selectedNode = tree.find((p) => p.id === productId);
+  const subProducts = selectedNode?.sub_products ?? [];
+  const hasSubProducts = subProducts.length > 0;
 
   return (
     <div>
@@ -286,20 +319,58 @@ export function FeatureCatalog() {
 
       {error && <p style={{ color: "var(--red)" }}>{error}</p>}
 
-      {/* ---------- product picker + diff banner ---------- */}
+      {/* ---------- two-level selector + view toggle + diff banner ---------- */}
       <div className="card">
-        <div className="row-between" style={{ marginBottom: 14 }}>
-          <select value={productId} onChange={(e) => setProductId(e.target.value)}>
-            {products.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 12 }}>
+        <div className="row-between" style={{ marginBottom: 14, alignItems: "flex-end" }}>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 16, alignItems: "flex-end" }}>
+            <div>
+              <label style={{ margin: "0 0 5px" }}>Product</label>
+              <select value={productId} onChange={(e) => selectProduct(e.target.value)}>
+                {tree.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                    {p.feature_count > 0 ? ` (${p.feature_count})` : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {hasSubProducts && (
+              <div>
+                <label style={{ margin: "0 0 5px" }}>{SUBPRODUCT_LABEL}</label>
+                <select value={subProductId} onChange={(e) => setSubProductId(e.target.value)}>
+                  <option value="">All {SUBPRODUCT_LABEL.toLowerCase()}s</option>
+                  {subProducts.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name} ({s.feature_count})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+            <div className="tab-row" style={{ marginBottom: 0 }}>
+              <button className={view === "cards" ? "active" : ""} onClick={() => setView("cards")}>
+                <i className="fa-solid fa-grip" style={{ fontSize: 11, marginRight: 6 }} /> Cards
+              </button>
+              <button className={view === "table" ? "active" : ""} onClick={() => setView("table")}>
+                <i className="fa-solid fa-table-list" style={{ fontSize: 11, marginRight: 6 }} /> Table
+              </button>
+            </div>
+          </div>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
             <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>
               {productName ? `${productName} · ${features.length} feature${features.length === 1 ? "" : "s"}` : ""}
             </span>
+            {isAdmin && (
+              <button
+                className="btn btn-sm"
+                onClick={runImport}
+                disabled={importBusy}
+                title="Bulk pre-load the Masterworks suite from the source workbook (idempotent — safe to re-run)"
+              >
+                <i className="fa-solid fa-file-excel" />{" "}
+                {importBusy ? "Importing…" : "Import from Excel"}
+              </button>
+            )}
             {isAdmin && (
               <button
                 className="btn btn-primary btn-sm"
@@ -313,6 +384,27 @@ export function FeatureCatalog() {
             )}
           </span>
         </div>
+        {importResult && (
+          <div
+            style={{
+              background: "#F2FAFB",
+              border: "1px solid var(--border)",
+              borderRadius: "var(--r-md)",
+              padding: "10px 14px",
+              marginBottom: 12,
+              fontSize: 12.5,
+              color: "var(--text-secondary)",
+            }}
+          >
+            <strong style={{ color: "var(--text-primary)" }}>
+              {importResult.totals.created + importResult.totals.updated} feature
+              {importResult.totals.created + importResult.totals.updated === 1 ? "" : "s"} across{" "}
+              {importResult.totals.subProducts} {SUBPRODUCT_LABEL.toLowerCase()}s
+            </strong>{" "}
+            — {importResult.totals.created} created, {importResult.totals.updated} updated. Imported rows
+            are badged until a PMM validates them.
+          </div>
+        )}
         {buildBusy && (
           <p style={{ fontSize: 12.5, color: "var(--text-muted)", margin: "0 0 12px" }}>
             Reading the knowledge base and extracting features for {productName}… this can take up
@@ -369,55 +461,25 @@ export function FeatureCatalog() {
         </div>
       </div>
 
-      {/* ---------- feature grid ---------- */}
+      {/* ---------- feature views ---------- */}
       {features.length === 0 ? (
         <p className="empty-note">No features recorded for this product yet.</p>
+      ) : view === "cards" ? (
+        <FeatureCards
+          features={features}
+          isAdmin={isAdmin}
+          busy={busy}
+          onDelete={removeFeature}
+          onGoToNote={goToNote}
+        />
       ) : (
-        <div className="grid grid-3" style={{ marginBottom: 18 }}>
-          {features.map((f) => (
-            <div key={f.id} className="feature-card">
-              <div className="top">
-                <h4>{f.name}</h4>
-                <span className={`pill ${STATUS_PILL[f.status].cls}`}>{STATUS_PILL[f.status].label}</span>
-              </div>
-              {f.description && <p>{f.description}</p>}
-              <div className="meta">
-                <span>
-                  {f.category ?? "Uncategorized"} · {fmtDate(f.release_date)}
-                </span>
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
-                  {hasRealSource(f.source_url) ? (
-                    <a href={f.source_url} target="_blank" rel="noopener noreferrer">
-                      <i className="fa-solid fa-arrow-up-right-from-square" /> Source
-                    </a>
-                  ) : f.release_note_id ? (
-                    <a
-                      role="button"
-                      tabIndex={0}
-                      title="Jump to the release note below"
-                      style={{ cursor: "pointer" }}
-                      onClick={() => goToNote(f.release_note_id)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") goToNote(f.release_note_id);
-                      }}
-                    >
-                      <i className="fa-solid fa-file-lines" /> Release note
-                    </a>
-                  ) : null}
-                  {isAdmin && (
-                    <button
-                      className="btn btn-danger btn-sm"
-                      onClick={() => removeFeature(f.id, f.name)}
-                      disabled={busy}
-                    >
-                      Delete
-                    </button>
-                  )}
-                </span>
-              </div>
-            </div>
-          ))}
-        </div>
+        <FeatureTable
+          key={`${productId}-${subProductId}`}
+          features={features}
+          isAdmin={isAdmin}
+          busy={busy}
+          onDelete={removeFeature}
+        />
       )}
 
       {/* ---------- release notes ---------- */}

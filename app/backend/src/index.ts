@@ -28,6 +28,8 @@ import { customAgentsRouter } from "./routes/customAgents";
 import { brandThemeRouter } from "./routes/brandTheme";
 import { referenceAssetsRouter } from "./routes/referenceAssets";
 import { exportRouter } from "./routes/export";
+import { apiKeysRouter } from "./routes/apiKeys";
+import { publicApiRouter } from "./routes/publicApi";
 import { syncAgentBaselines } from "./services/agents";
 import { WAR_ROOM_DIR } from "./services/warRoom";
 import { dbStatus } from "./services/db";
@@ -72,6 +74,11 @@ app.use("/api/agents/custom", customAgentsRouter);
 app.use("/api/agents", agentsRouter);
 app.use("/api/reference-assets", referenceAssetsRouter);
 app.use("/api/export", exportRouter);
+// Admin key management (Supabase-JWT domain) + the public Open API (API-key
+// domain + two unauthenticated doc routes). Order-independent — no path overlap
+// with the mounts above (open-api.md §2.3, §3).
+app.use("/api/api-keys", apiKeysRouter);
+app.use("/api/public", publicApiRouter);
 
 // Uploaded files (previews/downloads go through routes; this serves raw files to admins via signed paths later)
 app.use("/files", express.static(path.resolve(__dirname, "..", "uploads")));
